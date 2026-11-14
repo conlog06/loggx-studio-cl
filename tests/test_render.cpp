@@ -61,10 +61,10 @@ bool makeSource(const std::string& path) {
 int nearestColor(const std::vector<std::uint8_t>& rgba, int w, int x, int y) {
     const std::uint8_t* p = rgba.data() + (static_cast<std::size_t>(y) * w + x) * 4;
     int best = -1;
-    long bestDist = 1L << 60;
+    int bestDist = 1 << 30;   // int reicht: höchstens 3 * 255²
     for (int i = 0; i < 4; ++i) {
-        const long dr = p[0] - kColors[i].r, dg = p[1] - kColors[i].g, db = p[2] - kColors[i].b;
-        const long dist = dr * dr + dg * dg + db * db;
+        const int dr = p[0] - kColors[i].r, dg = p[1] - kColors[i].g, db = p[2] - kColors[i].b;
+        const int dist = dr * dr + dg * dg + db * db;
         if (dist < bestDist) {
             bestDist = dist;
             best = i;
@@ -109,7 +109,6 @@ void run(const fs::path& dir) {
     CHECK(asset.width == kW && asset.height == kH);
     CHECK(std::abs(asset.duration - 4 * kSecond) < 150000);
     CHECK(std::abs(asset.fps - kFps) < 0.01);
-    std::printf("Quelle: %.3f s, %.3f fps\n", asset.duration / 1e6, asset.fps);
     MediaAsset missing;
     CHECK(!probeMedia((dir / "fehlt.mp4").string(), missing, &error));
 
@@ -118,12 +117,6 @@ void run(const fs::path& dir) {
         VideoReader reader;
         CHECK(reader.open(source));
         std::vector<std::uint8_t> img;
-        // Übersicht für die Fehlersuche: ein Pixel pro halbe Sekunde.
-        for (int half = 1; half < 8; half += 2) {
-            const bool ok = reader.frameAt(half * 500000, kW, kH, img);
-            std::printf("t=%.1fs ok=%d rgb=%d,%d,%d\n", half * 0.5, ok, ok ? img[0] : -1,
-                        ok ? img[1] : -1, ok ? img[2] : -1);
-        }
         CHECK(reader.frameAt(500000, kW, kH, img) && nearestColor(img, kW, 10, 10) == 0);
         CHECK(reader.frameAt(2500000, kW, kH, img) && nearestColor(img, kW, 10, 10) == 2);
         CHECK(reader.frameAt(1500000, kW, kH, img) && nearestColor(img, kW, 10, 10) == 1);
