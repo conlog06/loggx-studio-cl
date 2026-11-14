@@ -5,6 +5,9 @@
 
 inline int g_failures = 0;
 
+// Ausgabe sofort schreiben, damit sie bei einem Absturz nicht verloren geht.
+inline const bool g_unbuffered = (std::setvbuf(stdout, nullptr, _IONBF, 0), true);
+
 #define CHECK(cond)                                                              \
     do {                                                                         \
         if (!(cond)) {                                                           \

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdlib>
 #include <thread>
 #include <vector>
 
@@ -11,7 +12,14 @@ template <typename Fn>
 void parallelRows(int begin, int end, Fn&& fn, int minRowsPerThread = 32) {
     const int rows = end - begin;
     if (rows <= 0) return;
-    static const int cores = std::max(1u, std::thread::hardware_concurrency());
+    // LOGGX_THREADS erlaubt Tests mit fester Thread-Zahl.
+    static const int cores = [] {
+        if (const char* env = std::getenv("LOGGX_THREADS")) {
+            const int n = std::atoi(env);
+            if (n > 0) return n;
+        }
+        return static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
+    }();
     const int threads = std::clamp(rows / std::max(1, minRowsPerThread), 1, cores);
     if (threads == 1) {
         fn(begin, end);

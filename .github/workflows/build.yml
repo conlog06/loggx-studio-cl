@@ -12,17 +12,24 @@ jobs:
       - name: Abhängigkeiten
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev \
+          sudo apt-get install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev gdb \
             libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
             qt6-base-dev qt6-declarative-dev qt6-multimedia-dev libgl1-mesa-dev \
             qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
             qml6-module-qtquick-dialogs qml6-module-qtquick-window qml6-module-qtquick-templates \
             qml6-module-qtqml-workerscript qml6-module-qt-labs-folderlistmodel
-      - run: cmake -S . -B build -G Ninja
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
       - run: cmake --build build
-      - run: ctest --test-dir build --output-on-failure
+      - name: Tests
         env:
           QT_QPA_PLATFORM: offscreen
+        run: |
+          ctest --test-dir build --output-on-failure && exit 0
+          # Bei Absturz: Backtrace für die Fehlersuche
+          for t in test_render test_mvp; do
+            gdb -batch -ex run -ex "thread apply all bt 25" ./build/$t 2>&1 | tail -80 || true
+          done
+          exit 1
 
   macos:
     runs-on: macos-15
