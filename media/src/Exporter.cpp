@@ -10,10 +10,12 @@ namespace loggx {
 namespace {
 
 // Reihenfolge: bester Software-Encoder, dann die Hardware-Encoder der
-// Plattformen (macOS, NVIDIA, Intel, AMD, Windows), zuletzt der immer
-// vorhandene MPEG-4-Encoder.
-const char* const kVideoEncoders[] = {"libx264", "h264_videotoolbox", "h264_nvenc", "h264_qsv",
-                                      "h264_amf", "h264_mf", "libopenh264", "mpeg4"};
+// Plattformen (macOS, NVIDIA, Intel, AMD, Windows). Für H.264 zuletzt der
+// immer vorhandene MPEG-4-Encoder.
+const char* const kH264Encoders[] = {"libx264", "h264_videotoolbox", "h264_nvenc", "h264_qsv",
+                                     "h264_amf", "h264_mf", "libopenh264", "mpeg4"};
+const char* const kH265Encoders[] = {"libx265", "hevc_videotoolbox", "hevc_nvenc", "hevc_qsv",
+                                     "hevc_amf", "hevc_mf"};
 
 AVPixelFormat pickPixelFormat(const AVCodecContext* ctx, const AVCodec* codec) {
     const AVPixelFormat* list = nullptr;
@@ -36,10 +38,12 @@ AVPixelFormat pickPixelFormat(const AVCodecContext* ctx, const AVCodec* codec) {
     return list[0];
 }
 
-std::int64_t defaultBitrate(int w, int h, double fps) {
-    // Rund 0,1 Bit pro Pixel und Bild: 1080p30 ≈ 6 Mbit/s, 4K30 ≈ 25 Mbit/s.
-    const double bits = static_cast<double>(w) * h * fps * 0.1;
-    return static_cast<std::int64_t>(std::clamp(bits, 1.0e6, 120.0e6));
+std::int64_t defaultBitrate(int w, int h, double fps, int quality, bool hevc) {
+    // Bits pro Pixel und Bild: 1080p30 bei "normal" ≈ 6 Mbit/s, 4K30 ≈ 25 Mbit/s.
+    static const double bpp[4] = {0.05, 0.1, 0.16, 0.25};
+    double bits = static_cast<double>(w) * h * fps * bpp[std::clamp(quality, 0, 3)];
+    if (hevc) bits *= 0.6;   // H.265 braucht für gleiche Qualität weniger
+    return static_cast<std::int64_t>(std::clamp(bits, 1.0e6, 200.0e6));
 }
 
 }  // namespace
@@ -91,9 +95,10 @@ struct Exporter::Impl {
         c->pix_fmt = pickPixelFormat(c, codec);
         c->bit_rate = s.videoBitrate;
         c->gop_size = std::max(1, s.fpsNum / s.fpsDen) * 2;   // Keyframe alle 2 s
-        // B-Bilder nur mit libx264: die Hardware-Encoder liefern damit je
+        // B-Bilder nur mit den Software-Encodern: die Hardware-Encoder liefern damit je
         // nach Treiber uneinheitliche Zeitstempel.
-        c->max_b_frames = std::strcmp(name, "libx264") == 0 ? 2 : 0;
+        c->max_b_frames =
+            std::strcmp(name, "libx264") == 0 || std::strcmp(name, "libx265") == 0 ? 2 : 0;
         c->color_range = AVCOL_RANGE_MPEG;
         c->colorspace = AVCOL_SPC_BT709;
         c->color_primaries = AVCOL_PRI_BT709;
@@ -101,7 +106,9 @@ struct Exporter::Impl {
         if (fmt->oformat->flags & AVFMT_GLOBALHEADER) c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
         AVDictionary* opts = nullptr;
-        if (std::strcmp(name, "libx264") == 0) av_dict_set(&opts, "preset", "medium", 0);
+        if (std::strcmp(name, "libx264") == 0 || std::strcmp(name, "libx265") == 0)
+            av_dict_set(&opts, "preset", "medium", 0);
+        if (std::strcmp(name, "libx265") == 0) av_dict_set(&opts, "x265-params", "log-level=error", 0);
         const int rc = avcodec_open2(c, codec, &opts);
         av_dict_free(&opts);
         if (rc < 0) {
@@ -178,8 +185,10 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         if (error) *error = "Ungültige Exportgröße (Breite und Höhe müssen gerade sein)";
         return false;
     }
+    const bool hevc = s.codec == ExportSettings::Codec::H265;
     if (s.videoBitrate <= 0)
-        s.videoBitrate = defaultBitrate(s.width, s.height, static_cast<double>(s.fpsNum) / s.fpsDen);
+        s.videoBitrate = defaultBitrate(s.width, s.height, static_cast<double>(s.fpsNum) / s.fpsDen,
+                                        s.quality, hevc);
 
     int rc = avformat_alloc_output_context2(&d->fmt, nullptr, nullptr, s.path.c_str());
     if (rc < 0 || !d->fmt) {
@@ -191,11 +200,17 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
     if (!s.videoEncoder.empty()) {
         ok = d->openVideoEncoder(s.videoEncoder.c_str());
     } else {
-        for (const char* name : kVideoEncoders)
-            if ((ok = d->openVideoEncoder(name))) break;
+        if (hevc) {
+            for (const char* name : kH265Encoders)
+                if ((ok = d->openVideoEncoder(name))) break;
+        } else {
+            for (const char* name : kH264Encoders)
+                if ((ok = d->openVideoEncoder(name))) break;
+        }
     }
     if (!ok) {
-        if (error) *error = "Kein Video-Encoder verfügbar";
+        if (error) *error = hevc ? "Kein H.265-Encoder auf diesem Rechner verfügbar"
+                                 : "Kein Video-Encoder verfügbar";
         d->close();
         return false;
     }
@@ -203,6 +218,9 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
     d->vstream->time_base = d->venc->time_base;
     d->vstream->avg_frame_rate = d->venc->framerate;
     avcodec_parameters_from_context(d->vstream->codecpar, d->venc);
+    // Apple-Geräte spielen H.265 in MP4/MOV nur mit dem Kennzeichen "hvc1".
+    if (d->venc->codec_id == AV_CODEC_ID_HEVC)
+        d->vstream->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
 
     if (s.audio) {
         if (!d->openAudioEncoder(error)) {

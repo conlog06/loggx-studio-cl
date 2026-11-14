@@ -1,5 +1,7 @@
 #include "loggx/engine/Engine.h"
 
+#include "AudioFx.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -11,8 +13,6 @@
 namespace loggx {
 
 namespace {
-
-std::int64_t toSamples(TimeUs t, int rate) { return t * rate / kSecond; }
 
 bool needsStretch(const Clip& c) {
     return std::abs(c.speed - 1.0) > 1e-6 || std::abs(c.pitch) > 1e-6;
@@ -139,6 +139,10 @@ struct AudioMixer::Source {
     }
 };
 
+struct AudioMixer::TrackState {
+    TrackFxProcessor fx;
+};
+
 AudioMixer::AudioMixer() = default;
 AudioMixer::~AudioMixer() = default;
 
@@ -155,33 +159,111 @@ void AudioMixer::setProject(std::shared_ptr<const Project> project) {
     m_project = std::move(project);
     for (auto it = m_sources.begin(); it != m_sources.end();) {
         const Clip* clip = m_project ? m_project->findClip(it->first) : nullptr;
-        const MediaAsset* asset = clip ? m_project->findAsset(clip->assetId) : nullptr;
+        const MediaAsset* asset =
+            clip && clip->kind == ClipKind::Media ? m_project->findAsset(clip->assetId) : nullptr;
         if (!asset || asset->path != it->second->path)
             it = m_sources.erase(it);
         else
             ++it;
     }
+    for (auto it = m_trackStates.begin(); it != m_trackStates.end();) {
+        if (!m_project || !m_project->findTrack(it->first))
+            it = m_trackStates.erase(it);
+        else
+            ++it;
+    }
 }
+
+MeterLevels AudioMixer::takeLevels() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    MeterLevels out = m_levels;
+    m_levels = MeterLevels{};
+    return out;
+}
+
+namespace {
+
+double dbToLinear(double db) { return db <= -59.9 ? 0.0 : std::pow(10.0, db / 20.0); }
+
+// Lautstärke eines Clips (Keyframes, Blenden) für jedes Sample eines Blocks.
+void applyClipGain(const Clip& clip, std::int64_t firstSample, int rate, float* stereo,
+                   std::size_t frames) {
+    const TimeUs t0 = firstSample * kSecond / rate;
+    const TimeUs t1 = (firstSample + static_cast<std::int64_t>(frames)) * kSecond / rate;
+    const double g0 = dbToLinear(clip.valueAt("gainDb", t0));
+    const double g1 = dbToLinear(clip.valueAt("gainDb", t1));
+    const bool fades = clip.fadeIn > 0 || clip.fadeOut > 0;
+    for (std::size_t i = 0; i < frames; ++i) {
+        const double f = frames > 1 ? static_cast<double>(i) / static_cast<double>(frames) : 0.0;
+        double g = g0 + (g1 - g0) * f;
+        if (fades) g *= clip.fadeAt((firstSample + static_cast<std::int64_t>(i)) * kSecond / rate);
+        stereo[i * 2] *= static_cast<float>(g);
+        stereo[i * 2 + 1] *= static_cast<float>(g);
+    }
+}
+
+}  // namespace
 
 void AudioMixer::render(std::int64_t position, float* interleaved, std::size_t frames) {
     std::fill(interleaved, interleaved + frames * 2, 0.0f);
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_project) return;
-    const int rate = m_project->sampleRate;
+    const Project& project = *m_project;
+    const int rate = project.sampleRate;
     const std::int64_t blockEnd = position + static_cast<std::int64_t>(frames);
 
-    for (const Track& track : m_project->tracks) {
+    // Nach einem Sprung klingen Hall und Echo nicht von der alten Stelle nach.
+    const bool jumped = position != m_expectedPosition;
+    m_expectedPosition = blockEnd;
+
+    bool anySolo = false;
+    for (const Track& t : project.tracks)
+        if (t.solo && t.hasSound()) anySolo = true;
+
+    m_trackBuf.resize(frames * 2);
+    for (const Track& track : project.tracks) {
         if (track.muted) continue;
+        if (anySolo && !(track.solo && track.hasSound())) continue;
+        std::fill(m_trackBuf.begin(), m_trackBuf.end(), 0.0f);
+        bool anything = false;
+
         for (const Clip& clip : track.clips) {
-            const std::int64_t clipStart = toSamples(clip.start, rate);
-            const std::int64_t clipEnd = toSamples(clip.end(), rate);
+            const std::int64_t clipStart = clip.start * rate / kSecond;
+            const std::int64_t clipEnd = clip.end() * rate / kSecond;
+
+            if (clip.kind == ClipKind::Midi) {
+                const std::int64_t tail =
+                    static_cast<std::int64_t>(synth::releaseTime(track.instrument) * rate);
+                if (clipStart >= blockEnd || clipEnd + tail <= position) continue;
+                m_scratch.assign(frames, 0.0f);   // mono
+                for (const Note& note : clip.notes) {
+                    // Nur Noten, die im sichtbaren Ausschnitt beginnen.
+                    if (note.start < clip.in || note.start >= clip.in + clip.duration) continue;
+                    const TimeUs onUs = clip.start + (note.start - clip.in);
+                    const TimeUs offUs = std::min(onUs + note.length, clip.end());
+                    const std::int64_t on = onUs * rate / kSecond;
+                    const std::int64_t held = std::max<std::int64_t>(1, offUs * rate / kSecond - on);
+                    if (on >= blockEnd || on + held + tail <= position) continue;
+                    const int pitch = std::clamp(note.pitch + static_cast<int>(std::lround(clip.pitch)), 0, 127);
+                    synth::renderNote(track.instrument, pitch, note.velocity, held, position - on,
+                                      m_scratch.data(), frames, rate);
+                }
+                std::vector<float> stereo(frames * 2);
+                for (std::size_t i = 0; i < frames; ++i) stereo[i * 2] = stereo[i * 2 + 1] = m_scratch[i];
+                // Lautstärke-Keyframes und Blenden gelten nur innerhalb des Clips;
+                // der Ausklang danach behält den Endwert.
+                const Clip* c = &clip;
+                applyClipGain(*c, position, rate, stereo.data(), frames);
+                for (std::size_t i = 0; i < frames * 2; ++i) m_trackBuf[i] += stereo[i];
+                anything = true;
+                continue;
+            }
+
             const std::int64_t a = std::max(position, clipStart);
             const std::int64_t b = std::min(blockEnd, clipEnd);
-            if (a >= b) continue;
-            const MediaAsset* asset = m_project->findAsset(clip.assetId);
+            if (a >= b || clip.kind != ClipKind::Media) continue;
+            const MediaAsset* asset = project.findAsset(clip.assetId);
             if (!asset || !asset->hasAudio) continue;
-            const double gain = clip.gain * track.gain;
-            if (gain <= 0.0) continue;
 
             auto& source = m_sources[clip.id];
             if (!source) {
@@ -195,14 +277,58 @@ void AudioMixer::render(std::int64_t position, float* interleaved, std::size_t f
             const std::size_t n = static_cast<std::size_t>(b - a);
             m_scratch.resize(n * 2);
             source->fetch(clip, a - clipStart, m_scratch.data(), n);
-            float* dst = interleaved + (a - position) * 2;
-            const float g = static_cast<float>(gain);
-            for (std::size_t i = 0; i < n * 2; ++i) dst[i] += m_scratch[i] * g;
+            applyClipGain(clip, a, rate, m_scratch.data(), n);
+            float* dst = m_trackBuf.data() + (a - position) * 2;
+            for (std::size_t i = 0; i < n * 2; ++i) dst[i] += m_scratch[i];
+            anything = true;
         }
+
+        auto& state = m_trackStates[track.id];
+        if (!state) state = std::make_unique<TrackState>();
+        if (jumped) state->fx.reset();
+        // Effekte laufen auch ohne Clip weiter, damit Hall und Echo ausklingen.
+        if (!anything && track.fx.reverb <= 0.0 && track.fx.delay <= 0.0) continue;
+        if (!track.fx.isNeutral())
+            state->fx.process(m_trackBuf.data(), frames, track.fx, project.bpm, rate);
+
+        // Lautstärke und Panorama (gleiche Leistung)
+        const double angle = (std::clamp(track.pan, -1.0, 1.0) + 1.0) * 0.25 * 3.14159265358979323846;
+        const float gl = static_cast<float>(track.gain * std::cos(angle) * 1.41421356);
+        const float gr = static_cast<float>(track.gain * std::sin(angle) * 1.41421356);
+        float peak = 0.0f;
+        for (std::size_t i = 0; i < frames; ++i) {
+            const float l = m_trackBuf[i * 2] * gl, r = m_trackBuf[i * 2 + 1] * gr;
+            interleaved[i * 2] += l;
+            interleaved[i * 2 + 1] += r;
+            peak = std::max({peak, std::abs(l), std::abs(r)});
+        }
+        float& meter = m_levels.tracks[track.id];
+        meter = std::max(meter, peak);
     }
-    // Übersteuerung hart begrenzen (ein Limiter folgt mit dem Mixer im MVP).
-    for (std::size_t i = 0; i < frames * 2; ++i)
-        interleaved[i] = std::clamp(interleaved[i], -1.0f, 1.0f);
+
+    // Master: Lautstärke und Limiter (verhindert Übersteuern weich statt
+    // hart abzuschneiden).
+    const float master = static_cast<float>(project.masterGain);
+    const float release = static_cast<float>(1.0 - std::exp(-1.0 / (0.15 * rate)));
+    constexpr float ceiling = 0.97f;
+    float peak = 0.0f, minGain = 1.0f;
+    for (std::size_t i = 0; i < frames; ++i) {
+        float l = interleaved[i * 2] * master, r = interleaved[i * 2 + 1] * master;
+        const float level = std::max(std::abs(l), std::abs(r));
+        const float needed = level * m_limiterGain > ceiling ? ceiling / level : 1.0f;
+        if (needed < m_limiterGain)
+            m_limiterGain = needed;
+        else
+            m_limiterGain += (1.0f - m_limiterGain) * release;
+        l = std::clamp(l * m_limiterGain, -1.0f, 1.0f);
+        r = std::clamp(r * m_limiterGain, -1.0f, 1.0f);
+        interleaved[i * 2] = l;
+        interleaved[i * 2 + 1] = r;
+        peak = std::max({peak, std::abs(l), std::abs(r)});
+        minGain = std::min(minGain, m_limiterGain);
+    }
+    m_levels.master = std::max(m_levels.master, peak);
+    m_levels.reduction = std::min(m_levels.reduction, 20.0f * std::log10(std::max(minGain, 1e-4f)));
 }
 
 }  // namespace loggx

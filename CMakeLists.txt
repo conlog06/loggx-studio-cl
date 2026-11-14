@@ -76,7 +76,8 @@ target_include_directories(loggx_media PUBLIC media/include)
 target_link_libraries(loggx_media PUBLIC loggx_core PRIVATE loggx_ffmpeg)
 
 add_library(loggx_engine STATIC
-  engine/src/Compositor.cpp engine/src/AudioMixer.cpp engine/src/Render.cpp)
+  engine/src/Compositor.cpp engine/src/AudioMixer.cpp engine/src/Render.cpp
+  engine/src/ImageOps.cpp engine/src/Synth.cpp engine/src/AudioFx.cpp)
 target_include_directories(loggx_engine PUBLIC engine/include)
 target_link_libraries(loggx_engine PUBLIC loggx_core loggx_media)
 if(LOGGX_HAVE_RUBBERBAND)
@@ -106,4 +107,8 @@ if(LOGGX_BUILD_TESTS)
   add_executable(test_render tests/test_render.cpp)
   target_link_libraries(test_render PRIVATE loggx_engine)
   add_test(NAME render COMMAND test_render)
+
+  add_executable(test_mvp tests/test_mvp.cpp)
+  target_link_libraries(test_mvp PRIVATE loggx_engine)
+  add_test(NAME mvp COMMAND test_mvp)
 endif()

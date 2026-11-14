@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include "check.h"
 #include "loggx/core/Project.h"
 #include "loggx/core/UndoStack.h"
@@ -155,6 +157,128 @@ void testJsonRoundTrip() {
     CHECK(!Project::fromJson("{\"format\":\"loggx\",\"version\":99}", {}, q, &error));
 }
 
+void testKeyframesAndFades() {
+    Project p = Project::createDefault();
+    const std::string asset = p.addAsset(videoAsset(10 * kSecond));
+    const std::string v = firstTrack(p, TrackKind::Video);
+    const std::string c = p.addClip(v, asset, 2 * kSecond);
+
+    // Ohne Keyframes gilt der Grundwert.
+    CHECK(p.findClip(c)->valueAt("opacity", 5 * kSecond) == 1.0);
+    CHECK(p.setKeyframe(c, "opacity", 2 * kSecond, 0.0));
+    CHECK(p.setKeyframe(c, "opacity", 4 * kSecond, 1.0));
+    CHECK(!p.setKeyframe(c, "gibt-es-nicht", 0, 1.0));
+    const Clip* clip = p.findClip(c);
+    CHECK(std::abs(clip->valueAt("opacity", 3 * kSecond) - 0.5) < 1e-9);
+    CHECK(clip->valueAt("opacity", 1 * kSecond) == 0.0);    // vor dem ersten: erster Wert
+    CHECK(clip->valueAt("opacity", 9 * kSecond) == 1.0);    // nach dem letzten: letzter Wert
+    // Gleiche Stelle überschreibt.
+    CHECK(p.setKeyframe(c, "opacity", 4 * kSecond, 0.8));
+    CHECK(p.findClip(c)->keys.at("opacity").size() == 2);
+
+    // Trimmen vorne lässt Keyframes an ihrer Timeline-Position.
+    CHECK(p.trimClipStart(c, 3 * kSecond));
+    CHECK(std::abs(p.findClip(c)->valueAt("opacity", 3500000) - 0.6) < 1e-9);
+    // Teilen: beide Hälften behalten die Kurve.
+    const std::string right = p.splitClip(c, 3500000);
+    CHECK(std::abs(p.findClip(right)->valueAt("opacity", 3750000) - 0.7) < 1e-9);
+    CHECK(std::abs(p.findClip(c)->valueAt("opacity", 3250000) - 0.5) < 1e-9);
+
+    // Letzten Keyframe entfernen: sein Wert wird Grundwert.
+    CHECK(p.removeKeyframe(right, "opacity", 2 * kSecond));
+    CHECK(p.removeKeyframe(right, "opacity", 4 * kSecond));
+    CHECK(!p.findClip(right)->hasKeys());
+    CHECK(std::abs(p.findClip(right)->opacity - 0.8) < 1e-9);
+
+    // Blenden.
+    Clip* r = p.findClip(right);
+    r->fadeIn = kSecond / 4;
+    r->fadeOut = kSecond;
+    CHECK(r->fadeAt(r->start) == 0.0);
+    CHECK(std::abs(r->fadeAt(r->start + kSecond / 8) - 0.5) < 1e-9);
+    CHECK(r->fadeAt(r->start + kSecond / 2) == 1.0);
+    CHECK(std::abs(r->fadeAt(r->end() - kSecond / 2) - 0.5) < 1e-9);
+}
+
+void testTitlesAndMidi() {
+    Project p = Project::createDefault();
+    const std::string v = firstTrack(p, TrackKind::Video);
+    const std::string inst = firstTrack(p, TrackKind::Instrument);
+    const std::string audio = firstTrack(p, TrackKind::Audio);
+    CHECK(!inst.empty());
+
+    const std::string title = p.addTitleClip(v, kSecond, "Hallo");
+    CHECK(!title.empty() && p.findClip(title)->kind == ClipKind::Title);
+    CHECK(p.addTitleClip(inst, 0).empty());
+    CHECK(p.addTitleClip(audio, 0).empty());
+    // Titel lassen sich beliebig verlängern.
+    CHECK(p.trimClipEnd(title, 60 * kSecond));
+
+    p.bpm = 120;   // ein Takt = 2 s
+    const std::string midi = p.addMidiClip(inst, 0);
+    CHECK(p.findClip(midi)->duration == 8 * kSecond);
+    CHECK(p.addMidiClip(v, 0).empty());
+    p.findClip(midi)->notes = {{60, 0, kSecond / 2, 0.9}, {64, kSecond, kSecond / 2, 0.7}};
+    // MIDI-Clips sind nicht auf Audiospuren verschiebbar.
+    CHECK(!p.moveClip(midi, audio, 0));
+    // Vorne kürzen verschiebt den sichtbaren Ausschnitt, nicht die Noten.
+    CHECK(p.trimClipStart(midi, kSecond / 2));
+    CHECK(p.findClip(midi)->in == kSecond / 2);
+    CHECK(p.findClip(midi)->notes.size() == 2);
+    CHECK(!p.setClipSpeed(midi, 2.0));
+
+    // Leere Spuren lassen sich entfernen, volle nicht.
+    const std::string extra = p.addTrack(TrackKind::Instrument);
+    CHECK(p.findTrack(extra)->name == "Instrument 2");
+    CHECK(p.removeTrack(extra));
+    CHECK(!p.removeTrack(inst));
+
+    // Alles übersteht Speichern und Laden.
+    Clip* t = p.findClip(title);
+    t->title.color = 0xFFFF8800;
+    t->title.align = 2;
+    t->x = 0.1;
+    t->scale = 1.5;
+    t->rotation = 12;
+    t->color.saturation = 0;
+    t->color.lutPath = "/tmp/look.cube";
+    t->fx.blur = 0.01;
+    t->fx.chromaKey = true;
+    p.findTrack(inst)->instrument = InstrumentType::Drums;
+    p.findTrack(inst)->pan = -0.5;
+    p.findTrack(inst)->solo = true;
+    p.findTrack(inst)->fx.reverb = 0.3;
+    p.bpm = 95;
+    p.masterGain = 0.7;
+    CHECK(p.setKeyframe(title, "scale", 2 * kSecond, 2.0));
+
+    Project q;
+    std::string error;
+    CHECK(Project::fromJson(p.toJson(), {}, q, &error));
+    const Clip* lt = q.findClip(title);
+    const Clip* lm = q.findClip(midi);
+    CHECK(lt && lm);
+    if (lt && lm) {
+        CHECK(lt->kind == ClipKind::Title && lt->title.text == "Hallo");
+        CHECK(lt->title.color == 0xFFFF8800 && lt->title.align == 2);
+        CHECK(lt->x == 0.1 && lt->scale == 1.5 && lt->rotation == 12);
+        CHECK(lt->color.saturation == 0 && lt->color.lutPath == "/tmp/look.cube");
+        CHECK(lt->fx.blur == 0.01 && lt->fx.chromaKey);
+        CHECK(lt->keys.at("scale").size() == 1);
+        CHECK(lm->kind == ClipKind::Midi && lm->notes.size() == 2 && lm->notes[1].pitch == 64);
+    }
+    const Track* li = q.findTrack(inst);
+    CHECK(li && li->kind == TrackKind::Instrument && li->instrument == InstrumentType::Drums);
+    CHECK(li && li->pan == -0.5 && li->solo && li->fx.reverb == 0.3);
+    CHECK(q.bpm == 95 && q.masterGain == 0.7);
+
+    // Version-1-Dateien (Prototyp) lassen sich weiter öffnen.
+    const std::string v1 =
+        "{\"format\":\"loggx\",\"version\":1,\"name\":\"alt\",\"assets\":[],"
+        "\"tracks\":[{\"id\":\"t1\",\"name\":\"Video 1\",\"kind\":\"video\",\"clips\":[]}]}";
+    CHECK(Project::fromJson(v1, {}, q, &error) && q.name == "alt" && q.bpm == 120);
+}
+
 void testUndo() {
     UndoStack<int> stack;
     int value = 1;
@@ -179,6 +303,8 @@ int main() {
     testSplitTrimMove();
     testSpeedAndRipple();
     testJsonRoundTrip();
+    testKeyframesAndFades();
+    testTitlesAndMidi();
     testUndo();
     return finish("test_core");
 }

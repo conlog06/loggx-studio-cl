@@ -62,14 +62,17 @@ struct ExportSettings {
     int fpsNum = 30;
     int fpsDen = 1;
     int sampleRate = 48000;
-    std::int64_t videoBitrate = 0;   // 0 = automatisch aus der Auflösung
+    std::int64_t videoBitrate = 0;   // 0 = automatisch aus Auflösung und Qualität
+    enum class Codec { H264, H265 } codec = Codec::H264;
+    int quality = 1;                 // 0 klein, 1 normal, 2 hoch, 3 sehr hoch
     int audioBitrate = 192000;
     bool audio = true;
-    // Leer = automatisch (libx264, sonst Hardware-Encoder, sonst MPEG-4).
+    // Leer = automatisch (Software-Encoder, sonst Hardware-Encoder).
     std::string videoEncoder;
 };
 
-// Schreibt eine MP4/MOV/MKV-Datei (Container nach Dateiendung) mit H.264 und AAC.
+// Schreibt eine MP4/MOV/MKV-Datei (Container nach Dateiendung) mit H.264
+// oder H.265 und AAC.
 class Exporter {
 public:
     Exporter();

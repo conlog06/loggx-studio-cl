@@ -6,7 +6,7 @@ namespace loggx {
 
 RenderResult renderProject(const Project& project, ExportSettings settings,
                            const std::function<void(double)>& progress,
-                           const std::atomic<bool>* cancel) {
+                           const std::atomic<bool>* cancel, TitleRasterizer titles) {
     RenderResult result;
     const TimeUs duration = project.duration();
     if (duration <= 0) {
@@ -24,6 +24,7 @@ RenderResult renderProject(const Project& project, ExportSettings settings,
     const auto shared = std::make_shared<const Project>(project);
     Compositor compositor;
     compositor.setProject(shared);
+    compositor.setTitleRasterizer(std::move(titles));
     AudioMixer mixer;
     mixer.setProject(shared);
 
