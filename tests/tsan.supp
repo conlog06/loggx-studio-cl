@@ -1,0 +1,4 @@
+# Interne Threads fremder Bibliotheken (Encoder) – nicht unser Code.
+called_from_lib:libx264.so
+called_from_lib:libx265.so
+called_from_lib:libavcodec.so

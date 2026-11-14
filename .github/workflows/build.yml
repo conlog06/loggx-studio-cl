@@ -31,6 +31,50 @@ jobs:
           done
           exit 1
 
+  # Engine-Tests im optimierten Build und mit Sanitizern (ohne Oberfläche).
+  linux-checks:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: release
+            flags: ""
+            type: Release
+          - name: asan
+            flags: "-fsanitize=address,undefined -fno-omit-frame-pointer"
+            type: RelWithDebInfo
+          - name: tsan
+            flags: "-fsanitize=thread"
+            type: RelWithDebInfo
+    name: linux-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Abhängigkeiten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev gdb \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev
+      - run: cmake -S . -B build -G Ninja -DLOGGX_BUILD_APP=OFF -DCMAKE_BUILD_TYPE=${{ matrix.type }} "-DCMAKE_CXX_FLAGS=${{ matrix.flags }}"
+      - run: cmake --build build
+      - name: Tests (dreimal, mit 1 und 8 Threads)
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          TSAN_OPTIONS: "halt_on_error=1 suppressions=${{ github.workspace }}/tests/tsan.supp"
+        run: |
+          set -e
+          for run in 1 2 3; do
+            for threads in 1 8; do
+              for t in test_core test_render test_mvp; do
+                echo "== $t (Durchlauf $run, $threads Threads)"
+                if ! LOGGX_THREADS=$threads ./build/$t; then
+                  gdb -batch -ex "set env LOGGX_THREADS=$threads" -ex run -ex "thread apply all bt 25" ./build/$t 2>&1 | tail -80 || true
+                  exit 1
+                fi
+              done
+            done
+          done
+
   macos:
     runs-on: macos-15
     steps:
