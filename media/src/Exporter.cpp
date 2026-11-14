@@ -91,12 +91,13 @@ struct Exporter::Impl {
         c->pix_fmt = pickPixelFormat(c, codec);
         c->bit_rate = s.videoBitrate;
         c->gop_size = std::max(1, s.fpsNum / s.fpsDen) * 2;   // Keyframe alle 2 s
-        c->max_b_frames = 2;
+        // B-Bilder nur mit libx264: die Hardware-Encoder liefern damit je
+        // nach Treiber uneinheitliche Zeitstempel.
+        c->max_b_frames = std::strcmp(name, "libx264") == 0 ? 2 : 0;
         c->color_range = AVCOL_RANGE_MPEG;
         c->colorspace = AVCOL_SPC_BT709;
         c->color_primaries = AVCOL_PRI_BT709;
         c->color_trc = AVCOL_TRC_BT709;
-        if (std::strcmp(name, "mpeg4") == 0) c->max_b_frames = 0;
         if (fmt->oformat->flags & AVFMT_GLOBALHEADER) c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
         AVDictionary* opts = nullptr;

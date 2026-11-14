@@ -47,8 +47,9 @@ jobs:
           version: '6.7.3'
           modules: 'qtmultimedia'
           cache: true
-      - name: vcpkg-Cache
-        uses: actions/cache@v4
+      - name: vcpkg-Cache laden
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
         with:
           path: vcpkg-cache
           key: vcpkg-ffmpeg-x64-windows-v1
@@ -57,6 +58,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample]:x64-windows" "nlohmann-json:x64-windows"
+      - name: vcpkg-Cache sichern
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-ffmpeg-x64-windows-v1
       - name: Konfigurieren
         shell: pwsh
         run: cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
