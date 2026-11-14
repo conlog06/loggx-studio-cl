@@ -19,6 +19,15 @@ qt_add_resources(loggx-studio "qml"
     qml/PlannedPage.qml
     qml/ValueSlider.qml
 )
+qt_add_resources(loggx-studio "icons"
+  PREFIX "/"
+  FILES resources/loggx-256.png
+)
+
+if(WIN32)
+  configure_file(resources/loggx.rc.in ${CMAKE_CURRENT_BINARY_DIR}/loggx.rc @ONLY)
+  target_sources(loggx-studio PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/loggx.rc)
+endif()
 
 target_link_libraries(loggx-studio PRIVATE
   loggx_engine

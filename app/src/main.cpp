@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QIcon>
 #include <QPalette>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -14,6 +15,7 @@ int main(int argc, char** argv) {
     QGuiApplication::setApplicationName(QStringLiteral("LoggX Studio"));
     QGuiApplication::setOrganizationName(QStringLiteral("LoggX"));
     QGuiApplication::setApplicationVersion(QStringLiteral(LOGGX_VERSION));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/resources/loggx-256.png")));
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
 
     // Dunkles Farbschema für alle Standard-Bedienelemente.
