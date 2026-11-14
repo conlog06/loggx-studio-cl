@@ -31,7 +31,7 @@ Bekannte Grenzen des Prototyps:
 - Bilder werden auf der CPU berechnet. Die Vorschau wird deshalb auf höchstens 960×540 verkleinert; 4K-Material kann ruckeln.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.
 - Drehungs-Metadaten (Hochkant-Videos vom Handy) werden noch nicht ausgewertet.
-- Es gibt noch kein Installationspaket; das Programm wird aus dem Quelltext gebaut.
+- Für macOS gibt es noch kein fertiges Paket; dort wird aus dem Quelltext gebaut.
 
 ## Aufbau
 
@@ -45,6 +45,17 @@ tests/    Tests für Kern, Engine (End-to-End) und App-Logik
 ```
 
 Abweichung vom Konzept: Die Tonausgabe läuft im Prototyp über Qt Multimedia, die Audio-Engine ist eigener Code plus Rubber Band. JUCE kommt erst mit dem Plugin-Hosting (VST3/AU) dazu.
+
+## Herunterladen (Windows)
+
+Jeder Push baut auf GitHub automatisch ein Windows-Paket: **Actions → Build → letzter Lauf → Artefakt „LoggX-Studio-Windows“**. Es enthält:
+
+- `LoggX-Studio-<version>-Windows-Setup.exe` – Installer (Startmenü, optional Desktop-Verknüpfung und Zuordnung von `.loggx`-Dateien)
+- `LoggX-Studio-<version>-Windows-portable.zip` – entpacken und `LoggX Studio.exe` starten, ohne Installation
+
+Das Paket ist nicht signiert. Windows SmartScreen warnt deshalb beim ersten Start („Weitere Informationen → Trotzdem ausführen“).
+
+Wird ein Tag wie `v0.1.0` gepusht, legt die CI die Dateien zusätzlich als (Vor-)Release an.
 
 ## Bauen
 
@@ -64,13 +75,13 @@ open "build/app/LoggX Studio.app"
 Visual Studio 2022 (C++), Qt 6 (Online-Installer, mit „Qt Multimedia“) und vcpkg:
 
 ```powershell
-vcpkg install "ffmpeg[core,avcodec,avformat,swscale,swresample]:x64-windows" nlohmann-json:x64-windows
+vcpkg install "ffmpeg[core,avcodec,avformat,swscale,swresample]:x64-windows" rubberband:x64-windows nlohmann-json:x64-windows
 cmake -S . -B build -A x64 -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_PREFIX_PATH=C:\Qt\6.7.3\msvc2019_64
 cmake --build build --config Release
 C:\Qt\6.7.3\msvc2019_64\bin\windeployqt.exe --qmldir app\qml "build\app\Release\LoggX Studio.exe"
 ```
 
-Hinweis: Unter Windows wird derzeit ohne Rubber Band gebaut; Tonhöhe und Tempo wirken dort noch nicht auf den Ton.
+Das komplette Paket (Installer + ZIP) baut `installer\windows\package.ps1` (benötigt [Inno Setup 6](https://jrsoftware.org/isinfo.php) für den Installer).
 
 ### Linux (Ubuntu 24.04)
 
