@@ -1,6 +1,7 @@
 #include "AudioFx.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace loggx {

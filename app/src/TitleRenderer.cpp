@@ -1,5 +1,6 @@
 #include "TitleRenderer.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include <QFont>
