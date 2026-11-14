@@ -268,6 +268,20 @@ bool VideoReader::frameAt(TimeUs t, int w, int h, std::vector<std::uint8_t>& rgb
                                   static_cast<AVPixelFormat>(f->format), w, h,
                                   AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
     if (!d->sws) return false;
+    // Farbmatrix und Pegelbereich der Quelle beachten. Ohne Angabe gilt wie
+    // üblich BT.709 ab 720 Zeilen, sonst BT.601.
+    int matrix = f->height >= 720 ? SWS_CS_ITU709 : SWS_CS_ITU601;
+    switch (f->colorspace) {
+        case AVCOL_SPC_BT709: matrix = SWS_CS_ITU709; break;
+        case AVCOL_SPC_BT470BG:
+        case AVCOL_SPC_SMPTE170M: matrix = SWS_CS_ITU601; break;
+        case AVCOL_SPC_BT2020_NCL:
+        case AVCOL_SPC_BT2020_CL: matrix = SWS_CS_BT2020; break;
+        default: break;
+    }
+    sws_setColorspaceDetails(d->sws, sws_getCoefficients(matrix),
+                             f->color_range == AVCOL_RANGE_JPEG ? 1 : 0,
+                             sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16, 1 << 16);
     d->cache.resize(bytes);
     std::uint8_t* dst[4] = {d->cache.data(), nullptr, nullptr, nullptr};
     int dstStride[4] = {w * 4, 0, 0, 0};

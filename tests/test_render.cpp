@@ -70,7 +70,12 @@ int nearestColor(const std::vector<std::uint8_t>& rgba, int w, int x, int y) {
             best = i;
         }
     }
-    return bestDist < 3 * 60 * 60 ? best : -1;
+    if (bestDist >= 3 * 60 * 60) {
+        std::fprintf(stderr, "Pixel (%d,%d) = %d,%d,%d passt zu keiner Testfarbe\n", x, y, p[0],
+                     p[1], p[2]);
+        return -1;
+    }
+    return best;
 }
 
 bool isBlack(const std::vector<std::uint8_t>& rgba, int w, int x, int y) {
