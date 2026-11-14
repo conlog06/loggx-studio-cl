@@ -447,8 +447,10 @@ void AppController::play() {
     if (m_position >= m_project.duration()) setPosition(0);
     m_playing = true;
     m_playStart = m_position;
-    m_clock.start();
+    // Erst das Audiogerät öffnen (kann dauern), dann die Uhr starten –
+    // sonst springt das Bild beim Start nach vorn.
     startAudio();
+    m_clock.start();
     m_timer.start();
     emit playingChanged();
 }

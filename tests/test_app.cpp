@@ -132,10 +132,14 @@ int main(int argc, char** argv) {
 
     // Wiedergabe läuft etwa in Echtzeit und hält am Ende an.
     app.seek(0);
+    QElapsedTimer wall;
+    wall.start();
     app.play();
     CHECK(app.playing());
-    waitFor([] { return false; }, 500);
-    CHECK(app.position() > 0.3 && app.position() < 0.9);
+    waitFor([] { return false; }, 600);
+    // Nie schneller als die echte Zeit; langsamer nur um die Startzeit des
+    // Audiogeräts (auf ausgelasteten Testrechnern großzügig bemessen).
+    CHECK(app.position() > 0.1 && app.position() <= wall.elapsed() / 1000.0 + 0.05);
     app.seek(app.duration() - 0.2);
     CHECK(waitFor([&] { return !app.playing(); }, 3000));
     CHECK(std::abs(app.position() - app.duration()) < 1e-6);
