@@ -1,5 +1,7 @@
 #include "Workers.h"
 
+#include "TitleRenderer.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -30,6 +32,7 @@ void PreviewWorker::request(std::shared_ptr<const Project> project, TimeUs time)
 
 void PreviewWorker::run() {
     Compositor compositor;
+    compositor.setTitleRasterizer(qtTitleRasterizer());
     std::shared_ptr<const Project> current;
     std::vector<std::uint8_t> pixels;
 
@@ -71,7 +74,8 @@ ExportWorker::ExportWorker(Project project, ExportSettings settings, QObject* pa
 
 void ExportWorker::run() {
     const RenderResult result = renderProject(
-        m_project, m_settings, [this](double p) { emit progress(p); }, &m_cancel);
+        m_project, m_settings, [this](double p) { emit progress(p); }, &m_cancel,
+        qtTitleRasterizer());
     QString message;
     if (result.ok)
         message = tr("Export fertig (%1 Bilder, Encoder %2)")

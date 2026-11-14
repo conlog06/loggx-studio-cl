@@ -6,6 +6,8 @@ qt_add_executable(loggx-studio
   src/AppController.cpp src/AppController.h
   src/Items.cpp src/Items.h
   src/Workers.cpp src/Workers.h
+  src/MediaCache.cpp src/MediaCache.h
+  src/TitleRenderer.cpp src/TitleRenderer.h
 )
 
 qt_add_resources(loggx-studio "qml"
@@ -16,8 +18,11 @@ qt_add_resources(loggx-studio "qml"
     qml/MediaPage.qml
     qml/ExportPage.qml
     qml/Inspector.qml
-    qml/PlannedPage.qml
     qml/ValueSlider.qml
+    qml/ColorPage.qml
+    qml/MusicPage.qml
+    qml/MixerStrip.qml
+    qml/Section.qml
 )
 qt_add_resources(loggx-studio "icons"
   PREFIX "/"
@@ -46,8 +51,17 @@ if(LOGGX_BUILD_TESTS)
   qt_add_executable(test_app
     ../tests/test_app.cpp
     src/AppController.cpp src/AppController.h
-    src/Workers.cpp src/Workers.h)
+    src/Workers.cpp src/Workers.h
+    src/MediaCache.cpp src/MediaCache.h
+    src/TitleRenderer.cpp src/TitleRenderer.h)
   target_include_directories(test_app PRIVATE src ../tests)
   target_link_libraries(test_app PRIVATE loggx_engine Qt6::Core Qt6::Gui Qt6::Multimedia)
   add_test(NAME app COMMAND test_app)
 endif()
+
+# Kommandozeilen-Export mit Titeln (Schrift über Qt, ohne Fenster)
+qt_add_executable(loggx-render-qt ../tools/loggx_render.cpp src/TitleRenderer.cpp src/TitleRenderer.h)
+target_compile_definitions(loggx-render-qt PRIVATE LOGGX_WITH_QT_TITLES)
+target_include_directories(loggx-render-qt PRIVATE src)
+target_link_libraries(loggx-render-qt PRIVATE loggx_engine Qt6::Gui)
+set_target_properties(loggx-render-qt PROPERTIES OUTPUT_NAME loggx-render RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

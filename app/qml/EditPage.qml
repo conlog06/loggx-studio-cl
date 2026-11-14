@@ -7,6 +7,7 @@ import LoggX 1.0
 Item {
     id: editRoot
     signal importRequested()
+    signal openPage(int page)
 
     SplitView {
         anchors.fill: parent
@@ -190,8 +191,9 @@ Item {
             }
 
             Inspector {
-                SplitView.preferredWidth: 310
-                SplitView.minimumWidth: 260
+                SplitView.preferredWidth: 330
+                SplitView.minimumWidth: 270
+                onOpenPage: function (page) { editRoot.openPage(page) }
             }
         }
 
@@ -218,8 +220,20 @@ Item {
                         Button { text: qsTr("Löschen"); enabled: app.selectedClipId !== ""; onClicked: app.deleteSelected(false); ToolTip.text: qsTr("Clip löschen (Entf)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
                         Button { text: qsTr("Löschen + Lücke schließen"); enabled: app.selectedClipId !== ""; onClicked: app.deleteSelected(true); ToolTip.text: qsTr("Umschalt+Entf"); ToolTip.visible: hovered; ToolTip.delay: 600 }
                         Rectangle { width: 1; height: 20; color: "#2d313b"; Layout.leftMargin: 4; Layout.rightMargin: 4 }
-                        Button { text: qsTr("+ Videospur"); onClicked: app.addTrack(true) }
-                        Button { text: qsTr("+ Audiospur"); onClicked: app.addTrack(false) }
+                        Button { text: qsTr("+ Titel"); onClicked: app.addTitle(); ToolTip.text: qsTr("Titel am Abspielkopf einfügen (T)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
+                        Button { text: qsTr("+ MIDI-Clip"); onClicked: app.addMidiClip(); ToolTip.text: qsTr("Leeren MIDI-Clip (4 Takte) auf der Instrumentspur anlegen"); ToolTip.visible: hovered; ToolTip.delay: 600 }
+                        Rectangle { width: 1; height: 20; color: "#2d313b"; Layout.leftMargin: 4; Layout.rightMargin: 4 }
+                        Button {
+                            text: qsTr("+ Spur")
+                            onClicked: trackMenu.open()
+                            Menu {
+                                id: trackMenu
+                                y: parent.height
+                                MenuItem { text: qsTr("Videospur"); onTriggered: app.addTrack(true) }
+                                MenuItem { text: qsTr("Audiospur"); onTriggered: app.addTrack(false) }
+                                MenuItem { text: qsTr("Instrumentspur"); onTriggered: app.addInstrumentTrack() }
+                            }
+                        }
                         Item { Layout.fillWidth: true }
                         Label { text: qsTr("Zoom"); color: "#8a91a0" }
                         Slider {
@@ -239,6 +253,19 @@ Item {
                     Layout.fillHeight: true
                     controller: app
                     clip: true
+
+                    ScrollBar {
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.topMargin: 26
+                        orientation: Qt.Vertical
+                        policy: ScrollBar.AlwaysOn
+                        visible: timeline.contentHeight > timeline.height
+                        size: timeline.height / timeline.contentHeight
+                        position: timeline.scrollY / timeline.contentHeight
+                        onPositionChanged: if (pressed) timeline.scrollY = position * timeline.contentHeight
+                    }
 
                     DropArea {
                         anchors.fill: parent

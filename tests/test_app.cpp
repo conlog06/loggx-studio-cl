@@ -2,10 +2,15 @@
 // Import, Schnitt, Undo/Redo, Speichern/Laden, Wiedergabe und Export.
 #include <cmath>
 
+#include <QFile>
+
 #include <QDir>
 #include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QStandardPaths>
 #include <QTemporaryDir>
+
+#include "TitleRenderer.h"
 
 #include "AppController.h"
 #include "check.h"
@@ -43,6 +48,8 @@ bool waitFor(Pred pred, int ms) {
 int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QGuiApplication qapp(argc, argv);
+    QStandardPaths::setTestModeEnabled(true);   // Autosave nicht im echten Profil
+    QDir(AppController::autosaveDir()).removeRecursively();
     QTemporaryDir dir;
     const QString source = dir.filePath("quelle.mp4");
     CHECK(makeSource(source));
@@ -160,6 +167,126 @@ int main(int argc, char** argv) {
     CHECK(app.timecode(app.position()) == QStringLiteral("00:00:01:15"));
     app.stepFrames(-15);
     CHECK(app.timecode(app.position()) == QStringLiteral("00:00:01:00"));
+    // ---- MVP: Keyframes über den Controller
+    app.newProject();
+    app.importMedia({QUrl::fromLocalFile(source)});
+    const QString a2 = app.assets().first().toMap().value("id").toString();
+    CHECK(app.addAssetToTimeline(a2));
+    const QString vc = app.selectedClipId();
+    app.seek(0);
+    app.toggleKeyframe("opacity");                 // Keyframe bei 0 s mit Wert 1
+    CHECK(app.clip().value("keyed").toMap().value("opacity").toBool());
+    app.seek(2.0);
+    app.setClipProperty("opacity", 0.0);           // setzt automatisch Keyframe bei 2 s
+    app.seek(1.0);
+    CHECK(std::abs(app.clip().value("opacity").toDouble() - 0.5) < 0.02);
+    app.jumpToKeyframe(1);
+    CHECK(std::abs(app.position() - 2.0) < 0.01);
+    CHECK(app.clip().value("keyHere").toMap().value("opacity").toBool());
+    app.toggleKeyframe("opacity");                 // entfernt den bei 2 s
+    app.seek(1.5);
+    CHECK(std::abs(app.clip().value("opacity").toDouble() - 1.0) < 1e-6);
+
+    // Transformation, Farbe, Effekte, Blenden
+    app.setClipProperty("scale", 0.5);
+    app.setClipProperty("saturation", 0.0);
+    app.setClipProperty("chromaKey", 1);
+    app.setClipProperty("fadeIn", 0.5);
+    CHECK(app.clip().value("scale").toDouble() == 0.5);
+    CHECK(app.clip().value("saturation").toDouble() == 0.0 && !app.clip().value("colorNeutral").toBool());
+    CHECK(app.clip().value("chromaKey").toBool());
+    CHECK(std::abs(app.clip().value("fadeIn").toDouble() - 0.5) < 1e-6);
+    app.resetColor();
+    CHECK(app.clip().value("colorNeutral").toBool());
+    // LUT: ungültige Datei wird abgelehnt.
+    QFile bad(dir.filePath("kaputt.cube"));
+    CHECK(bad.open(QIODevice::WriteOnly) && bad.write("LUT_3D_SIZE 2\n0 0 0\n") > 0);
+    bad.close();
+    CHECK(!app.setLut(QUrl::fromLocalFile(dir.filePath("kaputt.cube"))));
+    QFile good(dir.filePath("gut.cube"));
+    CHECK(good.open(QIODevice::WriteOnly));
+    good.write("LUT_3D_SIZE 2\n");
+    for (int b = 0; b < 2; ++b)
+        for (int g = 0; g < 2; ++g)
+            for (int r = 0; r < 2; ++r) good.write(QStringLiteral("%1 %2 %3\n").arg(r).arg(g).arg(b).toUtf8());
+    good.close();
+    CHECK(app.setLut(QUrl::fromLocalFile(dir.filePath("gut.cube"))));
+    CHECK(app.clip().value("lutName").toString() == "gut.cube");
+
+    // Titel mit echter Schrift: Text muss sichtbare Pixel erzeugen.
+    app.seek(0);
+    CHECK(app.addTitle());
+    CHECK(app.clip().value("isTitle").toBool());
+    app.setTitleText("LoggX");
+    app.setTitleColor(QColor(255, 0, 0));
+    CHECK(app.clip().value("text").toString() == "LoggX");
+    {
+        Title t;
+        t.text = "LoggX";
+        t.color = 0xFFFF0000;
+        std::vector<std::uint8_t> px(320u * 180 * 4, 0);
+        qtTitleRasterizer()(t, 320, 180, px);
+        int red = 0;
+        for (std::size_t i = 0; i < px.size(); i += 4)
+            if (px[i + 3] > 200 && px[i] > 200 && px[i + 1] < 60) ++red;
+        CHECK(red > 200);
+    }
+
+    // MIDI: Clip anlegen, Noten setzen/ändern/löschen, Instrument wählen.
+    app.seek(0);
+    CHECK(app.addMidiClip());
+    const QString midi = app.selectedClipId();
+    CHECK(app.clip().value("isMidi").toBool());
+    loggx::Note n;
+    n.pitch = 64;
+    n.start = 0;
+    n.length = 500000;
+    CHECK(app.addNote(midi, n) == 0);
+    n.pitch = 67;
+    CHECK(app.updateNote(midi, 0, n));
+    CHECK(app.project().findClip(midi.toStdString())->notes.at(0).pitch == 67);
+    CHECK(app.addNote(midi, n) == 1);
+    CHECK(app.removeNote(midi, 1));
+    CHECK(!app.removeNote(midi, 5));
+    const int instTrack = app.clip().value("trackIndex").toInt();
+    app.setTrackProperty(instTrack, "instrument", 6);
+    app.setTrackProperty(instTrack, "pan", -0.5);
+    app.setTrackProperty(instTrack, "reverb", 0.4);
+    const QVariantMap trackInfo = app.tracks().at(instTrack).toMap();
+    CHECK(trackInfo.value("instrument").toInt() == 6 && trackInfo.value("pan").toDouble() == -0.5);
+    CHECK(trackInfo.value("reverb").toDouble() == 0.4);
+    app.setBpm(90);
+    CHECK(app.bpm() == 90);
+    app.setMasterGainDb(-6);
+    CHECK(std::abs(app.masterGainDb() + 6) < 0.01);
+    // Leere Spuren lassen sich entfernen, volle nicht.
+    CHECK(!app.removeTrack(instTrack));
+    app.addInstrumentTrack();
+    CHECK(app.removeTrack(static_cast<int>(app.project().tracks.size()) - 1));
+
+    // Export mit Titel und Instrument (H.265, falls vorhanden – sonst H.264).
+    const QString out2 = dir.filePath("mvp.mp4");
+    app.exportVideo(QUrl::fromLocalFile(out2), 320, 180, 0, 2);
+    CHECK(waitFor([&] { return !app.exporting(); }, 60000));
+    MediaAsset mvpOut;
+    CHECK(probeMedia(out2.toStdString(), mvpOut) && mvpOut.hasAudio);
+
+    // Automatisch sichern und nach "Absturz" wiederherstellen.
+    CHECK(app.dirty());
+    CHECK(app.autosaveNow());
+    {
+        AppController crashed;   // neuer Start: findet die Notfallkopie
+        CHECK(crashed.recoveryAvailable());
+        CHECK(crashed.recoverAutosave());
+        CHECK(crashed.project().findClip(midi.toStdString()) != nullptr);
+        CHECK(crashed.dirty() && !crashed.recoveryAvailable());
+        crashed.discardRecovery();
+    }
+    {
+        AppController clean;
+        CHECK(!clean.recoveryAvailable());
+    }
+
     CHECK(app.timecode(61.5) == QStringLiteral("00:01:01:15"));
     return finish("test_app");
 }

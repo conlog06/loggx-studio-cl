@@ -5,8 +5,14 @@
 
 #include <QAudioFormat>
 #include <QAudioSink>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMediaDevices>
+#include <QStandardPaths>
 
 using namespace loggx;
 
@@ -18,15 +24,34 @@ QString qstr(const std::string& s) { return QString::fromStdString(s); }
 double toDb(double gain) { return gain <= 0.001 ? -60.0 : 20.0 * std::log10(gain); }
 double fromDb(double db) { return db <= -59.9 ? 0.0 : std::pow(10.0, db / 20.0); }
 
+QColor argb(std::uint32_t c) { return QColor::fromRgba(c); }
+
+const char* kindId(ClipKind k) {
+    switch (k) {
+        case ClipKind::Title: return "title";
+        case ClipKind::Midi: return "midi";
+        default: return "media";
+    }
+}
+
 }  // namespace
 
 AppController::AppController(QObject* parent)
     : QObject(parent), m_project(Project::createDefault()), m_mixerDevice(&m_mixer) {
     connect(&m_preview, &PreviewWorker::frameReady, this, &AppController::frameReady);
     m_preview.start();
+    m_cache.start();
     m_timer.setInterval(15);
     m_timer.setTimerType(Qt::PreciseTimer);
     connect(&m_timer, &QTimer::timeout, this, &AppController::tick);
+    m_meterTimer.setInterval(40);
+    connect(&m_meterTimer, &QTimer::timeout, this, &AppController::pollLevels);
+    m_autosaveTimer.setInterval(60'000);
+    connect(&m_autosaveTimer, &QTimer::timeout, this, [this] {
+        if (m_dirty) autosaveNow();
+    });
+    m_autosaveTimer.start();
+    checkRecovery();
     publish();
     m_dirty = false;
 }
@@ -37,6 +62,8 @@ AppController::~AppController() {
         m_exportWorker->cancel();
         m_exportWorker->wait();
     }
+    // Ordentlich beendet: Notfallkopie ist nicht mehr nötig.
+    if (!m_dirty) removeAutosave();
 }
 
 // ------------------------------------------------------------ Zustand
@@ -56,6 +83,7 @@ bool AppController::apply(Fn&& fn) {
 void AppController::publish() {
     m_shared = std::make_shared<const Project>(m_project);
     m_mixer.setProject(m_shared);
+    m_cache.request(m_project);
     if (!m_selected.isEmpty() && !m_project.findClip(str(m_selected))) {
         m_selected.clear();
         emit selectionChanged();
@@ -105,6 +133,31 @@ void AppController::setProjectName(const QString& name) {
     });
 }
 
+void AppController::setBpm(double bpm) {
+    bpm = std::clamp(bpm, 20.0, 300.0);
+    if (std::abs(bpm - m_project.bpm) < 1e-9) return;
+    apply([&](Project& p) {
+        p.bpm = bpm;
+        return true;
+    });
+}
+
+double AppController::masterGainDb() const { return toDb(m_project.masterGain); }
+
+void AppController::setMasterGainDb(double db) {
+    apply([&](Project& p) {
+        p.masterGain = fromDb(std::clamp(db, -60.0, 6.0));
+        return true;
+    });
+}
+
+QStringList AppController::instrumentNames() const {
+    QStringList list;
+    for (int i = 0; i < kInstrumentCount; ++i)
+        list << QString::fromUtf8(instrumentName(static_cast<InstrumentType>(i)));
+    return list;
+}
+
 // ------------------------------------------------------------ Projekt
 
 void AppController::newProject() {
@@ -113,6 +166,7 @@ void AppController::newProject() {
     m_filePath.clear();
     publish();
     setDirty(false);
+    removeAutosave();
     emit fileChanged();
     setStatus(tr("Neues Projekt"));
 }
@@ -149,6 +203,7 @@ bool AppController::saveProject() {
         return false;
     }
     setDirty(false);
+    removeAutosave();
     setStatus(tr("Gespeichert"));
     return true;
 }
@@ -178,6 +233,77 @@ void AppController::setProjectFormat(int width, int height, int fps) {
     });
 }
 
+// ---------------------------------------------------- Automatisch sichern
+
+QString AppController::autosaveDir() {
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
+           QStringLiteral("/autosave");
+}
+
+bool AppController::autosaveNow() {
+    const QString dir = autosaveDir();
+    if (!QDir().mkpath(dir)) return false;
+    std::string error;
+    if (!m_project.saveFile(str(dir + QStringLiteral("/autosave.loggx")), &error)) return false;
+    QJsonObject info;
+    info[QStringLiteral("original")] = m_filePath;
+    info[QStringLiteral("name")] = projectName();
+    info[QStringLiteral("time")] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QFile f(dir + QStringLiteral("/autosave.json"));
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    f.write(QJsonDocument(info).toJson());
+    return true;
+}
+
+void AppController::removeAutosave() {
+    const QString dir = autosaveDir();
+    QFile::remove(dir + QStringLiteral("/autosave.loggx"));
+    QFile::remove(dir + QStringLiteral("/autosave.json"));
+}
+
+void AppController::checkRecovery() {
+    const QString dir = autosaveDir();
+    const QString file = dir + QStringLiteral("/autosave.loggx");
+    QFile meta(dir + QStringLiteral("/autosave.json"));
+    if (!QFileInfo::exists(file) || !meta.open(QIODevice::ReadOnly)) return;
+    const QJsonObject info = QJsonDocument::fromJson(meta.readAll()).object();
+    m_recoveryFile = file;
+    m_recoveryOriginal = info.value(QStringLiteral("original")).toString();
+    const QDateTime time = QDateTime::fromString(info.value(QStringLiteral("time")).toString(), Qt::ISODate);
+    m_recoveryInfo = tr("„%1“ wurde nicht gespeichert (automatisch gesichert am %2).")
+                         .arg(info.value(QStringLiteral("name")).toString(),
+                              time.toString(QStringLiteral("dd.MM.yyyy HH:mm")));
+    emit recoveryChanged();
+}
+
+bool AppController::recoverAutosave() {
+    if (m_recoveryFile.isEmpty()) return false;
+    Project loaded;
+    std::string error;
+    const bool ok = Project::loadFile(str(m_recoveryFile), loaded, &error);
+    if (ok) {
+        resetState();
+        m_project = std::move(loaded);
+        // Zurück an den ursprünglichen Speicherort, aber als ungespeichert.
+        m_filePath = m_recoveryOriginal;
+        publish();
+        setDirty(true);
+        emit fileChanged();
+        setStatus(tr("Wiederhergestellt – bitte speichern"));
+    } else {
+        setStatus(tr("Wiederherstellen fehlgeschlagen: %1").arg(qstr(error)));
+    }
+    m_recoveryFile.clear();
+    emit recoveryChanged();
+    return ok;
+}
+
+void AppController::discardRecovery() {
+    removeAutosave();
+    m_recoveryFile.clear();
+    emit recoveryChanged();
+}
+
 // ------------------------------------------------- Medien und Timeline
 
 QVariantList AppController::assets() const {
@@ -200,6 +326,39 @@ QVariantList AppController::assets() const {
             info = tr("Audio · %1").arg(timecode(a.duration / 1e6));
         m[QStringLiteral("info")] = info;
         m[QStringLiteral("missing")] = !QFileInfo::exists(qstr(a.path));
+        list.append(m);
+    }
+    return list;
+}
+
+QVariantList AppController::tracks() const {
+    QVariantList list;
+    for (int i = 0; i < static_cast<int>(m_project.tracks.size()); ++i) {
+        const Track& t = m_project.tracks[static_cast<std::size_t>(i)];
+        QVariantMap m;
+        m[QStringLiteral("index")] = i;
+        m[QStringLiteral("id")] = qstr(t.id);
+        m[QStringLiteral("name")] = qstr(t.name);
+        m[QStringLiteral("kind")] = t.kind == TrackKind::Video   ? QStringLiteral("video")
+                                    : t.kind == TrackKind::Audio ? QStringLiteral("audio")
+                                                                 : QStringLiteral("instrument");
+        m[QStringLiteral("muted")] = t.muted;
+        m[QStringLiteral("solo")] = t.solo;
+        m[QStringLiteral("gainDb")] = toDb(t.gain);
+        m[QStringLiteral("pan")] = t.pan;
+        m[QStringLiteral("instrument")] = static_cast<int>(t.instrument);
+        m[QStringLiteral("eqLow")] = t.fx.eqLow;
+        m[QStringLiteral("eqMid")] = t.fx.eqMid;
+        m[QStringLiteral("eqHigh")] = t.fx.eqHigh;
+        m[QStringLiteral("compressor")] = t.fx.compressor;
+        m[QStringLiteral("reverb")] = t.fx.reverb;
+        m[QStringLiteral("delay")] = t.fx.delay;
+        m[QStringLiteral("empty")] = t.clips.empty();
+        bool sound = t.kind != TrackKind::Video;
+        for (const auto& c : t.clips)
+            if (c.kind == ClipKind::Media)
+                if (const MediaAsset* a = m_project.findAsset(c.assetId); a && a->hasAudio) sound = true;
+        m[QStringLiteral("hasSound")] = sound;
         list.append(m);
     }
     return list;
@@ -239,16 +398,22 @@ bool AppController::removeAsset(const QString& assetId) {
     return ok;
 }
 
+int AppController::trackIndexOf(TrackKind kind, bool last) const {
+    int index = -1;
+    for (int i = 0; i < static_cast<int>(m_project.tracks.size()); ++i) {
+        if (m_project.tracks[static_cast<std::size_t>(i)].kind != kind) continue;
+        index = i;
+        if (!last) break;
+    }
+    return index;
+}
+
 bool AppController::addAssetToTimeline(const QString& assetId) {
     const MediaAsset* asset = m_project.findAsset(str(assetId));
     if (!asset) return false;
     // Videos auf die unterste Videospur, Ton auf die oberste Audiospur.
-    int index = -1;
-    for (int i = 0; i < static_cast<int>(m_project.tracks.size()); ++i) {
-        const TrackKind kind = m_project.tracks[static_cast<std::size_t>(i)].kind;
-        if (asset->hasVideo && kind == TrackKind::Video) index = i;
-        if (!asset->hasVideo && kind == TrackKind::Audio && index < 0) index = i;
-    }
+    const int index = asset->hasVideo ? trackIndexOf(TrackKind::Video, true)
+                                      : trackIndexOf(TrackKind::Audio, false);
     return index >= 0 && addClipAt(assetId, index, position());
 }
 
@@ -264,6 +429,46 @@ bool AppController::addClipAt(const QString& assetId, int trackIndex, double sec
         setSelectedClipId(qstr(newId));
     else
         setStatus(tr("Diese Datei passt nicht auf diese Spur"));
+    return ok;
+}
+
+bool AppController::addTitle() {
+    // Titel auf die oberste Videospur, damit sie über dem Bild liegen.
+    const int index = trackIndexOf(TrackKind::Video, false);
+    if (index < 0) return false;
+    std::string newId;
+    const bool ok = apply([&](Project& p) {
+        newId = p.addTitleClip(p.tracks[static_cast<std::size_t>(index)].id, m_position,
+                               tr("Titel").toStdString());
+        return !newId.empty();
+    });
+    if (ok) setSelectedClipId(qstr(newId));
+    return ok;
+}
+
+bool AppController::addMidiClip() {
+    // Bevorzugt die Spur des ausgewählten Clips, sonst die erste Instrumentspur.
+    int index = -1;
+    const Track* owner = nullptr;
+    if (!m_selected.isEmpty() && m_project.findClip(str(m_selected), &owner) &&
+        owner->kind == TrackKind::Instrument) {
+        for (int i = 0; i < static_cast<int>(m_project.tracks.size()); ++i)
+            if (&m_project.tracks[static_cast<std::size_t>(i)] == owner) index = i;
+    }
+    if (index < 0) index = trackIndexOf(TrackKind::Instrument, false);
+    if (index < 0) {
+        addInstrumentTrack();
+        index = trackIndexOf(TrackKind::Instrument, false);
+    }
+    // Am Takt ausrichten.
+    const TimeUs bar = m_project.beatDuration() * m_project.beatsPerBar;
+    const TimeUs start = bar > 0 ? m_position / bar * bar : m_position;
+    std::string newId;
+    const bool ok = apply([&](Project& p) {
+        newId = p.addMidiClip(p.tracks[static_cast<std::size_t>(index)].id, start);
+        return !newId.empty();
+    });
+    if (ok) setSelectedClipId(qstr(newId));
     return ok;
 }
 
@@ -300,11 +505,48 @@ void AppController::addTrack(bool video) {
     });
 }
 
+void AppController::addInstrumentTrack() {
+    apply([&](Project& p) {
+        p.addTrack(TrackKind::Instrument);
+        return true;
+    });
+}
+
+bool AppController::removeTrack(int trackIndex) {
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_project.tracks.size())) return false;
+    const bool ok = apply([&](Project& p) {
+        return p.removeTrack(p.tracks[static_cast<std::size_t>(trackIndex)].id);
+    });
+    if (!ok) setStatus(tr("Nur leere Spuren lassen sich entfernen"));
+    return ok;
+}
+
 void AppController::toggleTrackMute(int trackIndex) {
     if (trackIndex < 0 || trackIndex >= static_cast<int>(m_project.tracks.size())) return;
     apply([&](Project& p) {
         Track& t = p.tracks[static_cast<std::size_t>(trackIndex)];
         t.muted = !t.muted;
+        return true;
+    });
+}
+
+void AppController::setTrackProperty(int trackIndex, const QString& name, double value) {
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_project.tracks.size())) return;
+    apply([&](Project& p) {
+        Track& t = p.tracks[static_cast<std::size_t>(trackIndex)];
+        if (name == QLatin1String("gainDb")) t.gain = fromDb(std::clamp(value, -60.0, 6.0));
+        else if (name == QLatin1String("pan")) t.pan = std::clamp(value, -1.0, 1.0);
+        else if (name == QLatin1String("muted")) t.muted = value != 0.0;
+        else if (name == QLatin1String("solo")) t.solo = value != 0.0;
+        else if (name == QLatin1String("instrument"))
+            t.instrument = static_cast<InstrumentType>(std::clamp(static_cast<int>(value), 0, kInstrumentCount - 1));
+        else if (name == QLatin1String("eqLow")) t.fx.eqLow = std::clamp(value, -12.0, 12.0);
+        else if (name == QLatin1String("eqMid")) t.fx.eqMid = std::clamp(value, -12.0, 12.0);
+        else if (name == QLatin1String("eqHigh")) t.fx.eqHigh = std::clamp(value, -12.0, 12.0);
+        else if (name == QLatin1String("compressor")) t.fx.compressor = std::clamp(value, 0.0, 1.0);
+        else if (name == QLatin1String("reverb")) t.fx.reverb = std::clamp(value, 0.0, 1.0);
+        else if (name == QLatin1String("delay")) t.fx.delay = std::clamp(value, 0.0, 1.0);
+        else return false;
         return true;
     });
 }
@@ -317,6 +559,35 @@ void AppController::undo() {
 void AppController::redo() {
     endInteractive();
     if (m_undo.redo(m_project)) publish();
+}
+
+void AppController::selectClipAtPlayhead(bool videoOnly) {
+    for (const auto& track : m_project.tracks) {
+        if (videoOnly && track.kind != TrackKind::Video) continue;
+        for (const auto& c : track.clips)
+            if (m_position >= c.start && m_position < c.end()) {
+                setSelectedClipId(qstr(c.id));
+                return;
+            }
+    }
+}
+
+void AppController::selectNeighbourClip(int direction) {
+    // Nächster/vorheriger Clip auf den Videospuren, Abspielkopf springt hin.
+    const Clip* best = nullptr;
+    for (const auto& track : m_project.tracks) {
+        if (track.kind != TrackKind::Video) continue;
+        for (const auto& c : track.clips) {
+            const bool after = c.start > m_position;
+            const bool before = c.start < m_position && !(m_position >= c.start && m_position < c.end());
+            if ((direction > 0 && after && (!best || c.start < best->start)) ||
+                (direction < 0 && before && (!best || c.start > best->start)))
+                best = &c;
+        }
+    }
+    if (!best) return;
+    setSelectedClipId(qstr(best->id));
+    seekUs(best->start);
 }
 
 void AppController::beginInteractive() {
@@ -346,6 +617,45 @@ bool AppController::trimEndLive(const QString& clipId, TimeUs end) {
     return apply([&](Project& p) { return p.trimClipEnd(str(clipId), end); });
 }
 
+int AppController::addNote(const QString& clipId, const Note& note) {
+    int index = -1;
+    apply([&](Project& p) {
+        Clip* c = p.findClip(str(clipId));
+        if (!c || c->kind != ClipKind::Midi) return false;
+        c->notes.push_back(note);
+        index = static_cast<int>(c->notes.size()) - 1;
+        return true;
+    });
+    return index;
+}
+
+bool AppController::updateNote(const QString& clipId, int index, const Note& note) {
+    return apply([&](Project& p) {
+        Clip* c = p.findClip(str(clipId));
+        if (!c || index < 0 || index >= static_cast<int>(c->notes.size())) return false;
+        Note n = note;
+        n.pitch = std::clamp(n.pitch, 0, 127);
+        n.length = std::max<TimeUs>(10'000, n.length);
+        n.start = std::max<TimeUs>(0, n.start);
+        n.velocity = std::clamp(n.velocity, 0.05, 1.0);
+        Note& old = c->notes[static_cast<std::size_t>(index)];
+        if (old.pitch == n.pitch && old.start == n.start && old.length == n.length &&
+            old.velocity == n.velocity)
+            return false;
+        old = n;
+        return true;
+    });
+}
+
+bool AppController::removeNote(const QString& clipId, int index) {
+    return apply([&](Project& p) {
+        Clip* c = p.findClip(str(clipId));
+        if (!c || index < 0 || index >= static_cast<int>(c->notes.size())) return false;
+        c->notes.erase(c->notes.begin() + index);
+        return true;
+    });
+}
+
 void AppController::setSelectedClipId(const QString& id) {
     if (id == m_selected) return;
     m_selected = id;
@@ -358,17 +668,44 @@ QVariantMap AppController::clip() const {
     const Track* track = nullptr;
     const Clip* c = m_selected.isEmpty() ? nullptr : m_project.findClip(str(m_selected), &track);
     if (!c) return m;
-    const MediaAsset* asset = m_project.findAsset(c->assetId);
+    const MediaAsset* asset = c->kind == ClipKind::Media ? m_project.findAsset(c->assetId) : nullptr;
+    const TimeUs t = std::clamp(m_position, c->start, c->end());
+    QString name = asset ? qstr(asset->name) : QString();
+    if (c->kind == ClipKind::Title) name = tr("Titel: %1").arg(qstr(c->title.text).section(QLatin1Char('\n'), 0, 0));
+    if (c->kind == ClipKind::Midi) name = tr("MIDI-Clip (%1 Noten)").arg(c->notes.size());
+
     m[QStringLiteral("id")] = qstr(c->id);
-    m[QStringLiteral("name")] = asset ? qstr(asset->name) : QString();
+    m[QStringLiteral("name")] = name;
+    m[QStringLiteral("kind")] = QString::fromLatin1(kindId(c->kind));
     m[QStringLiteral("isVideo")] = track->kind == TrackKind::Video;
-    m[QStringLiteral("hasAudio")] = asset && asset->hasAudio;
+    m[QStringLiteral("isTitle")] = c->kind == ClipKind::Title;
+    m[QStringLiteral("isMidi")] = c->kind == ClipKind::Midi;
+    m[QStringLiteral("isMedia")] = c->kind == ClipKind::Media;
+    m[QStringLiteral("hasAudio")] = (asset && asset->hasAudio) || c->kind == ClipKind::Midi;
     m[QStringLiteral("start")] = c->start / 1e6;
     m[QStringLiteral("duration")] = c->duration / 1e6;
-    m[QStringLiteral("gainDb")] = toDb(c->gain);
     m[QStringLiteral("pitch")] = c->pitch;
     m[QStringLiteral("speed")] = c->speed;
-    m[QStringLiteral("opacity")] = c->opacity;
+    m[QStringLiteral("fadeIn")] = c->fadeIn / 1e6;
+    m[QStringLiteral("fadeOut")] = c->fadeOut / 1e6;
+
+    // Animierbare Werte: am Abspielkopf ausgewertet.
+    QVariantMap keyed, keyHere;
+    for (const char* p : kKeyframeParams) {
+        const std::string name = p;
+        m[QString::fromLatin1(p)] = c->valueAt(name, t);
+        const auto it = c->keys.find(name);
+        const bool has = it != c->keys.end() && !it->second.empty();
+        keyed[QString::fromLatin1(p)] = has;
+        bool here = false;
+        if (has)
+            for (const auto& k : it->second)
+                if (std::llabs(k.t - (m_position - c->start)) < 1000) here = true;
+        keyHere[QString::fromLatin1(p)] = here;
+    }
+    m[QStringLiteral("keyed")] = keyed;
+    m[QStringLiteral("keyHere")] = keyHere;
+
     m[QStringLiteral("maskShape")] = static_cast<int>(c->mask.shape);
     m[QStringLiteral("maskX")] = c->mask.cx;
     m[QStringLiteral("maskY")] = c->mask.cy;
@@ -376,30 +713,202 @@ QVariantMap AppController::clip() const {
     m[QStringLiteral("maskH")] = c->mask.h;
     m[QStringLiteral("maskFeather")] = c->mask.feather;
     m[QStringLiteral("maskInvert")] = c->mask.invert;
+
+    const ColorGrade& g = c->color;
+    m[QStringLiteral("exposure")] = g.exposure;
+    m[QStringLiteral("contrast")] = g.contrast;
+    m[QStringLiteral("saturation")] = g.saturation;
+    m[QStringLiteral("temperature")] = g.temperature;
+    m[QStringLiteral("tint")] = g.tint;
+    m[QStringLiteral("lift")] = g.lift;
+    m[QStringLiteral("gamma")] = g.gamma;
+    m[QStringLiteral("colorGain")] = g.gain;
+    m[QStringLiteral("lutName")] = g.lutPath.empty() ? QString() : QFileInfo(qstr(g.lutPath)).fileName();
+    m[QStringLiteral("lutMix")] = g.lutMix;
+    m[QStringLiteral("colorNeutral")] = g.isNeutral();
+
+    m[QStringLiteral("chromaKey")] = c->fx.chromaKey;
+    m[QStringLiteral("keyColor")] = QColor::fromRgbF(static_cast<float>(c->fx.keyR),
+                                                     static_cast<float>(c->fx.keyG),
+                                                     static_cast<float>(c->fx.keyB));
+    m[QStringLiteral("keyTolerance")] = c->fx.keyTolerance;
+    m[QStringLiteral("keySoftness")] = c->fx.keySoftness;
+    m[QStringLiteral("vignette")] = c->fx.vignette;
+
+    m[QStringLiteral("text")] = qstr(c->title.text);
+    m[QStringLiteral("titleSize")] = c->title.size;
+    m[QStringLiteral("titleColor")] = argb(c->title.color);
+    m[QStringLiteral("titleBold")] = c->title.bold;
+    m[QStringLiteral("titleAlign")] = c->title.align;
+    m[QStringLiteral("titlePosY")] = c->title.posY;
+    m[QStringLiteral("titleBox")] = c->title.box;
+    m[QStringLiteral("titleShadow")] = c->title.shadow;
+
+    m[QStringLiteral("instrument")] = static_cast<int>(track->instrument);
+    for (int i = 0; i < static_cast<int>(m_project.tracks.size()); ++i)
+        if (&m_project.tracks[static_cast<std::size_t>(i)] == track) m[QStringLiteral("trackIndex")] = i;
+    m[QStringLiteral("hasKeys")] = c->hasKeys();
+    m[QStringLiteral("noteCount")] = static_cast<int>(c->notes.size());
     return m;
 }
 
 void AppController::setClipProperty(const QString& name, double value) {
     if (m_selected.isEmpty()) return;
     const std::string id = str(m_selected);
+    const std::string key = str(name);
+    const TimeUs t = m_position;
     apply([&](Project& p) {
         Clip* c = p.findClip(id);
         if (!c) return false;
-        if (name == QLatin1String("gainDb")) c->gain = fromDb(std::clamp(value, -60.0, 12.0));
-        else if (name == QLatin1String("pitch")) c->pitch = std::clamp(value, -12.0, 12.0);
-        else if (name == QLatin1String("speed")) return p.setClipSpeed(id, value);
-        else if (name == QLatin1String("opacity")) c->opacity = std::clamp(value, 0.0, 1.0);
-        else if (name == QLatin1String("maskShape"))
-            c->mask.shape = static_cast<MaskShape>(std::clamp(static_cast<int>(value), 0, 2));
-        else if (name == QLatin1String("maskX")) c->mask.cx = std::clamp(value, 0.0, 1.0);
-        else if (name == QLatin1String("maskY")) c->mask.cy = std::clamp(value, 0.0, 1.0);
-        else if (name == QLatin1String("maskW")) c->mask.w = std::clamp(value, 0.01, 2.0);
-        else if (name == QLatin1String("maskH")) c->mask.h = std::clamp(value, 0.01, 2.0);
-        else if (name == QLatin1String("maskFeather")) c->mask.feather = std::clamp(value, 0.0, 0.5);
-        else if (name == QLatin1String("maskInvert")) c->mask.invert = value != 0.0;
+
+        if (isKeyframeParam(key)) {
+            // Wertebereiche
+            double v = value;
+            if (key == "opacity") v = std::clamp(v, 0.0, 1.0);
+            else if (key == "gainDb") v = std::clamp(v, -60.0, 12.0);
+            else if (key == "scale") v = std::clamp(v, 0.01, 10.0);
+            else if (key == "x" || key == "y") v = std::clamp(v, -2.0, 2.0);
+            else if (key == "rotation") v = std::clamp(v, -360.0, 360.0);
+            else if (key == "blur") v = std::clamp(v, 0.0, 0.05);
+            const auto it = c->keys.find(key);
+            if (it != c->keys.end() && !it->second.empty())
+                return p.setKeyframe(id, key, std::clamp(t, c->start, c->end()), v);
+            if (key == "opacity") c->opacity = v;
+            else if (key == "gainDb") c->gain = fromDb(v);
+            else if (key == "scale") c->scale = v;
+            else if (key == "x") c->x = v;
+            else if (key == "y") c->y = v;
+            else if (key == "rotation") c->rotation = v;
+            else if (key == "blur") c->fx.blur = v;
+            return true;
+        }
+        if (key == "pitch") c->pitch = std::clamp(value, -12.0, 12.0);
+        else if (key == "speed") return p.setClipSpeed(id, value);
+        else if (key == "fadeIn") c->fadeIn = static_cast<TimeUs>(std::clamp(value, 0.0, c->duration / 1e6) * 1e6);
+        else if (key == "fadeOut") c->fadeOut = static_cast<TimeUs>(std::clamp(value, 0.0, c->duration / 1e6) * 1e6);
+        else if (key == "maskShape") c->mask.shape = static_cast<MaskShape>(std::clamp(static_cast<int>(value), 0, 2));
+        else if (key == "maskX") c->mask.cx = std::clamp(value, 0.0, 1.0);
+        else if (key == "maskY") c->mask.cy = std::clamp(value, 0.0, 1.0);
+        else if (key == "maskW") c->mask.w = std::clamp(value, 0.01, 2.0);
+        else if (key == "maskH") c->mask.h = std::clamp(value, 0.01, 2.0);
+        else if (key == "maskFeather") c->mask.feather = std::clamp(value, 0.0, 0.5);
+        else if (key == "maskInvert") c->mask.invert = value != 0.0;
+        else if (key == "exposure") c->color.exposure = std::clamp(value, -4.0, 4.0);
+        else if (key == "contrast") c->color.contrast = std::clamp(value, 0.0, 2.0);
+        else if (key == "saturation") c->color.saturation = std::clamp(value, 0.0, 2.0);
+        else if (key == "temperature") c->color.temperature = std::clamp(value, -1.0, 1.0);
+        else if (key == "tint") c->color.tint = std::clamp(value, -1.0, 1.0);
+        else if (key == "lift") c->color.lift = std::clamp(value, -0.5, 0.5);
+        else if (key == "gamma") c->color.gamma = std::clamp(value, 0.2, 3.0);
+        else if (key == "colorGain") c->color.gain = std::clamp(value, 0.0, 2.0);
+        else if (key == "lutMix") c->color.lutMix = std::clamp(value, 0.0, 1.0);
+        else if (key == "chromaKey") c->fx.chromaKey = value != 0.0;
+        else if (key == "keyTolerance") c->fx.keyTolerance = std::clamp(value, 0.0, 1.0);
+        else if (key == "keySoftness") c->fx.keySoftness = std::clamp(value, 0.0, 1.0);
+        else if (key == "vignette") c->fx.vignette = std::clamp(value, 0.0, 1.0);
+        else if (key == "titleSize") c->title.size = std::clamp(value, 0.01, 0.5);
+        else if (key == "titleBold") c->title.bold = value != 0.0;
+        else if (key == "titleAlign") c->title.align = std::clamp(static_cast<int>(value), 0, 2);
+        else if (key == "titlePosY") c->title.posY = std::clamp(value, 0.0, 1.0);
+        else if (key == "titleBox") c->title.box = std::clamp(value, 0.0, 1.0);
+        else if (key == "titleShadow") c->title.shadow = value != 0.0;
         else return false;
         return true;
     });
+}
+
+void AppController::setTitleText(const QString& text) {
+    if (m_selected.isEmpty()) return;
+    const std::string id = str(m_selected);
+    apply([&](Project& p) {
+        Clip* c = p.findClip(id);
+        if (!c || c->kind != ClipKind::Title || c->title.text == str(text)) return false;
+        c->title.text = str(text);
+        return true;
+    });
+}
+
+void AppController::setTitleColor(const QColor& color) {
+    if (m_selected.isEmpty() || !color.isValid()) return;
+    const std::string id = str(m_selected);
+    apply([&](Project& p) {
+        Clip* c = p.findClip(id);
+        if (!c) return false;
+        c->title.color = color.rgba();
+        return true;
+    });
+}
+
+void AppController::setKeyColor(const QColor& color) {
+    if (m_selected.isEmpty() || !color.isValid()) return;
+    const std::string id = str(m_selected);
+    apply([&](Project& p) {
+        Clip* c = p.findClip(id);
+        if (!c) return false;
+        c->fx.keyR = color.redF();
+        c->fx.keyG = color.greenF();
+        c->fx.keyB = color.blueF();
+        return true;
+    });
+}
+
+bool AppController::setLut(const QUrl& url) {
+    if (m_selected.isEmpty()) return false;
+    const QString path = url.isEmpty() ? QString() : url.toLocalFile();
+    if (!path.isEmpty() && !validateLut(str(path))) {
+        setStatus(tr("Diese LUT-Datei kann nicht gelesen werden (nur 3D-LUTs im .cube-Format)"));
+        return false;
+    }
+    const std::string id = str(m_selected);
+    return apply([&](Project& p) {
+        Clip* c = p.findClip(id);
+        if (!c) return false;
+        c->color.lutPath = str(path);
+        if (!path.isEmpty() && c->color.lutMix <= 0.0) c->color.lutMix = 1.0;
+        return true;
+    });
+}
+
+void AppController::resetColor() {
+    if (m_selected.isEmpty()) return;
+    const std::string id = str(m_selected);
+    apply([&](Project& p) {
+        Clip* c = p.findClip(id);
+        if (!c) return false;
+        c->color = ColorGrade{};
+        return true;
+    });
+}
+
+void AppController::toggleKeyframe(const QString& param) {
+    if (m_selected.isEmpty()) return;
+    const std::string id = str(m_selected);
+    const std::string key = str(param);
+    const Clip* c = m_project.findClip(id);
+    if (!c || !isKeyframeParam(key)) return;
+    const TimeUs t = std::clamp(m_position, c->start, c->end());
+    const double current = c->valueAt(key, t);
+    apply([&](Project& p) {
+        if (p.removeKeyframe(id, key, t)) return true;
+        return p.setKeyframe(id, key, t, current);
+    });
+}
+
+void AppController::jumpToKeyframe(int direction) {
+    const Clip* c = m_selected.isEmpty() ? nullptr : m_project.findClip(str(m_selected));
+    if (!c) return;
+    std::optional<TimeUs> best;
+    for (const auto& [name, list] : c->keys)
+        for (const auto& k : list) {
+            const TimeUs abs = c->start + k.t;
+            if (direction > 0 && abs > m_position + 1000 && (!best || abs < *best)) best = abs;
+            if (direction < 0 && abs < m_position - 1000 && (!best || abs > *best)) best = abs;
+        }
+    if (best) {
+        pause();
+        setPosition(*best);
+        emit clipChanged();
+    }
 }
 
 // --------------------------------------------------------- Wiedergabe
@@ -412,6 +921,11 @@ void AppController::setPosition(TimeUs t) {
     m_position = t;
     emit positionChanged();
     requestFrame();
+    // Animierte Werte im Inspector mitlaufen lassen.
+    if (!m_selected.isEmpty()) {
+        const Clip* c = m_project.findClip(str(m_selected));
+        if (c && c->hasKeys()) emit clipChanged();
+    }
 }
 
 void AppController::startAudio() {
@@ -442,6 +956,33 @@ void AppController::stopAudio() {
     m_mixerDevice.stop();
 }
 
+void AppController::pollLevels() {
+    const MeterLevels raw = m_mixer.takeLevels();
+    // Anzeige 0..1 über -48..0 dBFS, mit langsamem Abfall.
+    auto norm = [](float v) {
+        const double db = v > 1e-6f ? 20.0 * std::log10(v) : -100.0;
+        return std::clamp((db + 48.0) / 48.0, 0.0, 1.05);
+    };
+    QVariantMap next;
+    for (const auto& t : m_project.tracks) {
+        const QString id = qstr(t.id);
+        const auto it = raw.tracks.find(t.id);
+        const double now = it == raw.tracks.end() ? 0.0 : norm(it->second);
+        next[id] = std::max(now, m_levelMap.value(id).toDouble() - 0.04);
+    }
+    next[QStringLiteral("master")] =
+        std::max(norm(raw.master), m_levelMap.value(QStringLiteral("master")).toDouble() - 0.04);
+    next[QStringLiteral("reduction")] = raw.reduction;
+    m_levelMap = next;
+    emit levelsChanged();
+    if (!m_playing) {
+        bool any = false;
+        for (const auto& v : m_levelMap)
+            if (v.toDouble() > 0.001) any = true;
+        if (!any) m_meterTimer.stop();
+    }
+}
+
 void AppController::play() {
     if (m_playing || m_project.duration() <= 0) return;
     if (m_position >= m_project.duration()) setPosition(0);
@@ -452,6 +993,7 @@ void AppController::play() {
     startAudio();
     m_clock.start();
     m_timer.start();
+    m_meterTimer.start();
     emit playingChanged();
 }
 
@@ -484,7 +1026,6 @@ void AppController::tick() {
 void AppController::seekUs(TimeUs t) {
     const bool wasPlaying = m_playing;
     if (wasPlaying) pause();
-    // Auf ganze Bilder einrasten, damit Schnitte bildgenau sitzen.
     // Über den Bildindex rechnen, damit sich bei 29,97 oder 30 fps keine
     // Rundungsfehler aufsummieren.
     const std::int64_t num = m_project.fpsNum, den = m_project.fpsDen;
@@ -517,7 +1058,7 @@ QString AppController::timecode(double seconds) const {
 
 // ------------------------------------------------------------- Export
 
-void AppController::exportVideo(const QUrl& url, int width, int height) {
+void AppController::exportVideo(const QUrl& url, int width, int height, int codec, int quality) {
     if (m_exportWorker) return;
     QString path = url.toLocalFile();
     if (path.isEmpty()) return;
@@ -532,6 +1073,8 @@ void AppController::exportVideo(const QUrl& url, int width, int height) {
     settings.path = str(path);
     settings.width = std::max(16, width) & ~1;
     settings.height = std::max(16, height) & ~1;
+    settings.codec = codec == 1 ? ExportSettings::Codec::H265 : ExportSettings::Codec::H264;
+    settings.quality = std::clamp(quality, 0, 3);
 
     m_exportProgress = 0.0;
     m_exportWorker = new ExportWorker(m_project, settings, this);

@@ -44,20 +44,30 @@ int main(int argc, char** argv) {
                                               QStringLiteral("Wird von der App bereitgestellt"));
     qmlRegisterType<ViewerItem>("LoggX", 1, 0, "Viewer");
     qmlRegisterType<TimelineItem>("LoggX", 1, 0, "Timeline");
+    qmlRegisterType<PianoRollItem>("LoggX", 1, 0, "PianoRoll");
+    qmlRegisterType<ScopeItem>("LoggX", 1, 0, "Scope");
 
     AppController controller;
 
-    // Aufruf: "LoggX Studio" [projekt.loggx] [--screenshot bild.png]
+    // Aufruf: "LoggX Studio" [projekt.loggx] [--page N] [--select CLIP] [--seek SEK]
+    //         [--screenshot bild.png]
     // --screenshot speichert ein Bild des Fensters und beendet sich (für
     // automatische Prüfungen der Oberfläche).
     QString screenshot;
     int startPage = 1;   // 0 Medien, 1 Schnitt, 2 Farbe, 3 Musik, 4 Export
+    int startTab = 0;    // Musik: 0 Noten, 1 Mixer
     const QStringList args = QGuiApplication::arguments();
     for (int i = 1; i < args.size(); ++i) {
         if (args[i] == QLatin1String("--screenshot") && i + 1 < args.size())
             screenshot = args[++i];
         else if (args[i] == QLatin1String("--page") && i + 1 < args.size())
             startPage = qBound(0, args[++i].toInt(), 4);
+        else if (args[i] == QLatin1String("--tab") && i + 1 < args.size())
+            startTab = qBound(0, args[++i].toInt(), 1);
+        else if (args[i] == QLatin1String("--select") && i + 1 < args.size())
+            controller.setSelectedClipId(args[++i]);
+        else if (args[i] == QLatin1String("--seek") && i + 1 < args.size())
+            controller.seek(args[++i].toDouble());
         else if (!args[i].startsWith(QLatin1Char('-')))
             controller.openProjectFile(args[i]);
     }
@@ -65,6 +75,7 @@ int main(int argc, char** argv) {
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("app"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("startPage"), startPage);
+    engine.rootContext()->setContextProperty(QStringLiteral("startTab"), startTab);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty()) return 1;
 

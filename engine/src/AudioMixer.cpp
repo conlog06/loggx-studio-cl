@@ -310,7 +310,9 @@ void AudioMixer::render(std::int64_t position, float* interleaved, std::size_t f
     // hart abzuschneiden).
     const float master = static_cast<float>(project.masterGain);
     const float release = static_cast<float>(1.0 - std::exp(-1.0 / (0.15 * rate)));
-    constexpr float ceiling = 0.97f;
+    // -1 dBFS: Platz für Überschwinger des AAC-Encoders (sonst Clipping
+    // beim Abspielen der fertigen Datei).
+    constexpr float ceiling = 0.891f;
     float peak = 0.0f, minGain = 1.0f;
     for (std::size_t i = 0; i < frames; ++i) {
         float l = interleaved[i * 2] * master, r = interleaved[i * 2 + 1] * master;

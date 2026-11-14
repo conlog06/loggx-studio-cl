@@ -84,6 +84,8 @@ ApplicationWindow {
     Shortcut { sequence: "Left"; onActivated: app.stepFrames(-1) }
     Shortcut { sequence: "Right"; onActivated: app.stepFrames(1) }
     Shortcut { sequence: "Home"; onActivated: app.seek(0) }
+    Shortcut { sequence: "T"; onActivated: app.addTitle() }
+    Shortcut { sequence: "Ctrl+M"; onActivated: app.addMidiClip() }
     Shortcut { sequence: "End"; onActivated: app.seek(app.duration) }
 
     // ------------------------------------------------------------ Dialoge
@@ -159,6 +161,27 @@ ApplicationWindow {
         onRejected: window.pendingAction = null
     }
 
+    Dialog {
+        id: recoveryDialog
+        title: qsTr("Projekt wiederherstellen?")
+        modal: true
+        anchors.centerIn: parent
+        width: 460
+        visible: app.recoveryAvailable
+        closePolicy: Popup.NoAutoClose
+        Label {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: app.recoveryInfo + "\n\n" + qsTr("LoggX Studio wurde nicht ordentlich beendet. Die automatisch gesicherte Fassung wiederherstellen?")
+        }
+        footer: DialogButtonBox {
+            Button { text: qsTr("Wiederherstellen"); DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: qsTr("Verwerfen"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+        onAccepted: app.recoverAutosave()
+        onRejected: app.discardRecovery()
+    }
+
     // ---------------------------------------------------------- Kopfzeile
     header: Rectangle {
         height: 46
@@ -208,33 +231,12 @@ ApplicationWindow {
         currentIndex: window.page
 
         MediaPage { onImportRequested: importDialog.open() }
-        EditPage { onImportRequested: importDialog.open() }
-        PlannedPage {
-            title: qsTr("Farbe")
-            phase: qsTr("Geplant für das MVP")
-            items: [
-                qsTr("Farbräder für Schatten, Mitten und Lichter"),
-                qsTr("Kurven und HSL-Korrektur"),
-                qsTr("LUT-Import (.cube)"),
-                qsTr("Scopes: Waveform, Vectorscope, Histogramm"),
-                qsTr("Masken für lokale Korrekturen"),
-                qsTr("HDR (Rec.2020, PQ/HLG) ab Version 1.0")
-            ]
+        EditPage {
+            onImportRequested: importDialog.open()
+            onOpenPage: function (p) { window.page = p }
         }
-        PlannedPage {
-            title: qsTr("Musik")
-            phase: qsTr("Geplant für das MVP")
-            note: qsTr("Schon jetzt im Arbeitsbereich „Schnitt“: Audio schneiden, Lautstärke, Tonhöhe (Pitch) und Tempo pro Clip.")
-            items: [
-                qsTr("Arrangement-Ansicht auf derselben Zeitachse wie das Video"),
-                qsTr("Piano-Roll und MIDI-Keyboard-Eingabe"),
-                qsTr("Instrumente: Sampler, Synthesizer, Drum-Machine"),
-                qsTr("Mixer mit Fadern, Pan, Sends und Master-Limiter"),
-                qsTr("Effekte: EQ, Kompressor, Reverb, Delay"),
-                qsTr("Beat-Erkennung und Schnitt auf den Beat"),
-                qsTr("VST3-, Audio-Unit- und CLAP-Plugins ab Version 1.0")
-            ]
-        }
+        ColorPage {}
+        MusicPage {}
         ExportPage {}
     }
 
@@ -272,7 +274,7 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
-            text: qsTr("Prototyp %1").arg(Qt.application.version)
+            text: qsTr("MVP-Vorschau %1").arg(Qt.application.version)
             color: "#5d6370"
         }
     }

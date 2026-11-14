@@ -364,7 +364,7 @@ void testMixer(const fs::path& dir) {
     p.findClip(midi)->notes.clear();
     for (int n = 48; n < 72; n += 3) p.findClip(midi)->notes.push_back({n, 0, kSecond, 1.0});
     render(0, kRate / 2);
-    CHECK(peak(buf) <= 0.98);
+    CHECK(peak(buf) <= 0.892);
     CHECK(rms(buf) > 0.2);
     CHECK(mixer.takeLevels().reduction < -1.0f);
 

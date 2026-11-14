@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "Parallel.h"
+#include "loggx/engine/Engine.h"
 
 namespace loggx {
 
@@ -52,6 +53,10 @@ std::shared_ptr<Lut3D> Lut3D::load(const std::string& path, std::string* error) 
         return nullptr;
     }
     return lut;
+}
+
+bool validateLut(const std::string& path, std::string* error) {
+    return Lut3D::load(path, error) != nullptr;
 }
 
 void Lut3D::apply(float& r, float& g, float& b) const {

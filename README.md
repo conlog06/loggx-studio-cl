@@ -2,49 +2,54 @@
 
 Videoschnitt und Musikbearbeitung in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls).
 
-Dieses Repository enthält den **Prototyp (Phase 1 der Roadmap)**: eine funktionierende Schnitt-Engine mit Oberfläche. Es ist noch kein fertiges Produkt.
+Dieses Repository enthält die **MVP-Vorschau 0.2**: Schnitt, Farbe, Titel und eine eingebaute Musikproduktion mit Instrumenten und Mixer. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Arbeitsbereich Schnitt](docs/schnitt.png)
 
-## Was der Prototyp kann
+## Funktionen
 
-- **Import** von Video, Audio und Bildern (alles, was FFmpeg liest: MP4, MOV, MKV, MP3, WAV, PNG, JPG …)
-- **Timeline** mit beliebig vielen Video- und Audiospuren: Clips verschieben (auch zwischen Spuren), an beiden Enden trimmen, teilen, löschen, Lücke schließen, Einrasten an Nachbarn und Abspielkopf
-- **Masken** pro Videoclip: Rechteck oder Ellipse mit Position, Größe, weicher Kante und Umkehrung
-- **Deckkraft** und Überlagerung mehrerer Videospuren
-- **Ton**: Lautstärke, **Tonhöhe (Pitch) ±12 Halbtöne ohne Tempoänderung**, **Tempo 0,25×–4× ohne Tonhöhenänderung**
-- **Vorschau** mit Ton, bildgenaues Springen
-- **Export** als H.264 + AAC (MP4/MOV/MKV) in Projektauflösung, 1080p, 720p oder 480p; nutzt den Hardware-Encoder, wenn vorhanden
-- **Projektdateien** `.loggx` (JSON, Medienpfade auch relativ gespeichert), Undo/Redo ohne Grenze
-- Kommandozeile: `loggx-render projekt.loggx ausgabe.mp4 [--size 1280x720]`
+**Video**
+- Import von Video, Audio und Bildern (alles, was FFmpeg liest)
+- Timeline mit beliebig vielen Video-, Audio- und Instrumentspuren: verschieben, trimmen, teilen, löschen, Lücke schließen, Einrasten; Vorschaubilder und Wellenformen in den Clips
+- Position, Größe und Drehung pro Clip (Bild-im-Bild), Deckkraft, Ein-/Ausblenden
+- **Keyframes** für Position, Größe, Drehung, Deckkraft, Lautstärke und Weichzeichner (◇ im Inspector)
+- **Masken** (Rechteck, Ellipse, weiche Kante, umkehrbar)
+- **Effekte:** Weichzeichner, Greenscreen (Chroma Key mit Farbsaum-Entfernung), Vignette
+- **Titel** mit Schriftgröße, Farbe, Ausrichtung, Hintergrundbalken und Schatten
+- **Farbkorrektur** (Belichtung, Kontrast, Sättigung, Temperatur, Tönung, Schatten/Mitten/Lichter), **3D-LUTs** (.cube) mit Stärke, **Scopes** (Waveform, RGB-Parade, Histogramm)
+
+**Musik**
+- **Instrumentspuren** mit MIDI-Clips und **Piano-Roll** (Noten setzen, verschieben, Länge, Anschlag, Raster, Transponieren)
+- Sieben eingebaute Instrumente: Klavier, E-Piano, Synthesizer, Bass, Fläche, Streicher, Schlagzeug (General-MIDI-Belegung)
+- Tempo (BPM) und Takt, MIDI-Clips rasten am Takt ein
+- Audio: Lautstärke, **Tonhöhe ±12 Halbtöne ohne Tempoänderung**, **Tempo 0,25×–4× ohne Tonhöhenänderung**
+- **Mixer** mit Pegelanzeige, Fader, Panorama, Stumm/Solo, 3-Band-EQ, Kompressor, Echo und Hall pro Spur; Master mit Limiter (−1 dBFS)
+
+**Projekt und Export**
+- Export als H.264 oder **H.265** + AAC (MP4/MOV/MKV) bis **4K**, vier Qualitätsstufen, Vorlagen für YouTube, Instagram/TikTok und Archiv; Hardware-Encoder, wenn vorhanden
+- Projektdateien `.loggx` (JSON, Version 2; Dateien des Prototyps lassen sich weiter öffnen), Undo/Redo ohne Grenze
+- **Automatisches Sichern** jede Minute, Wiederherstellung nach einem Absturz
+- Kommandozeile: `loggx-render projekt.loggx ausgabe.mp4 [--size 1280x720] [--codec h265] [--quality 2]`
+
+| Farbe | Musik | Mixer |
+| --- | --- | --- |
+| ![Farbe](docs/farbe.png) | ![Musik](docs/musik.png) | ![Mixer](docs/mixer.png) |
 
 ## Was noch fehlt (laut Konzept)
 
 | Phase | Inhalt |
 | --- | --- |
-| MVP | GPU-Rendering (Metal / DirectX 12), Effekte und Übergänge, Farbkorrektur + LUTs, Keyframes, Titel, Musikmodul mit MIDI, Instrumenten und Mixer, Wellenformen und Vorschaubilder in der Timeline, Autosave, Admin-Zugang und Lizenzsystem, Export bis 4K |
-| 1.0 | 8K, ProRes, H.265, AV1, HDR, Masken-Tracking, KI-Freistellung, VST3/AU/CLAP, Aufnahme, Beat-Sync, Web-Admin-Dashboard |
+| MVP (Rest) | GPU-Rendering (Metal / DirectX 12), Übergänge zwischen Clips, Admin-Zugang und Lizenzsystem (braucht einen Server), MIDI-Keyboard-Eingabe, Beat-Erkennung |
+| 1.0 | 8K, ProRes, AV1, HDR, Masken-Tracking, KI-Freistellung, VST3/AU/CLAP, Aufnahme, Beat-Sync, Web-Admin-Dashboard |
 | Ausbau | Stem-Separation, Auto-Reframe, Mastering-Assistent, Marktplatz, Multicam, RAW |
 
-Bekannte Grenzen des Prototyps:
+Bekannte Grenzen:
 
-- Bilder werden auf der CPU berechnet. Die Vorschau wird deshalb auf höchstens 960×540 verkleinert; 4K-Material kann ruckeln.
+- Bilder werden auf der CPU berechnet (alle Kerne). Die Vorschau wird deshalb auf höchstens 960×540 verkleinert; 4K-Material und viele Effekte können ruckeln, ein 4K-Export dauert.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.
+- Hall und Echo setzen nach einem Sprung in der Timeline neu an (kein Nachklang von der vorherigen Stelle).
 - Drehungs-Metadaten (Hochkant-Videos vom Handy) werden noch nicht ausgewertet.
 - Für macOS gibt es noch kein fertiges Paket; dort wird aus dem Quelltext gebaut.
-
-## Aufbau
-
-```
-core/     Projektmodell, Timeline-Operationen, .loggx-Format (C++20, keine Abhängigkeit außer nlohmann/json)
-media/    FFmpeg: Analyse, Video-/Audio-Decoder, Exporter
-engine/   Compositor (Bild), AudioMixer (Ton, Rubber Band), Projekt-Render
-app/      Oberfläche mit Qt 6 / QML
-tools/    loggx-render (Export ohne Oberfläche)
-tests/    Tests für Kern, Engine (End-to-End) und App-Logik
-```
-
-Abweichung vom Konzept: Die Tonausgabe läuft im Prototyp über Qt Multimedia, die Audio-Engine ist eigener Code plus Rubber Band. JUCE kommt erst mit dem Plugin-Hosting (VST3/AU) dazu.
 
 ## Herunterladen (Windows)
 
@@ -106,11 +111,13 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
 | Am Abspielkopf teilen | S oder Strg+B |
 | Clip löschen / mit Lücke schließen | Entf / Umschalt+Entf |
 | Ein Bild zurück / vor | ← / → |
+| Titel einfügen | T |
+| MIDI-Clip anlegen | Strg+M |
 | Rückgängig / Wiederholen | Strg+Z / Strg+Umschalt+Z |
 | Medien importieren | Strg+I |
 | Timeline zoomen | Strg + Mausrad |
 
-Doppelklick auf eine Datei in der Medienliste legt sie am Abspielkopf in die Timeline. Ein Klick auf den Spurkopf schaltet die Spur stumm bzw. unsichtbar. Doppelklick auf die Beschriftung eines Reglers setzt ihn zurück.
+Doppelklick auf eine Datei in der Medienliste legt sie am Abspielkopf in die Timeline. ◇ neben einem Regler setzt einen Keyframe am Abspielkopf; sobald ein Parameter Keyframes hat, setzt jede Reglerbewegung automatisch einen Keyframe. In der Piano-Roll: Klick setzt eine Note (ziehen = Länge), Rechtsklick löscht. Ein Klick auf den Spurkopf schaltet die Spur stumm bzw. unsichtbar. Doppelklick auf die Beschriftung eines Reglers setzt ihn zurück.
 
 ## Lizenzen der Abhängigkeiten
 

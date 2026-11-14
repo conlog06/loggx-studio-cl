@@ -52,6 +52,9 @@ private:
     std::vector<float> m_maskRow;
 };
 
+// Prüft, ob eine .cube-Datei als 3D-LUT lesbar ist.
+bool validateLut(const std::string& path, std::string* error = nullptr);
+
 // Pegel für die Anzeige im Mixer (Spitzenwert seit dem letzten Abholen).
 struct MeterLevels {
     std::map<std::string, float> tracks;   // nach Spur-id, linear 0..1+
