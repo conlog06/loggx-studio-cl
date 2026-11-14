@@ -327,9 +327,11 @@ struct AudioReader::Impl {
 
     bool setupResampler() {
         swr_free(&swr);
-        AVChannelLayout out;
+        // Null-initialisieren: av_channel_layout_copy() gibt das Ziel vorher
+        // frei – mit zufälligem Inhalt wäre das ein ungültiger Zeiger.
+        AVChannelLayout out{};
         av_channel_layout_default(&out, 2);
-        AVChannelLayout in;
+        AVChannelLayout in{};
         if (dec->ch_layout.nb_channels > 0 && dec->ch_layout.order != AV_CHANNEL_ORDER_UNSPEC)
             av_channel_layout_copy(&in, &dec->ch_layout);
         else
