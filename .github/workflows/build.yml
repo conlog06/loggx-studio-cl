@@ -1,0 +1,134 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Abhängigkeiten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            qt6-base-dev qt6-declarative-dev qt6-multimedia-dev libgl1-mesa-dev \
+            qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
+            qml6-module-qtquick-dialogs qml6-module-qtquick-window qml6-module-qtquick-templates \
+            qml6-module-qtqml-workerscript qml6-module-qt-labs-folderlistmodel
+      - run: cmake -S . -B build -G Ninja
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Abhängigkeiten
+        run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json
+      - run: cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+  windows:
+    runs-on: windows-2022
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          modules: 'qtmultimedia'
+          cache: true
+      - name: vcpkg-Cache laden
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-ffmpeg-rubberband-x64-windows-v2
+      - name: FFmpeg und Rubber Band
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample]:x64-windows" "rubberband:x64-windows" "nlohmann-json:x64-windows"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: vcpkg-Cache sichern
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-ffmpeg-rubberband-x64-windows-v2
+      - name: Konfigurieren
+        shell: pwsh
+        run: cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
+      - run: cmake --build build --config Release
+      - run: ctest --test-dir build -C Release --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Paket bauen
+        shell: pwsh
+        run: .\installer\windows\package.ps1 -BuildDir build -QtDir $env:QT_ROOT_DIR -VcpkgInstalled "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
+
+      # Das fertige Paket ohne Qt- und vcpkg-Pfade starten, damit fehlende
+      # DLLs oder QML-Module auffallen.
+      - name: Paket prüfen
+        shell: pwsh
+        run: |
+          $app = "dist\LoggX Studio"
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+          Remove-Item Env:QT_PLUGIN_PATH, Env:QML2_IMPORT_PATH, Env:QT_ROOT_DIR -ErrorAction SilentlyContinue
+          $env:QT_QUICK_BACKEND = "software"
+
+          # Engine-Test mit genau den DLLs aus dem Paket (Dekodieren, Pitch/Tempo, Export)
+          Copy-Item build\Release\test_render.exe $app
+          & "$app\test_render.exe"
+          $code = $LASTEXITCODE
+          Remove-Item "$app\test_render.exe"
+          if ($code -ne 0) { throw "Engine-Test im Paket fehlgeschlagen" }
+
+          # Oberfläche starten und ein Bildschirmfoto speichern
+          $shot = Join-Path $PWD "dist\screenshot-windows.png"
+          $p = Start-Process -FilePath "$app\LoggX Studio.exe" -ArgumentList "--screenshot", "`"$shot`"" -PassThru
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); throw "Programm reagiert nicht" }
+          if ($p.ExitCode -ne 0 -or -not (Test-Path $shot)) { throw "Programm startet nicht (Exit-Code $($p.ExitCode))" }
+          Write-Host "Oberfläche gestartet, Bildschirmfoto gespeichert"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LoggX-Studio-Windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/screenshot-windows.png
+          if-no-files-found: error
+
+  release:
+    # Bei einem Tag wie v0.1.0 werden die Windows-Dateien als Release veröffentlicht.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: LoggX-Studio-Windows
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          files: |
+            dist/*.exe
+            dist/*.zip
