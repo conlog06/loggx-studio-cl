@@ -158,7 +158,7 @@ endif()
 
 # ONNX-Runtime-DLLs (Windows) neben die Programme, die die Engine nutzen
 if(WIN32 AND LOGGX_HAVE_ONNX AND LOGGX_ORT_DLLS)
-  foreach(t loggx-render test_core test_render test_mvp loggx-studio test_app)
+  foreach(t loggx-render test_core test_render test_mvp)
     if(TARGET ${t})
       add_custom_command(TARGET ${t} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LOGGX_ORT_DLLS} $<TARGET_FILE_DIR:${t}>)

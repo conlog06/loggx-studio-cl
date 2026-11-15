@@ -149,3 +149,13 @@ target_compile_definitions(loggx-render-qt PRIVATE LOGGX_WITH_QT_TITLES)
 target_include_directories(loggx-render-qt PRIVATE src)
 target_link_libraries(loggx-render-qt PRIVATE loggx_engine Qt6::Gui)
 set_target_properties(loggx-render-qt PROPERTIES OUTPUT_NAME loggx-render RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# Windows: DLLs der ONNX Runtime neben die Programme (siehe oberste CMakeLists)
+if(WIN32 AND LOGGX_HAVE_ONNX AND LOGGX_ORT_DLLS)
+  foreach(t loggx-studio test_app)
+    if(TARGET ${t})
+      add_custom_command(TARGET ${t} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LOGGX_ORT_DLLS} $<TARGET_FILE_DIR:${t}>)
+    endif()
+  endforeach()
+endif()
