@@ -67,6 +67,10 @@ struct ExportSettings {
     int quality = 1;                 // 0 klein, 1 normal, 2 hoch, 3 sehr hoch
     int audioBitrate = 192000;
     bool audio = true;
+    // false = reine Audiodatei. Der Codec folgt dann der Dateiendung:
+    // .wav (PCM), .flac, .mp3, .m4a/.aac, .ogg (Vorbis), .opus
+    bool video = true;
+    int audioBits = 16;              // WAV/FLAC: 16 oder 24 Bit
     // Leer = automatisch (Software-Encoder, sonst Hardware-Encoder).
     std::string videoEncoder;
 };

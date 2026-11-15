@@ -22,6 +22,12 @@ enum class TrackKind { Video, Audio, Instrument };
 enum class ClipKind { Media, Title, Midi };
 enum class MaskShape { None, Rectangle, Ellipse };
 enum class InstrumentType { Piano, ElectricPiano, Synth, Bass, Pad, Strings, Drums };
+// Videoprojekt (alle Arbeitsbereiche) oder reines Musikprojekt.
+enum class ProjectMode { Video, Music };
+// Übergang am Anfang eines Clips zum direkt davor liegenden Clip derselben Spur.
+enum class TransitionType { None, Crossfade, DipBlack, DipWhite, Wipe, Slide };
+inline constexpr int kTransitionCount = 6;
+const char* transitionName(TransitionType type);
 
 struct MediaAsset {
     std::string id;
@@ -122,6 +128,8 @@ struct Clip {
     Title title;             // nur bei Title
     std::vector<Note> notes; // nur bei Midi
     std::map<std::string, std::vector<Keyframe>> keys;   // sortiert nach t
+    TransitionType transition = TransitionType::None;     // zum vorherigen Clip
+    TimeUs transitionDuration = 500'000;                  // Gesamtlänge, mittig am Schnitt
 
     TimeUs end() const { return start + duration; }
     // Zeit im Quellmaterial für einen Timeline-Zeitpunkt innerhalb des Clips.
@@ -175,16 +183,26 @@ struct Project {
     double bpm = 120.0;
     int beatsPerBar = 4;
     double masterGain = 1.0;
+    ProjectMode mode = ProjectMode::Video;
+    TimeUs beatOffset = 0;       // Lage des ersten Schlags (Beat-Raster)
     std::vector<MediaAsset> assets;
     std::vector<Track> tracks;   // Reihenfolge = Anzeige von oben nach unten
     std::uint64_t nextId = 1;
 
     // Standardprojekt: zwei Video-, zwei Audiospuren und eine Instrumentspur.
     static Project createDefault();
+    // Musikprojekt: Audiospur und Instrumentspuren für Melodie, Bass, Schlagzeug.
+    static Project createMusic();
 
     TimeUs duration() const;
     double fps() const { return static_cast<double>(fpsNum) / fpsDen; }
     TimeUs beatDuration() const { return static_cast<TimeUs>(60.0 / bpm * kSecond); }
+    // Zeitpunkt des n-ten Schlags (Beat-Raster, mit Versatz).
+    TimeUs beatTime(std::int64_t n) const {
+        return beatOffset + static_cast<TimeUs>(static_cast<double>(n) * 60.0 / bpm * kSecond);
+    }
+    // Nächster Schlag zu t.
+    TimeUs nearestBeat(TimeUs t) const;
 
     const MediaAsset* findAsset(const std::string& id) const;
     Track* findTrack(const std::string& id);
@@ -213,6 +231,11 @@ struct Project {
     bool setClipSpeed(const std::string& clipId, double speed);
     bool removeClip(const std::string& clipId, bool ripple = false);
     bool removeAsset(const std::string& assetId);   // nur wenn unbenutzt
+    // Teilt einen Clip an jedem n-ten Schlag (Schnitt auf den Beat).
+    int cutOnBeats(const std::string& clipId, int everyBeats);
+    // Direkt angrenzender Clip vor bzw. nach c auf derselben Spur (±1 ms).
+    const Clip* previousAdjacent(const Track& track, const Clip& c) const;
+    const Clip* nextAdjacent(const Track& track, const Clip& c) const;
 
     // Keyframes. t ist ein Timeline-Zeitpunkt; gespeichert wird relativ zum Clip.
     bool setKeyframe(const std::string& clipId, const std::string& param, TimeUs t, double value);

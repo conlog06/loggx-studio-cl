@@ -65,7 +65,7 @@ RowLayout {
         padding: 0
         text: root.keyHere ? "◆" : "◇"
         font.pixelSize: 13
-        palette.buttonText: root.keyed ? "#ffd54f" : "#6a707d"
+        tint: root.keyed ? "#ffd54f" : "#6a707d"
         onClicked: app.toggleKeyframe(root.prop)
         ToolTip.text: root.keyHere ? qsTr("Keyframe hier entfernen") : qsTr("Keyframe am Abspielkopf setzen")
         ToolTip.visible: hovered

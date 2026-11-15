@@ -421,6 +421,215 @@ void testExport(const fs::path& dir) {
     }
 }
 
+void testTransitions(const fs::path& dir) {
+    const std::string red = (dir / "t_rot.mp4").string();
+    const std::string blue = (dir / "t_blau.mp4").string();
+    CHECK(makeClip(red, 220, 30, 30, 2.0));
+    CHECK(makeClip(blue, 30, 30, 220, 2.0));
+    MediaAsset ra, ba;
+    CHECK(probeMedia(red, ra) && probeMedia(blue, ba));
+    Project p = baseProject();
+    const std::string v = videoTrack(p);
+    const std::string a = p.addClip(v, p.addAsset(ra), 0);
+    const std::string b = p.addClip(v, p.addAsset(ba), 0);   // rutscht direkt hinter a
+    CHECK(p.findClip(a)->duration == p.findClip(b)->start);
+    CHECK(p.trimClipEnd(a, kSecond));
+    CHECK(p.moveClip(b, v, kSecond));
+    Clip* cb = p.findClip(b);
+    cb->transitionDuration = 400000;   // 0,8 .. 1,2 s
+    Compositor comp;
+    std::vector<std::uint8_t> img;
+    auto render = [&](TimeUs t) {
+        comp.setProject(std::make_shared<const Project>(p));
+        comp.render(t, kW, kH, img);
+    };
+
+    // Überblenden: Mitte = Mischfarbe, außerhalb unverändert.
+    cb->transition = TransitionType::Crossfade;
+    render(700000);
+    CHECK(near(at(img, 160, 90), 220, 30, 30));
+    render(kSecond);
+    CHECK(near(at(img, 160, 90), 125, 30, 125));
+    render(1300000);
+    CHECK(near(at(img, 160, 90), 30, 30, 220));
+
+    // Über Schwarz: in der Mitte schwarz, kurz davor dunkles Rot.
+    cb->transition = TransitionType::DipBlack;
+    render(kSecond);
+    CHECK(near(at(img, 160, 90), 0, 0, 0, 12));
+    render(900000);
+    CHECK(near(at(img, 160, 90), 110, 15, 15, 25));
+    cb->transition = TransitionType::DipWhite;
+    render(kSecond);
+    CHECK(near(at(img, 160, 90), 255, 255, 255, 12));
+
+    // Wischen: links schon Blau, rechts noch Rot.
+    cb->transition = TransitionType::Wipe;
+    render(kSecond);
+    CHECK(near(at(img, 40, 90), 30, 30, 220));
+    CHECK(near(at(img, 280, 90), 220, 30, 30));
+
+    // Schieben: zur Hälfte -> linke Hälfte Rot (verschoben), rechte Blau.
+    cb->transition = TransitionType::Slide;
+    render(kSecond);
+    CHECK(near(at(img, 40, 90), 220, 30, 30));
+    CHECK(near(at(img, 280, 90), 30, 30, 220));
+
+    // Ton beim Überblenden: kein Loch in der Mitte (gleiche Leistung).
+    cb->transition = TransitionType::Crossfade;
+    AudioMixer mixer;
+    mixer.setProject(std::make_shared<const Project>(p));
+    std::vector<float> mid(kRate / 20 * 2), dip(kRate / 20 * 2);
+    mixer.render(kRate - kRate / 40, mid.data(), kRate / 20);
+    CHECK(rms(mid) > 0.25);
+    // Über Schwarz: genau am Schnitt still.
+    cb->transition = TransitionType::DipBlack;
+    AudioMixer mixer2;
+    mixer2.setProject(std::make_shared<const Project>(p));
+    mixer2.render(kRate - 240, dip.data(), 480);
+    dip.resize(480 * 2);
+    CHECK(rms(dip) < 0.05);
+}
+
+void testAudioExport(const fs::path& dir) {
+    Project p = baseProject();
+    p.bpm = 120;
+    const std::string inst = trackOf(p, TrackKind::Instrument);
+    p.findTrack(inst)->instrument = InstrumentType::Piano;
+    p.findTrack(inst)->fx.reverb = 0.5;
+    const std::string midi = p.addMidiClip(inst, 0, kSecond);
+    p.findClip(midi)->notes = {{69, 0, kSecond / 2, 1.0}};
+    // zweite Spur: Bass, damit es zwei Stems gibt
+    const std::string bassTrack = p.addTrack(TrackKind::Instrument, "Bass");
+    p.findTrack(bassTrack)->instrument = InstrumentType::Bass;
+    p.findClip(p.addMidiClip(bassTrack, 0, kSecond))->notes = {{45, 0, kSecond / 2, 1.0}};
+
+    struct Fmt {
+        const char* ext;
+        bool required;
+    };
+    for (const Fmt f : {Fmt{"wav", true}, Fmt{"flac", true}, Fmt{"m4a", true}, Fmt{"mp3", false},
+                        Fmt{"ogg", false}, Fmt{"opus", false}}) {
+        ExportSettings s;
+        s.path = (dir / (std::string("song.") + f.ext)).string();
+        const RenderResult r = renderAudio(p, s);
+        if (!r.ok && !f.required) {
+            std::printf("Hinweis: .%s nicht verfügbar (%s)\n", f.ext, r.error.c_str());
+            continue;
+        }
+        CHECK(r.ok);
+        MediaAsset out;
+        CHECK(probeMedia(s.path, out));
+        CHECK(out.hasAudio && !out.hasVideo);
+        // Ausklang: länger als das Projekt (Hall), aber höchstens 5 s mehr.
+        CHECK(out.duration > kSecond + 100000 && out.duration < 6 * kSecond + 200000);
+        AudioReader reader;
+        std::vector<float> buf(kRate / 4 * 2);
+        CHECK(reader.open(s.path, kRate) && reader.read(buf.data(), kRate / 4) == static_cast<std::size_t>(kRate / 4));
+        CHECK(rms(buf) > 0.02);
+    }
+    // 24 Bit WAV
+    ExportSettings s24;
+    s24.path = (dir / "song24.wav").string();
+    s24.audioBits = 24;
+    CHECK(renderAudio(p, s24).ok);
+    CHECK(fs::file_size(s24.path) > fs::file_size((dir / "song.wav").string()) * 14 / 10);
+    // Ohne Ausklang: genau so lang wie das Projekt.
+    ExportSettings sNoTail;
+    sNoTail.path = (dir / "kurz.wav").string();
+    CHECK(renderAudio(p, sNoTail, {}, nullptr, false).ok);
+    MediaAsset shortOut;
+    CHECK(probeMedia(sNoTail.path, shortOut) && std::llabs(shortOut.duration - kSecond) < 30000);
+    // Unbekannte Endung
+    ExportSettings bad;
+    bad.path = (dir / "song.xyz").string();
+    CHECK(!renderAudio(p, bad).ok);
+
+    // Stems: eine Datei pro klingender Spur
+    std::vector<std::string> files;
+    const RenderResult stems = renderStems(p, (dir / "stems").string(), "wav", 16, &files);
+    CHECK(stems.ok && files.size() == 2);
+    if (files.size() == 2) {
+        CHECK(fs::path(files[0]).filename().string().rfind("01 ", 0) == 0);
+        AudioReader r1, r2;
+        std::vector<float> b1(kRate / 4 * 2), b2(kRate / 4 * 2);
+        CHECK(r1.open(files[0], kRate) && r2.open(files[1], kRate));
+        r1.read(b1.data(), kRate / 4);
+        r2.read(b2.data(), kRate / 4);
+        // Erste Datei: Klavier (440 Hz), zweite: Bass (110 Hz)
+        CHECK(power(b1, 440.0) > 5 * power(b1, 110.0));
+        CHECK(power(b2, 110.0) > 5 * power(b2, 440.0));
+    }
+}
+
+void testBeatsAndLive(const fs::path& dir) {
+    // Drum-Loop mit 128 BPM, erster Schlag bei 0,2 s
+    const double bpm = 128.0;
+    const std::size_t total = static_cast<std::size_t>(kRate) * 12;
+    std::vector<float> mono(total, 0.0f);
+    const double beatSec = 60.0 / bpm;
+    for (int i = 0; 0.2 + i * beatSec < 11.5; ++i) {
+        const std::size_t at = static_cast<std::size_t>((0.2 + i * beatSec) * kRate);
+        const int pitch = i % 2 == 0 ? 36 : 38;
+        synth::renderNote(InstrumentType::Drums, pitch, 1.0, kRate / 8, 0, mono.data() + at,
+                          std::min<std::size_t>(kRate / 2, total - at), kRate);
+        const std::size_t off = at + static_cast<std::size_t>(beatSec / 2 * kRate);
+        if (off < total)
+            synth::renderNote(InstrumentType::Drums, 42, 0.6, kRate / 16, 0, mono.data() + off,
+                              std::min<std::size_t>(kRate / 4, total - off), kRate);
+    }
+    const BeatInfo direct = detectBeatsFromSamples(mono.data(), mono.size(), kRate);
+    std::printf("Tempo erkannt: %.2f BPM, erster Schlag %.3f s, Sicherheit %.2f\n", direct.bpm,
+                direct.firstBeat / 1e6, direct.confidence);
+    CHECK(std::abs(direct.bpm - bpm) < 1.0);
+    // Phase modulo Schlaglänge
+    const double phase = std::fmod(direct.firstBeat / 1e6 - 0.2 + 10 * beatSec, beatSec);
+    CHECK(phase < 0.03 || beatSec - phase < 0.03);
+
+    // Über eine Datei (WAV)
+    const std::string wav = (dir / "loop.wav").string();
+    {
+        ExportSettings s;
+        s.path = wav;
+        s.video = false;
+        Exporter e;
+        CHECK(e.open(s));
+        std::vector<float> st(total * 2);
+        for (std::size_t i = 0; i < total; ++i) st[i * 2] = st[i * 2 + 1] = mono[i] * 0.8f;
+        CHECK(e.writeAudio(st.data(), total) && e.finish());
+    }
+    const BeatInfo fromFile = detectBeats(wav);
+    CHECK(std::abs(fromFile.bpm - bpm) < 1.0);
+    // Stille: kein Tempo
+    std::vector<float> silence(kRate * 4, 0.0f);
+    CHECK(detectBeatsFromSamples(silence.data(), silence.size(), kRate).bpm == 0.0 ||
+          detectBeatsFromSamples(silence.data(), silence.size(), kRate).confidence < 0.2);
+
+    // Live spielen: Ton beim Drücken, Ausklang nach dem Loslassen, dann Stille.
+    LiveSynth live;
+    live.setSampleRate(kRate);
+    std::vector<float> buf(1024 * 2);
+    live.render(buf.data(), 1024);
+    CHECK(rms(buf) == 0.0);
+    live.noteOn(69, 1.0, InstrumentType::Synth);
+    double held = 0;
+    for (int i = 0; i < 10; ++i) {
+        live.render(buf.data(), 1024);
+        held = rms(buf);
+    }
+    CHECK(held > 0.03);
+    live.noteOff(69);
+    for (int i = 0; i < 30; ++i) live.render(buf.data(), 1024);   // > 0,2 s Ausklang
+    CHECK(rms(buf) < 1e-4);
+    CHECK(live.activeVoices() == 0);
+    live.noteOn(60, 1.0, InstrumentType::Piano);
+    live.noteOn(64, 1.0, InstrumentType::Piano);
+    CHECK(live.activeVoices() == 2);
+    live.allNotesOff();
+    for (int i = 0; i < 40; ++i) live.render(buf.data(), 1024);
+    CHECK(live.activeVoices() == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -431,6 +640,9 @@ int main() {
     testInstruments();
     testMixer(dir);
     testExport(dir);
+    testTransitions(dir);
+    testAudioExport(dir);
+    testBeatsAndLive(dir);
     std::error_code ec;
     fs::remove_all(dir, ec);
     return finish("test_mvp");

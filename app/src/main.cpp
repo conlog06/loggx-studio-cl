@@ -8,6 +8,7 @@
 #include <QTimer>
 
 #include "AppController.h"
+#include "IconItem.h"
 #include "Items.h"
 
 int main(int argc, char** argv) {
@@ -16,7 +17,9 @@ int main(int argc, char** argv) {
     QGuiApplication::setOrganizationName(QStringLiteral("LoggX"));
     QGuiApplication::setApplicationVersion(QStringLiteral(LOGGX_VERSION));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/resources/loggx-256.png")));
-    QQuickStyle::setStyle(QStringLiteral("Fusion"));
+    // Eigener Stil (app/qml/LoggXStyle), fehlende Elemente kommen aus "Basic".
+    QQuickStyle::setStyle(QStringLiteral("LoggXStyle"));
+    QQuickStyle::setFallbackStyle(QStringLiteral("Basic"));
 
     // Dunkles Farbschema für alle Standard-Bedienelemente.
     QPalette palette;
@@ -46,6 +49,7 @@ int main(int argc, char** argv) {
     qmlRegisterType<TimelineItem>("LoggX", 1, 0, "Timeline");
     qmlRegisterType<PianoRollItem>("LoggX", 1, 0, "PianoRoll");
     qmlRegisterType<ScopeItem>("LoggX", 1, 0, "Scope");
+    qmlRegisterType<IconItem>("LoggX", 1, 0, "Icon");
 
     AppController controller;
 
@@ -73,6 +77,7 @@ int main(int argc, char** argv) {
     }
 
     QQmlApplicationEngine engine;
+    engine.addImportPath(QStringLiteral("qrc:/qml"));
     engine.rootContext()->setContextProperty(QStringLiteral("app"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("startPage"), startPage);
     engine.rootContext()->setContextProperty(QStringLiteral("startTab"), startTab);

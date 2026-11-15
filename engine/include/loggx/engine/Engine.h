@@ -42,6 +42,10 @@ private:
         std::vector<std::uint8_t> rgba;
     };
     std::shared_ptr<Lut3D> lut(const std::string& path);
+    // Zeichnet einen Clip zum Zeitpunkt t in ein (vormultipliziertes) Ziel.
+    void drawClip(const Clip& clip, TimeUs t, int w, int h, std::vector<std::uint8_t>& dst,
+                  double extraOpacity);
+    void mixTransition(TransitionType type, double p, int w, int h);
 
     std::shared_ptr<const Project> m_project;
     std::map<std::string, std::unique_ptr<Source>> m_sources;   // nach Clip-id
@@ -49,7 +53,7 @@ private:
     std::map<std::string, std::shared_ptr<Lut3D>> m_luts;       // nach Pfad
     TitleRasterizer m_titles;
     std::vector<std::uint8_t> m_layer;
-    std::vector<float> m_maskRow;
+    std::vector<std::uint8_t> m_bufA, m_bufB;   // Ebenen für Übergänge
 };
 
 // Prüft, ob eine .cube-Datei als 3D-LUT lesbar ist.
@@ -106,6 +110,58 @@ RenderResult renderProject(const Project& project, ExportSettings settings,
                            const std::function<void(double)>& progress = {},
                            const std::atomic<bool>* cancel = nullptr,
                            TitleRasterizer titles = {});
+
+// Rendert nur den Ton (WAV, FLAC, MP3, M4A, OGG, Opus – nach Dateiendung).
+// tail: nach dem Projektende weiterrendern, bis Hall und Ausklang verstummt
+// sind (höchstens 5 s).
+RenderResult renderAudio(const Project& project, ExportSettings settings,
+                         const std::function<void(double)>& progress = {},
+                         const std::atomic<bool>* cancel = nullptr, bool tail = true);
+
+// Rendert jede klingende Spur einzeln in den Ordner `folder` (Dateiname
+// "01 Spurname.<endung>"). files erhält die geschriebenen Pfade.
+RenderResult renderStems(const Project& project, const std::string& folder,
+                         const std::string& extension, int audioBits,
+                         std::vector<std::string>* files = nullptr,
+                         const std::function<void(double)>& progress = {},
+                         const std::atomic<bool>* cancel = nullptr);
+
+// Tempo-Erkennung für Musik (Onset-Autokorrelation).
+struct BeatInfo {
+    double bpm = 0.0;          // 0 = nicht erkannt
+    TimeUs firstBeat = 0;      // Lage des ersten Schlags im Material
+    double confidence = 0.0;   // 0..1
+};
+BeatInfo detectBeats(const std::string& path, TimeUs maxDuration = 90 * kSecond);
+BeatInfo detectBeatsFromSamples(const float* mono, std::size_t count, int sampleRate);
+
+// Spielt Noten live (Computer- oder MIDI-Tastatur). Thread-sicher: Noten
+// kommen aus der Oberfläche oder dem MIDI-Thread, gerendert wird im
+// Audio-Thread.
+class LiveSynth {
+public:
+    void setSampleRate(int rate) { m_rate = rate; }
+    int sampleRate() const { return m_rate; }
+    void noteOn(int pitch, double velocity, InstrumentType type);
+    void noteOff(int pitch);
+    void allNotesOff();
+    int activeVoices();
+    // Addiert nichts, sondern schreibt (überschreibt) Stereo-Float.
+    void render(float* interleaved, std::size_t frames);
+
+private:
+    struct Voice {
+        int pitch;
+        double velocity;
+        InstrumentType type;
+        std::int64_t pos = 0;     // Samples seit dem Anschlag
+        std::int64_t held = -1;   // Haltedauer, -1 solange gedrückt
+    };
+    std::mutex m_mutex;
+    std::vector<Voice> m_voices;
+    std::vector<float> m_mono;
+    int m_rate = 48000;
+};
 
 // Klangerzeuger der Instrumentspuren (zustandslos, damit jede Stelle der
 // Timeline direkt berechnet werden kann).

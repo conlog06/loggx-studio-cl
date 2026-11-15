@@ -1,6 +1,8 @@
 #include "loggx/media/Media.h"
 
 #include <algorithm>
+#include <cctype>
+#include <vector>
 #include <cstring>
 
 #include "FFmpegUtil.h"
@@ -46,6 +48,34 @@ std::int64_t defaultBitrate(int w, int h, double fps, int quality, bool hevc) {
     return static_cast<std::int64_t>(std::clamp(bits, 1.0e6, 200.0e6));
 }
 
+std::string extensionOf(const std::string& path) {
+    const auto dot = path.find_last_of('.');
+    std::string ext = dot == std::string::npos ? "" : path.substr(dot + 1);
+    for (auto& ch : ext) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return ext;
+}
+
+std::vector<AVSampleFormat> supportedSampleFormats(const AVCodecContext* ctx, const AVCodec* codec) {
+    std::vector<AVSampleFormat> out;
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(61, 13, 100)
+    const void* configs = nullptr;
+    int count = 0;
+    if (avcodec_get_supported_config(ctx, codec, AV_CODEC_CONFIG_SAMPLE_FORMAT, 0, &configs, &count) >= 0 && configs)
+        out.assign(static_cast<const AVSampleFormat*>(configs), static_cast<const AVSampleFormat*>(configs) + count);
+#else
+    (void)ctx;
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    for (const AVSampleFormat* f = codec->sample_fmts; f && *f != AV_SAMPLE_FMT_NONE; ++f) out.push_back(*f);
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+#endif
+    return out;
+}
+
 }  // namespace
 
 struct Exporter::Impl {
@@ -62,6 +92,8 @@ struct Exporter::Impl {
     std::int64_t videoFrames = 0;
     std::int64_t audioSamples = 0;
     std::vector<float> audioFifo;   // interleaved stereo
+    std::vector<float> padBuf;
+    SwrContext* swr = nullptr;
     std::string encoderName;
     bool headerWritten = false;
     bool finished = false;
@@ -69,6 +101,7 @@ struct Exporter::Impl {
     ~Impl() { close(); }
 
     void close() {
+        swr_free(&swr);
         sws_freeContext(sws);
         sws = nullptr;
         av_frame_free(&vframe);
@@ -121,24 +154,79 @@ struct Exporter::Impl {
     }
 
     bool openAudioEncoder(std::string* error) {
-        const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+        // Codec: im Video immer AAC, sonst nach Dateiendung.
+        std::vector<std::string> names;
+        bool twentyFour = s.audioBits >= 24;
+        const std::string ext = s.video ? "" : extensionOf(s.path);
+        if (s.video || ext == "m4a" || ext == "aac" || ext == "mp4") names = {"aac"};
+        else if (ext == "wav") names = {twentyFour ? "pcm_s24le" : "pcm_s16le"};
+        else if (ext == "aif" || ext == "aiff") names = {twentyFour ? "pcm_s24be" : "pcm_s16be"};
+        else if (ext == "flac") names = {"flac"};
+        else if (ext == "mp3") names = {"libmp3lame", "mp3_mf"};
+        else if (ext == "ogg") names = {"libvorbis", "vorbis"};
+        else if (ext == "opus") names = {"libopus", "opus"};
+        else {
+            if (error) *error = "Unbekanntes Audioformat ." + ext;
+            return false;
+        }
+        const AVCodec* codec = nullptr;
+        for (const auto& n : names)
+            if ((codec = avcodec_find_encoder_by_name(n.c_str()))) break;
         if (!codec) {
-            if (error) *error = "Kein AAC-Encoder vorhanden";
+            if (error) *error = "Für ." + ext + " ist auf diesem Rechner kein Encoder vorhanden";
             return false;
         }
         aenc = avcodec_alloc_context3(codec);
         aenc->sample_rate = s.sampleRate;
-        aenc->sample_fmt = AV_SAMPLE_FMT_FLTP;
-        aenc->bit_rate = s.audioBitrate;
         aenc->time_base = AVRational{1, s.sampleRate};
         av_channel_layout_default(&aenc->ch_layout, 2);
+
+        // Sample-Format: Fließkomma bevorzugt, bei 24 Bit 32-Bit-Ganzzahl.
+        const auto formats = supportedSampleFormats(aenc, codec);
+        auto has = [&](AVSampleFormat f) { return std::find(formats.begin(), formats.end(), f) != formats.end(); };
+        AVSampleFormat fmtChoice = formats.empty() ? AV_SAMPLE_FMT_FLTP : formats.front();
+        static const AVSampleFormat pref24[] = {AV_SAMPLE_FMT_S32, AV_SAMPLE_FMT_S32P, AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_FLT};
+        static const AVSampleFormat pref16[] = {AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_S16P};
+        for (AVSampleFormat f : twentyFour ? pref24 : pref16)
+            if (has(f)) {
+                fmtChoice = f;
+                break;
+            }
+        aenc->sample_fmt = fmtChoice;
+        if (codec->id == AV_CODEC_ID_FLAC && twentyFour) aenc->bits_per_raw_sample = 24;
+        if (codec->id == AV_CODEC_ID_MP3) aenc->bit_rate = 320000;
+        else if (codec->id == AV_CODEC_ID_AAC) aenc->bit_rate = s.video ? s.audioBitrate : 256000;
+        else if (codec->id == AV_CODEC_ID_OPUS) aenc->bit_rate = 192000;
+        else if (codec->id == AV_CODEC_ID_VORBIS) {
+            aenc->flags |= AV_CODEC_FLAG_QSCALE;
+            aenc->global_quality = 7 * FF_QP2LAMBDA;
+        }
+        if (std::strcmp(codec->name, "vorbis") == 0 || std::strcmp(codec->name, "opus") == 0)
+            aenc->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
         if (fmt->oformat->flags & AVFMT_GLOBALHEADER) aenc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
         const int rc = avcodec_open2(aenc, codec, nullptr);
         if (rc < 0) {
-            if (error) *error = "AAC-Encoder: " + ff::errorText(rc);
+            if (error) *error = std::string("Audio-Encoder ") + codec->name + ": " + ff::errorText(rc);
+            return false;
+        }
+        // Umwandlung aus Stereo-Float (interleaved) ins Format des Encoders.
+        AVChannelLayout stereo{};
+        av_channel_layout_default(&stereo, 2);
+        const int sr = swr_alloc_set_opts2(&swr, &aenc->ch_layout, aenc->sample_fmt, s.sampleRate, &stereo,
+                                           AV_SAMPLE_FMT_FLT, s.sampleRate, 0, nullptr);
+        av_channel_layout_uninit(&stereo);
+        if (sr < 0 || swr_init(swr) < 0) {
+            if (error) *error = "Audio-Umwandlung nicht möglich";
             return false;
         }
         return true;
+    }
+
+    // Größe eines Audio-Rahmens; bei PCM frei wählbar.
+    int audioFrameSize() const {
+        if (aenc->frame_size > 0 && !(aenc->codec->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE))
+            return aenc->frame_size;
+        return 1024;
     }
 
     bool drain(AVCodecContext* enc, AVStream* st) {
@@ -155,14 +243,24 @@ struct Exporter::Impl {
     }
 
     bool encodeAudioFrame(const float* interleaved, int frames) {
-        if (av_frame_make_writable(aframe) < 0) return false;
-        const int size = aframe->nb_samples;
-        float* left = reinterpret_cast<float*>(aframe->data[0]);
-        float* right = reinterpret_cast<float*>(aframe->data[1]);
-        for (int i = 0; i < size; ++i) {
-            left[i] = i < frames ? interleaved[i * 2] : 0.0f;
-            right[i] = i < frames ? interleaved[i * 2 + 1] : 0.0f;
+        // Letzter Rahmen: kürzer erlaubt, sonst mit Stille auffüllen.
+        const bool shortOk = aenc->codec->capabilities &
+                             (AV_CODEC_CAP_VARIABLE_FRAME_SIZE | AV_CODEC_CAP_SMALL_LAST_FRAME);
+        const int size = shortOk ? frames : audioFrameSize();
+        av_frame_unref(aframe);
+        aframe->format = aenc->sample_fmt;
+        aframe->sample_rate = aenc->sample_rate;
+        aframe->nb_samples = size;
+        av_channel_layout_copy(&aframe->ch_layout, &aenc->ch_layout);
+        if (av_frame_get_buffer(aframe, 0) < 0) return false;
+        const float* in = interleaved;
+        if (frames < size) {
+            padBuf.assign(static_cast<std::size_t>(size) * 2, 0.0f);
+            std::copy(interleaved, interleaved + frames * 2, padBuf.begin());
+            in = padBuf.data();
         }
+        const std::uint8_t* inPtr = reinterpret_cast<const std::uint8_t*>(in);
+        if (swr_convert(swr, aframe->data, size, &inPtr, size) < 0) return false;
         aframe->pts = audioSamples;
         audioSamples += size;
         if (avcodec_send_frame(aenc, aframe) < 0) return false;
@@ -180,8 +278,12 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
     d->close();
     d->s = settings;
     ExportSettings& s = d->s;
-    if (s.width < 16 || s.height < 16 || s.width % 2 || s.height % 2 || s.fpsNum < 1 ||
-        s.fpsDen < 1) {
+    if (!s.video && !s.audio) {
+        if (error) *error = "Weder Bild noch Ton ausgewählt";
+        return false;
+    }
+    if (s.video && (s.width < 16 || s.height < 16 || s.width % 2 || s.height % 2 || s.fpsNum < 1 ||
+                    s.fpsDen < 1)) {
         if (error) *error = "Ungültige Exportgröße (Breite und Höhe müssen gerade sein)";
         return false;
     }
@@ -196,8 +298,10 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         return false;
     }
 
-    bool ok = false;
-    if (!s.videoEncoder.empty()) {
+    bool ok = !s.video;
+    if (!s.video) {
+        // nur Ton
+    } else if (!s.videoEncoder.empty()) {
         ok = d->openVideoEncoder(s.videoEncoder.c_str());
     } else {
         if (hevc) {
@@ -214,13 +318,15 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         d->close();
         return false;
     }
-    d->vstream = avformat_new_stream(d->fmt, nullptr);
-    d->vstream->time_base = d->venc->time_base;
-    d->vstream->avg_frame_rate = d->venc->framerate;
-    avcodec_parameters_from_context(d->vstream->codecpar, d->venc);
-    // Apple-Geräte spielen H.265 in MP4/MOV nur mit dem Kennzeichen "hvc1".
-    if (d->venc->codec_id == AV_CODEC_ID_HEVC)
-        d->vstream->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
+    if (s.video) {
+        d->vstream = avformat_new_stream(d->fmt, nullptr);
+        d->vstream->time_base = d->venc->time_base;
+        d->vstream->avg_frame_rate = d->venc->framerate;
+        avcodec_parameters_from_context(d->vstream->codecpar, d->venc);
+        // Apple-Geräte spielen H.265 in MP4/MOV nur mit dem Kennzeichen "hvc1".
+        if (d->venc->codec_id == AV_CODEC_ID_HEVC)
+            d->vstream->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
+    }
 
     if (s.audio) {
         if (!d->openAudioEncoder(error)) {
@@ -232,22 +338,14 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         avcodec_parameters_from_context(d->astream->codecpar, d->aenc);
 
         d->aframe = av_frame_alloc();
-        d->aframe->format = d->aenc->sample_fmt;
-        d->aframe->sample_rate = d->aenc->sample_rate;
-        d->aframe->nb_samples = d->aenc->frame_size > 0 ? d->aenc->frame_size : 1024;
-        av_channel_layout_copy(&d->aframe->ch_layout, &d->aenc->ch_layout);
-        if (av_frame_get_buffer(d->aframe, 0) < 0) {
-            if (error) *error = "Kein Speicher für Audio";
-            d->close();
-            return false;
-        }
     }
 
+    d->pkt = av_packet_alloc();
+    if (s.video) {
     d->vframe = av_frame_alloc();
     d->vframe->format = d->venc->pix_fmt;
     d->vframe->width = s.width;
     d->vframe->height = s.height;
-    d->pkt = av_packet_alloc();
     d->sws = sws_getContext(s.width, s.height, AV_PIX_FMT_RGBA, s.width, s.height,
                             d->venc->pix_fmt, SWS_BILINEAR, nullptr, nullptr, nullptr);
     if (av_frame_get_buffer(d->vframe, 0) < 0 || !d->sws) {
@@ -259,6 +357,7 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
     const int* coeffs = sws_getCoefficients(SWS_CS_ITU709);
     sws_setColorspaceDetails(d->sws, sws_getCoefficients(SWS_CS_DEFAULT), 1, coeffs, 0, 0,
                              1 << 16, 1 << 16);
+    }
 
     if (!(d->fmt->oformat->flags & AVFMT_NOFILE)) {
         rc = avio_open(&d->fmt->pb, s.path.c_str(), AVIO_FLAG_WRITE);
@@ -286,7 +385,7 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
 }
 
 bool Exporter::writeVideoFrame(const std::uint8_t* rgba) {
-    if (!d->headerWritten || d->finished) return false;
+    if (!d->headerWritten || d->finished || !d->venc) return false;
     if (av_frame_make_writable(d->vframe) < 0) return false;
     const std::uint8_t* src[4] = {rgba, nullptr, nullptr, nullptr};
     const int srcStride[4] = {d->s.width * 4, 0, 0, 0};
@@ -300,7 +399,7 @@ bool Exporter::writeAudio(const float* interleaved, std::size_t frames) {
     if (!d->headerWritten || d->finished) return false;
     if (!d->aenc) return true;
     d->audioFifo.insert(d->audioFifo.end(), interleaved, interleaved + frames * 2);
-    const std::size_t size = static_cast<std::size_t>(d->aframe->nb_samples);
+    const std::size_t size = static_cast<std::size_t>(d->audioFrameSize());
     std::size_t pos = 0;
     while ((d->audioFifo.size() - pos) / 2 >= size) {
         if (!d->encodeAudioFrame(d->audioFifo.data() + pos, static_cast<int>(size))) return false;
@@ -320,8 +419,10 @@ bool Exporter::finish(std::string* error) {
         ok = avcodec_send_frame(d->aenc, nullptr) >= 0 && ok;
         ok = d->drain(d->aenc, d->astream) && ok;
     }
-    ok = avcodec_send_frame(d->venc, nullptr) >= 0 && ok;
-    ok = d->drain(d->venc, d->vstream) && ok;
+    if (d->venc) {
+        ok = avcodec_send_frame(d->venc, nullptr) >= 0 && ok;
+        ok = d->drain(d->venc, d->vstream) && ok;
+    }
     const int rc = av_write_trailer(d->fmt);
     if (rc < 0) ok = false;
     if (!ok && error) *error = rc < 0 ? ff::errorText(rc) : "Fehler beim Kodieren";

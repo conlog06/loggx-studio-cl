@@ -8,6 +8,7 @@ qt_add_executable(loggx-studio
   src/Workers.cpp src/Workers.h
   src/MediaCache.cpp src/MediaCache.h
   src/TitleRenderer.cpp src/TitleRenderer.h
+  src/IconItem.cpp src/IconItem.h
 )
 
 qt_add_resources(loggx-studio "qml"
@@ -23,6 +24,28 @@ qt_add_resources(loggx-studio "qml"
     qml/MusicPage.qml
     qml/MixerStrip.qml
     qml/Section.qml
+    qml/LoggXStyle/Button.qml
+    qml/LoggXStyle/CheckBox.qml
+    qml/LoggXStyle/ComboBox.qml
+    qml/LoggXStyle/Dialog.qml
+    qml/LoggXStyle/ItemDelegate.qml
+    qml/LoggXStyle/Label.qml
+    qml/LoggXStyle/Menu.qml
+    qml/LoggXStyle/MenuItem.qml
+    qml/LoggXStyle/Popup.qml
+    qml/LoggXStyle/ProgressBar.qml
+    qml/LoggXStyle/ScrollBar.qml
+    qml/LoggXStyle/Slider.qml
+    qml/LoggXStyle/SpinBox.qml
+    qml/LoggXStyle/Switch.qml
+    qml/LoggXStyle/TabBar.qml
+    qml/LoggXStyle/TabButton.qml
+    qml/LoggXStyle/TextArea.qml
+    qml/LoggXStyle/TextField.qml
+    qml/LoggXStyle/Theme.qml
+    qml/LoggXStyle/ToolButton.qml
+    qml/LoggXStyle/ToolTip.qml
+    qml/LoggXStyle/qmldir
 )
 qt_add_resources(loggx-studio "icons"
   PREFIX "/"

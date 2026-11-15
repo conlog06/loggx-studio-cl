@@ -1,0 +1,23 @@
+module LoggXStyle
+import QtQuick.Controls.Basic auto
+singleton Theme 1.0 Theme.qml
+Button 2.15 Button.qml
+ToolButton 2.15 ToolButton.qml
+Slider 2.15 Slider.qml
+ComboBox 2.15 ComboBox.qml
+CheckBox 2.15 CheckBox.qml
+Switch 2.15 Switch.qml
+TabBar 2.15 TabBar.qml
+TabButton 2.15 TabButton.qml
+TextField 2.15 TextField.qml
+TextArea 2.15 TextArea.qml
+SpinBox 2.15 SpinBox.qml
+ProgressBar 2.15 ProgressBar.qml
+ScrollBar 2.15 ScrollBar.qml
+Menu 2.15 Menu.qml
+MenuItem 2.15 MenuItem.qml
+ToolTip 2.15 ToolTip.qml
+Dialog 2.15 Dialog.qml
+Popup 2.15 Popup.qml
+Label 2.15 Label.qml
+ItemDelegate 2.15 ItemDelegate.qml

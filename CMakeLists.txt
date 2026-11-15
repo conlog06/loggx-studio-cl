@@ -67,7 +67,7 @@ else()
 endif()
 
 # ----------------------------------------------------------- Bibliotheken
-add_library(loggx_core STATIC core/src/Project.cpp)
+add_library(loggx_core STATIC core/src/Project.cpp core/src/Midi.cpp)
 target_include_directories(loggx_core PUBLIC core/include)
 target_link_libraries(loggx_core PRIVATE nlohmann_json::nlohmann_json)
 
@@ -77,7 +77,7 @@ target_link_libraries(loggx_media PUBLIC loggx_core PRIVATE loggx_ffmpeg)
 
 add_library(loggx_engine STATIC
   engine/src/Compositor.cpp engine/src/AudioMixer.cpp engine/src/Render.cpp
-  engine/src/ImageOps.cpp engine/src/Synth.cpp engine/src/AudioFx.cpp)
+  engine/src/ImageOps.cpp engine/src/Synth.cpp engine/src/AudioFx.cpp engine/src/Beat.cpp)
 target_include_directories(loggx_engine PUBLIC engine/include)
 target_link_libraries(loggx_engine PUBLIC loggx_core loggx_media)
 if(LOGGX_HAVE_RUBBERBAND)

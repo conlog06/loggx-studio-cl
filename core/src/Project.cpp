@@ -111,6 +111,18 @@ const char* instrumentName(InstrumentType type) {
     return "?";
 }
 
+const char* transitionName(TransitionType type) {
+    switch (type) {
+        case TransitionType::None: return "Kein";
+        case TransitionType::Crossfade: return "Überblenden";
+        case TransitionType::DipBlack: return "Über Schwarz";
+        case TransitionType::DipWhite: return "Über Weiß";
+        case TransitionType::Wipe: return "Wischen";
+        case TransitionType::Slide: return "Schieben";
+    }
+    return "?";
+}
+
 bool isKeyframeParam(const std::string& name) {
     for (const char* p : kKeyframeParams)
         if (name == p) return true;
@@ -188,6 +200,55 @@ Project Project::createDefault() {
     p.addTrack(TrackKind::Audio, "Musik");
     p.addTrack(TrackKind::Instrument, "Instrument 1");
     return p;
+}
+
+Project Project::createMusic() {
+    Project p;
+    p.mode = ProjectMode::Music;
+    p.name = "Neuer Song";
+    p.addTrack(TrackKind::Audio, "Audio 1");
+    const std::string melody = p.addTrack(TrackKind::Instrument, "Melodie");
+    const std::string bass = p.addTrack(TrackKind::Instrument, "Bass");
+    const std::string drums = p.addTrack(TrackKind::Instrument, "Schlagzeug");
+    p.findTrack(melody)->instrument = InstrumentType::ElectricPiano;
+    p.findTrack(bass)->instrument = InstrumentType::Bass;
+    p.findTrack(drums)->instrument = InstrumentType::Drums;
+    return p;
+}
+
+TimeUs Project::nearestBeat(TimeUs t) const {
+    const double beat = 60.0 / bpm * kSecond;
+    const double n = std::round(static_cast<double>(t - beatOffset) / beat);
+    return beatOffset + static_cast<TimeUs>(n * beat);
+}
+
+const Clip* Project::previousAdjacent(const Track& track, const Clip& c) const {
+    for (const auto& o : track.clips)
+        if (o.id != c.id && std::llabs(o.end() - c.start) <= 1000) return &o;
+    return nullptr;
+}
+
+const Clip* Project::nextAdjacent(const Track& track, const Clip& c) const {
+    for (const auto& o : track.clips)
+        if (o.id != c.id && std::llabs(c.end() - o.start) <= 1000) return &o;
+    return nullptr;
+}
+
+int Project::cutOnBeats(const std::string& clipId, int everyBeats) {
+    const Clip* c = findClip(clipId);
+    if (!c || everyBeats < 1) return 0;
+    std::vector<TimeUs> cuts;
+    const double beat = 60.0 / bpm * kSecond;
+    // Erster Schlag nach dem Clip-Anfang, dann jeder n-te.
+    std::int64_t n = static_cast<std::int64_t>(std::ceil(static_cast<double>(c->start - beatOffset) / beat));
+    for (TimeUs t = beatTime(n); t < c->end(); t = beatTime(n += everyBeats))
+        if (t - c->start >= kMinClipDuration && c->end() - t >= kMinClipDuration) cuts.push_back(t);
+    // Von hinten schneiden: der linke Teil behält jeweils die id.
+    std::string current = clipId;
+    int done = 0;
+    for (auto it = cuts.rbegin(); it != cuts.rend(); ++it)
+        if (!splitClip(current, *it).empty()) ++done;
+    return done;
 }
 
 TimeUs Project::duration() const {
@@ -556,6 +617,8 @@ json clipToJson(const Clip& c) {
             notes.push_back({n.pitch, n.start, n.length, n.velocity});
         jc["notes"] = std::move(notes);
     }
+    if (c.transition != TransitionType::None)
+        jc["transition"] = {{"type", static_cast<int>(c.transition)}, {"duration", c.transitionDuration}};
     if (c.hasKeys()) {
         json keys = json::object();
         for (const auto& [name, list] : c.keys) {
@@ -642,6 +705,11 @@ Clip clipFromJson(const json& jc) {
         if (note.pitch < 0 || note.pitch > 127 || note.length <= 0) continue;
         c.notes.push_back(note);
     }
+    if (jc.contains("transition")) {
+        const int type = jc["transition"].value("type", 0);
+        if (type > 0 && type < kTransitionCount) c.transition = static_cast<TransitionType>(type);
+        c.transitionDuration = std::clamp<TimeUs>(jc["transition"].value("duration", TimeUs{500000}), 40'000, 10 * kSecond);
+    }
     if (jc.contains("keys")) {
         for (const auto& [name, arr] : jc["keys"].items()) {
             if (!isKeyframeParam(name)) continue;
@@ -665,7 +733,8 @@ std::string Project::toJson(const std::string& baseDir) const {
     j["name"] = name;
     j["video"] = {{"width", width}, {"height", height}, {"fpsNum", fpsNum}, {"fpsDen", fpsDen}};
     j["audio"] = {{"sampleRate", sampleRate}, {"masterGain", masterGain}};
-    j["music"] = {{"bpm", bpm}, {"beatsPerBar", beatsPerBar}};
+    j["music"] = {{"bpm", bpm}, {"beatsPerBar", beatsPerBar}, {"beatOffset", beatOffset}};
+    j["mode"] = mode == ProjectMode::Music ? "music" : "video";
     j["nextId"] = nextId;
 
     j["assets"] = json::array();
@@ -725,10 +794,12 @@ bool Project::fromJson(const std::string& text, const std::string& baseDir, Proj
         if (j.contains("music")) {
             p.bpm = std::clamp(j["music"].value("bpm", 120.0), 20.0, 300.0);
             p.beatsPerBar = std::clamp(j["music"].value("beatsPerBar", 4), 1, 16);
+            p.beatOffset = j["music"].value("beatOffset", TimeUs{0});
         }
         if (p.width < 16 || p.height < 16 || p.fpsNum < 1 || p.fpsDen < 1 || p.sampleRate < 8000)
             throw std::runtime_error("Ungültige Projekteinstellungen");
         p.nextId = j.value("nextId", std::uint64_t{1});
+        p.mode = j.value("mode", "video") == "music" ? ProjectMode::Music : ProjectMode::Video;
 
         for (const auto& ja : j.value("assets", json::array())) {
             MediaAsset a;

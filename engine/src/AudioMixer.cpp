@@ -196,10 +196,61 @@ void applyClipGain(const Clip& clip, std::int64_t firstSample, int rate, float* 
     for (std::size_t i = 0; i < frames; ++i) {
         const double f = frames > 1 ? static_cast<double>(i) / static_cast<double>(frames) : 0.0;
         double g = g0 + (g1 - g0) * f;
-        if (fades) g *= clip.fadeAt((firstSample + static_cast<std::int64_t>(i)) * kSecond / rate);
+        if (fades) {
+            // Blenden gelten nur innerhalb des Clips (Übergänge spielen darüber hinaus).
+            const TimeUs t = (firstSample + static_cast<std::int64_t>(i)) * kSecond / rate;
+            g *= clip.fadeAt(std::clamp(t, clip.start, clip.end() - 1));
+        }
         stereo[i * 2] *= static_cast<float>(g);
         stereo[i * 2 + 1] *= static_cast<float>(g);
     }
+}
+
+bool crossfadeLike(TransitionType t) {
+    return t == TransitionType::Crossfade || t == TransitionType::Wipe || t == TransitionType::Slide;
+}
+
+// Lautstärkeverlauf durch Übergänge an Anfang und Ende eines Clips.
+struct TransitionRamps {
+    TimeUs from = 0, to = 0;   // hörbarer Bereich (über die Clipgrenzen hinaus)
+    TimeUs inA = 0, inB = 0;   // Einblenden von inA bis inB (inA == inB: keins)
+    TimeUs outA = 0, outB = 0; // Ausblenden
+    double gainAt(TimeUs t) const {
+        double g = 1.0;
+        constexpr double halfPi = 1.5707963267948966;
+        if (inB > inA && t < inB) g *= std::sin(halfPi * std::clamp(static_cast<double>(t - inA) / (inB - inA), 0.0, 1.0));
+        if (outB > outA && t > outA) g *= std::cos(halfPi * std::clamp(static_cast<double>(t - outA) / (outB - outA), 0.0, 1.0));
+        return g;
+    }
+};
+
+TransitionRamps rampsFor(const Project& p, const Track& track, const Clip& c) {
+    TransitionRamps r;
+    r.from = c.start;
+    r.to = c.end();
+    if (const Clip* prev = p.previousAdjacent(track, c); prev && c.transition != TransitionType::None) {
+        const TimeUs d = std::min({c.transitionDuration, prev->duration, c.duration});
+        if (crossfadeLike(c.transition)) {
+            r.from = c.start - d / 2;
+            r.inA = c.start - d / 2;
+            r.inB = c.start + d / 2;
+        } else {
+            r.inA = c.start;
+            r.inB = c.start + d / 2;
+        }
+    }
+    if (const Clip* next = p.nextAdjacent(track, c); next && next->transition != TransitionType::None) {
+        const TimeUs d = std::min({next->transitionDuration, c.duration, next->duration});
+        if (crossfadeLike(next->transition)) {
+            r.to = c.end() + d / 2;
+            r.outA = c.end() - d / 2;
+            r.outB = c.end() + d / 2;
+        } else {
+            r.outA = c.end() - d / 2;
+            r.outB = c.end();
+        }
+    }
+    return r;
 }
 
 }  // namespace
@@ -259,9 +310,11 @@ void AudioMixer::render(std::int64_t position, float* interleaved, std::size_t f
                 continue;
             }
 
-            const std::int64_t a = std::max(position, clipStart);
-            const std::int64_t b = std::min(blockEnd, clipEnd);
-            if (a >= b || clip.kind != ClipKind::Media) continue;
+            if (clip.kind != ClipKind::Media) continue;
+            const TransitionRamps ramps = rampsFor(project, track, clip);
+            const std::int64_t a = std::max(position, ramps.from * rate / kSecond);
+            const std::int64_t b = std::min(blockEnd, ramps.to * rate / kSecond);
+            if (a >= b) continue;
             const MediaAsset* asset = project.findAsset(clip.assetId);
             if (!asset || !asset->hasAudio) continue;
 
@@ -278,6 +331,12 @@ void AudioMixer::render(std::int64_t position, float* interleaved, std::size_t f
             m_scratch.resize(n * 2);
             source->fetch(clip, a - clipStart, m_scratch.data(), n);
             applyClipGain(clip, a, rate, m_scratch.data(), n);
+            if (ramps.inB > ramps.inA || ramps.outB > ramps.outA)
+                for (std::size_t i = 0; i < n; ++i) {
+                    const float g = static_cast<float>(ramps.gainAt((a + static_cast<std::int64_t>(i)) * kSecond / rate));
+                    m_scratch[i * 2] *= g;
+                    m_scratch[i * 2 + 1] *= g;
+                }
             float* dst = m_trackBuf.data() + (a - position) * 2;
             for (std::size_t i = 0; i < n * 2; ++i) dst[i] += m_scratch[i];
             anything = true;

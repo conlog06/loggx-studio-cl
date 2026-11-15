@@ -1,6 +1,8 @@
 #include <cmath>
+#include <filesystem>
 
 #include "check.h"
+#include "loggx/core/Midi.h"
 #include "loggx/core/Project.h"
 #include "loggx/core/UndoStack.h"
 
@@ -279,6 +281,97 @@ void testTitlesAndMidi() {
     CHECK(Project::fromJson(v1, {}, q, &error) && q.name == "alt" && q.bpm == 120);
 }
 
+void testMusicTransitionsBeats() {
+    // Musikprojekt
+    Project m = Project::createMusic();
+    CHECK(m.mode == ProjectMode::Music);
+    int instruments = 0;
+    for (const auto& t : m.tracks) {
+        CHECK(t.kind != TrackKind::Video);
+        if (t.kind == TrackKind::Instrument) ++instruments;
+    }
+    CHECK(instruments == 3);
+
+    // Beat-Raster
+    Project p = Project::createDefault();
+    p.bpm = 120;
+    p.beatOffset = 100000;
+    CHECK(p.beatTime(0) == 100000 && p.beatTime(2) == 1100000);
+    CHECK(p.nearestBeat(1300000) == 1100000);
+    CHECK(p.nearestBeat(1400000) == 1600000);
+
+    // Schnitt auf den Beat: 10-s-Clip, Beat alle 0,5 s, jeder 4. Schlag -> Schnitte bei 2,1 4,1 6,1 8,1
+    const std::string asset = p.addAsset(videoAsset(10 * kSecond));
+    const std::string v = firstTrack(p, TrackKind::Video);
+    const std::string c = p.addClip(v, asset, 0);
+    CHECK(p.cutOnBeats(c, 4) == 5);   // 0,1 2,1 4,1 6,1 8,1 (0,1 s liegt nach dem Anfang)
+    const Track* track = p.findTrack(v);
+    CHECK(track->clips.size() == 6);
+    CHECK(track->clips[1].start == 100000 && track->clips[2].start == 2100000);
+    CHECK(track->clips[0].id == c);
+
+    // Angrenzende Clips und Übergänge
+    CHECK(p.previousAdjacent(*track, track->clips[2]) == &track->clips[1]);
+    CHECK(p.nextAdjacent(*track, track->clips[2]) == &track->clips[3]);
+    CHECK(p.previousAdjacent(*track, track->clips[0]) == nullptr);
+    Clip* second = p.findClip(track->clips[2].id);
+    second->transition = TransitionType::Wipe;
+    second->transitionDuration = 800000;
+    Project q;
+    CHECK(Project::fromJson(p.toJson(), {}, q));
+    const Clip* lc = q.findClip(second->id);
+    CHECK(lc && lc->transition == TransitionType::Wipe && lc->transitionDuration == 800000);
+    CHECK(q.beatOffset == 100000);
+    Project mq;
+    CHECK(Project::fromJson(m.toJson(), {}, mq) && mq.mode == ProjectMode::Music);
+}
+
+void testMidiFiles() {
+    Project p = Project::createMusic();
+    p.bpm = 100;
+    std::string bass, drums;
+    for (const auto& t : p.tracks) {
+        if (t.instrument == InstrumentType::Bass && t.kind == TrackKind::Instrument) bass = t.id;
+        if (t.instrument == InstrumentType::Drums) drums = t.id;
+    }
+    const TimeUs beat = p.beatDuration();   // 0,6 s
+    const std::string bc = p.addMidiClip(bass, 0);
+    p.findClip(bc)->notes = {{40, 0, beat, 1.0}, {43, beat, beat / 2, 0.5}, {45, 2 * beat, beat, 0.75}};
+    p.findClip(bc)->pitch = 2;   // wird beim Export eingerechnet
+    const std::string dc = p.addMidiClip(drums, 4 * beat);
+    p.findClip(dc)->notes = {{36, 0, beat / 4, 1.0}, {38, beat, beat / 4, 0.8}};
+
+    const auto path = (std::filesystem::temp_directory_path() / "loggx_test.mid").string();
+    std::string error;
+    CHECK(exportMidi(p, path, &error));
+
+    Project q = Project::createDefault();
+    q.bpm = 100;
+    MidiImportResult res;
+    CHECK(importMidi(path, q, 0, &res, &error));
+    CHECK(res.tracks == 2 && res.notes == 5);
+    CHECK(std::abs(res.fileBpm - 100.0) < 0.01);
+    const Track* ib = nullptr;
+    const Track* id = nullptr;
+    for (const auto& t : q.tracks) {
+        if (t.name == "Bass") ib = &t;
+        if (t.name == "Schlagzeug") id = &t;
+    }
+    CHECK(ib && id);
+    if (ib && id) {
+        CHECK(ib->instrument == InstrumentType::Bass);
+        CHECK(id->instrument == InstrumentType::Drums);
+        const auto& n = ib->clips.at(0).notes;
+        CHECK(n.size() == 3 && n[0].pitch == 42 && n[1].pitch == 45 && n[2].pitch == 47);
+        CHECK(std::llabs(n[1].start - beat) < 2000 && std::llabs(n[1].length - beat / 2) < 2000);
+        CHECK(std::abs(n[1].velocity - 0.5) < 0.01);
+        // Schlagzeug beginnt in der Datei nach 4 Schlägen
+        CHECK(std::llabs(id->clips.at(0).notes.at(0).start - 4 * beat) < 2000);
+    }
+    CHECK(!importMidi("/gibt/es/nicht.mid", q, 0, nullptr, &error));
+    std::filesystem::remove(path);
+}
+
 void testUndo() {
     UndoStack<int> stack;
     int value = 1;
@@ -305,6 +398,8 @@ int main() {
     testJsonRoundTrip();
     testKeyframesAndFades();
     testTitlesAndMidi();
+    testMusicTransitionsBeats();
+    testMidiFiles();
     testUndo();
     return finish("test_core");
 }
