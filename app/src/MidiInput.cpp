@@ -1,7 +1,11 @@
 #include "MidiInput.h"
 
 #ifdef LOGGX_WITH_RTMIDI
+#if __has_include(<RtMidi.h>)
 #include <RtMidi.h>
+#else
+#include <rtmidi/RtMidi.h>
+#endif
 #endif
 
 struct MidiInput::Impl {

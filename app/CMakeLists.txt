@@ -64,13 +64,18 @@ if(WIN32)
   target_sources(loggx-studio PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/loggx.rc)
 endif()
 
-# MIDI-Keyboards (optional): RtMidi über pkg-config oder direkt gesucht
+# MIDI-Keyboards (optional): RtMidi über sein CMake-Paket (vcpkg), pkg-config
+# (Linux/macOS) oder direkt gesucht
 add_library(loggx_rtmidi INTERFACE)
 set(LOGGX_HAVE_RTMIDI OFF)
-if(PkgConfig_FOUND)
+find_package(RtMidi CONFIG QUIET)
+if(NOT TARGET RtMidi::rtmidi AND PkgConfig_FOUND AND NOT WIN32)
   pkg_check_modules(LOGGX_RTMIDI IMPORTED_TARGET rtmidi)
 endif()
-if(TARGET PkgConfig::LOGGX_RTMIDI)
+if(TARGET RtMidi::rtmidi)
+  target_link_libraries(loggx_rtmidi INTERFACE RtMidi::rtmidi)
+  set(LOGGX_HAVE_RTMIDI ON)
+elseif(TARGET PkgConfig::LOGGX_RTMIDI)
   target_link_libraries(loggx_rtmidi INTERFACE PkgConfig::LOGGX_RTMIDI)
   set(LOGGX_HAVE_RTMIDI ON)
 else()
