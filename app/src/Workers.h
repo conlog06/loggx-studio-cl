@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 
@@ -62,6 +63,29 @@ private:
     loggx::ExportSettings m_settings;
     Mode m_mode;
     QString m_stemsExt;
+    std::atomic<bool> m_cancel{false};
+};
+
+// Beliebige längere Aufgabe (Analyse, Stimmentrennung) im Hintergrund.
+// Die Funktion meldet Fortschritt 0..1 und prüft cancel.
+class TaskWorker : public QThread {
+    Q_OBJECT
+public:
+    using Job = std::function<void(const std::function<void(double)>& progress, const std::atomic<bool>& cancel)>;
+    TaskWorker(Job job, QObject* parent = nullptr) : QThread(parent), m_job(std::move(job)) {}
+    void cancel() { m_cancel = true; }
+    bool cancelled() const { return m_cancel; }
+
+signals:
+    void progress(double value);
+
+protected:
+    void run() override {
+        m_job([this](double p) { emit progress(p); }, m_cancel);
+    }
+
+private:
+    Job m_job;
     std::atomic<bool> m_cancel{false};
 };
 

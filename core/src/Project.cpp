@@ -119,6 +119,12 @@ const char* transitionName(TransitionType type) {
         case TransitionType::DipWhite: return "Über Weiß";
         case TransitionType::Wipe: return "Wischen";
         case TransitionType::Slide: return "Schieben";
+        case TransitionType::WipeUp: return "Wischen nach oben";
+        case TransitionType::SlideUp: return "Schieben nach oben";
+        case TransitionType::Circle: return "Kreis";
+        case TransitionType::Zoom: return "Zoom";
+        case TransitionType::BlurDissolve: return "Weich überblenden";
+        case TransitionType::Pixelate: return "Verpixeln";
     }
     return "?";
 }
@@ -386,6 +392,61 @@ std::string Project::pasteClip(const Clip& source, const std::string& trackId, T
     return c.id;
 }
 
+bool Project::retime(double newBpm) {
+    if (!(newBpm >= 20.0 && newBpm <= 300.0) || bpm <= 0.0) return false;
+    const double f = bpm / newBpm;   // Faktor für alle Zeiten
+    if (std::abs(f - 1.0) < 1e-9) return true;
+    auto scale = [f](TimeUs t) { return static_cast<TimeUs>(std::llround(static_cast<double>(t) * f)); };
+    // Erst prüfen, dann ändern (alles oder nichts).
+    for (const auto& t : tracks)
+        if (t.kind == TrackKind::Audio)
+            for (const auto& c : t.clips)
+                if (c.kind == ClipKind::Media && !(c.speed / f >= 0.25 && c.speed / f <= 4.0)) return false;
+    for (auto& t : tracks) {
+        if (t.kind == TrackKind::Video) continue;
+        for (auto& c : t.clips) {
+            c.start = scale(c.start);
+            c.duration = std::max(kMinClipDuration, scale(c.duration));
+            c.fadeIn = scale(c.fadeIn);
+            c.fadeOut = scale(c.fadeOut);
+            c.transitionDuration = scale(c.transitionDuration);
+            for (auto& [name, list] : c.keys)
+                for (auto& k : list) k.t = scale(k.t);
+            if (c.kind == ClipKind::Midi) {
+                c.in = scale(c.in);
+                for (auto& n : c.notes) {
+                    n.start = scale(n.start);
+                    n.length = std::max<TimeUs>(1000, scale(n.length));
+                }
+            } else if (c.kind == ClipKind::Media) {
+                c.speed /= f;   // Quellbereich bleibt gleich
+            }
+        }
+        sortClips(t);
+    }
+    beatOffset = scale(beatOffset);
+    bpm = newBpm;
+    return true;
+}
+
+int Project::transposeAll(int semitones) {
+    int changed = 0;
+    for (auto& t : tracks) {
+        // Schlagzeug nicht transponieren (sonst andere Trommeln)
+        if (t.kind == TrackKind::Video || (t.kind == TrackKind::Instrument && t.instrument == InstrumentType::Drums)) continue;
+        for (auto& c : t.clips) {
+            if (c.kind == ClipKind::Title) continue;
+            const double limit = c.kind == ClipKind::Midi ? 24.0 : 12.0;
+            const double next = std::clamp(c.pitch + semitones, -limit, limit);
+            if (next != c.pitch) {
+                c.pitch = next;
+                ++changed;
+            }
+        }
+    }
+    return changed;
+}
+
 std::string Project::addTitleClip(const std::string& trackId, TimeUs start,
                                   const std::string& text) {
     Track* track = findTrack(trackId);
@@ -623,7 +684,10 @@ json clipToJson(const Clip& c) {
         const auto& f = c.fx;
         jc["effects"] = {{"blur", f.blur}, {"chromaKey", f.chromaKey}, {"keyR", f.keyR},
                          {"keyG", f.keyG}, {"keyB", f.keyB}, {"keyTolerance", f.keyTolerance},
-                         {"keySoftness", f.keySoftness}, {"vignette", f.vignette}};
+                         {"keySoftness", f.keySoftness}, {"vignette", f.vignette},
+                         {"sharpen", f.sharpen}, {"grain", f.grain}, {"pixelate", f.pixelate},
+                         {"glow", f.glow}, {"rgbSplit", f.rgbSplit}, {"sepia", f.sepia},
+                         {"invert", f.invert}, {"mirrorH", f.mirrorH}, {"mirrorV", f.mirrorV}};
     }
     if (c.kind == ClipKind::Title) {
         const auto& t = c.title;
@@ -706,6 +770,15 @@ Clip clipFromJson(const json& jc) {
         c.fx.keyTolerance = f.value("keyTolerance", 0.3);
         c.fx.keySoftness = f.value("keySoftness", 0.1);
         c.fx.vignette = f.value("vignette", 0.0);
+        c.fx.sharpen = std::clamp(f.value("sharpen", 0.0), 0.0, 1.0);
+        c.fx.grain = std::clamp(f.value("grain", 0.0), 0.0, 1.0);
+        c.fx.pixelate = std::clamp(f.value("pixelate", 0.0), 0.0, 1.0);
+        c.fx.glow = std::clamp(f.value("glow", 0.0), 0.0, 1.0);
+        c.fx.rgbSplit = std::clamp(f.value("rgbSplit", 0.0), 0.0, 1.0);
+        c.fx.sepia = std::clamp(f.value("sepia", 0.0), 0.0, 1.0);
+        c.fx.invert = f.value("invert", false);
+        c.fx.mirrorH = f.value("mirrorH", false);
+        c.fx.mirrorV = f.value("mirrorV", false);
     }
     if (jc.contains("title")) {
         const auto& t = jc["title"];
@@ -763,6 +836,8 @@ std::string Project::toJson(const std::string& baseDir) const {
                    {"duration", a.duration}, {"width", a.width},   {"height", a.height},
                    {"fps", a.fps},       {"hasVideo", a.hasVideo}, {"hasAudio", a.hasAudio},
                    {"isStill", a.isStill}};
+        if (a.bpm > 0.0 || a.key >= 0)
+            ja["analysis"] = {{"bpm", a.bpm}, {"firstBeat", a.firstBeat}, {"key", a.key}, {"minor", a.keyMinor}};
         if (!baseDir.empty()) {
             std::error_code ec;
             const fs::path rel = fs::relative(fromU8(a.path), fromU8(baseDir), ec);
@@ -833,6 +908,13 @@ bool Project::fromJson(const std::string& text, const std::string& baseDir, Proj
             a.hasVideo = ja.value("hasVideo", false);
             a.hasAudio = ja.value("hasAudio", false);
             a.isStill = ja.value("isStill", false);
+            if (ja.contains("analysis") && ja["analysis"].is_object()) {
+                const auto& an = ja["analysis"];
+                a.bpm = an.value("bpm", 0.0);
+                a.firstBeat = an.value("firstBeat", TimeUs{0});
+                a.key = std::clamp(an.value("key", -1), -1, 11);
+                a.keyMinor = an.value("minor", false);
+            }
             // Wurde der Projektordner verschoben, gilt der relative Pfad.
             const std::string rel = ja.value("relativePath", "");
             std::error_code ec;

@@ -89,6 +89,10 @@ class AppController : public QObject {
     Q_PROPERTY(int audioInput READ audioInput WRITE setAudioInput NOTIFY micChanged)
     Q_PROPERTY(bool micRecording READ micRecording NOTIFY micChanged)
     Q_PROPERTY(double micLevel READ micLevel NOTIFY micLevelChanged)
+    // Hintergrundarbeit (Analyse, Stimmentrennung)
+    Q_PROPERTY(bool working READ working NOTIFY workChanged)
+    Q_PROPERTY(double workProgress READ workProgress NOTIFY workChanged)
+    Q_PROPERTY(QString workLabel READ workLabel NOTIFY workChanged)
     Q_PROPERTY(double previewMs READ previewMs NOTIFY statsChanged)
     Q_PROPERTY(QVariantMap systemInfo READ systemInfo CONSTANT)
 
@@ -235,6 +239,21 @@ public:
     double micLevel() const { return m_micLevel; }
     Q_INVOKABLE bool startMicRecording();
     Q_INVOKABLE void stopMicRecording();
+
+    // ---- Tonart, Tempo, Stimme (ausgewählter Audio-/Video-Clip)
+    bool working() const { return m_task != nullptr; }
+    double workProgress() const { return m_workProgress; }
+    QString workLabel() const { return m_workLabel; }
+    Q_INVOKABLE bool analyzeSelected();                 // Tempo + Tonart der Quelle
+    Q_INVOKABLE void setClipKey(int tonic);             // per Tonhöhe (Halbtöne)
+    Q_INVOKABLE void setClipBpm(double bpm);            // per Tempo (Time-Stretch)
+    Q_INVOKABLE void matchClipTempo();                  // auf Projekt-Tempo
+    Q_INVOKABLE bool separateSelected(bool keepVocals); // false: Stimme entfernen
+    Q_INVOKABLE void cancelWork();
+    Q_INVOKABLE QStringList keyNames(bool minor) const;
+    // ---- ganzer Song
+    Q_INVOKABLE bool setSongTempo(double bpm);
+    Q_INVOKABLE int transposeSong(int semitones);
     bool openProjectFile(const QString& path);
 
     // ---- Automatisches Sichern (alle 60 s, falls geändert)
@@ -314,6 +333,7 @@ signals:
     void clipboardChanged();
     void micChanged();
     void micLevelChanged();
+    void workChanged();
     void midiMessage(int status, int data1, int data2);
     void frameReady(const QImage& image);
 
@@ -417,6 +437,12 @@ private:
     class MicRecorder* m_mic = nullptr;
     double m_micLevel = 0.0;
     loggx::TimeUs m_micStart = 0;
+
+    // Hintergrundarbeit
+    TaskWorker* m_task = nullptr;
+    double m_workProgress = 0.0;
+    QString m_workLabel;
+    void runTask(const QString& label, TaskWorker::Job job, std::function<void()> finished);
 };
 
 // Führt eine Änderung am Projekt aus: Undo-Schritt (außer bei laufender

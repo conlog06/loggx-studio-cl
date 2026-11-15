@@ -6,3 +6,5 @@ called_from_lib:libavcodec.so
 called_from_lib:libavutil.so
 race:av_buffer_pool_get
 race:av_buffer_pool_uninit
+mutex:libswscale
+race:libswscale

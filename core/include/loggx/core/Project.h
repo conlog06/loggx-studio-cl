@@ -25,8 +25,10 @@ enum class InstrumentType { Piano, ElectricPiano, Synth, Bass, Pad, Strings, Dru
 // Videoprojekt (alle Arbeitsbereiche) oder reines Musikprojekt.
 enum class ProjectMode { Video, Music };
 // Übergang am Anfang eines Clips zum direkt davor liegenden Clip derselben Spur.
-enum class TransitionType { None, Crossfade, DipBlack, DipWhite, Wipe, Slide };
-inline constexpr int kTransitionCount = 6;
+// Neue Arten nur hinten anhängen (Werte stehen in Projektdateien).
+enum class TransitionType { None, Crossfade, DipBlack, DipWhite, Wipe, Slide,
+                            WipeUp, SlideUp, Circle, Zoom, BlurDissolve, Pixelate };
+inline constexpr int kTransitionCount = 12;
 const char* transitionName(TransitionType type);
 
 struct MediaAsset {
@@ -40,6 +42,11 @@ struct MediaAsset {
     bool hasVideo = false;
     bool hasAudio = false;
     bool isStill = false;
+    // Ergebnis der Musik-Analyse (0 / -1 = noch nicht analysiert)
+    double bpm = 0.0;
+    TimeUs firstBeat = 0;
+    int key = -1;          // 0 = C … 11 = H
+    bool keyMinor = false;
 };
 
 // Maske in normierten Koordinaten des Ausgabebilds (0..1).
@@ -74,8 +81,20 @@ struct Effects {
     double keyTolerance = 0.3;
     double keySoftness = 0.1;
     double vignette = 0.0;      // 0..1
+    double sharpen = 0.0;       // Schärfen 0..1
+    double grain = 0.0;         // Filmkorn 0..1
+    double pixelate = 0.0;      // Verpixeln 0..1
+    double glow = 0.0;          // Leuchten 0..1
+    double rgbSplit = 0.0;      // Farbversatz (chromatische Aberration) 0..1
+    double sepia = 0.0;         // 0..1
+    bool invert = false;        // Negativ
+    bool mirrorH = false;       // horizontal spiegeln
+    bool mirrorV = false;       // vertikal spiegeln
 
-    bool isNeutral() const { return blur <= 0.0 && !chromaKey && vignette <= 0.0; }
+    bool isNeutral() const {
+        return blur <= 0.0 && !chromaKey && vignette <= 0.0 && sharpen <= 0.0 && grain <= 0.0 && pixelate <= 0.0 &&
+               glow <= 0.0 && rgbSplit <= 0.0 && sepia <= 0.0 && !invert && !mirrorH && !mirrorV;
+    }
 };
 
 struct Title {
@@ -234,6 +253,12 @@ struct Project {
     bool setClipSpeed(const std::string& clipId, double speed);
     bool removeClip(const std::string& clipId, bool ripple = false);
     bool removeAsset(const std::string& assetId);   // nur wenn unbenutzt
+    // Ganzen Song ins neue Tempo bringen: MIDI wird umgerechnet, Audio per
+    // Time-Stretch angepasst, Clips rücken mit. Videospuren bleiben, wie sie
+    // sind. false, wenn ein Audio-Clip dafür zu schnell/langsam würde.
+    bool retime(double newBpm);
+    // Alle MIDI- und Audio-Clips (nicht Video) um n Halbtöne transponieren.
+    int transposeAll(int semitones);
     // Teilt einen Clip an jedem n-ten Schlag (Schnitt auf den Beat).
     int cutOnBeats(const std::string& clipId, int everyBeats);
     // Direkt angrenzender Clip vor bzw. nach c auf derselben Spur (±1 ms).

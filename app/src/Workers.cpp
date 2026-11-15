@@ -39,6 +39,8 @@ void PreviewWorker::run() {
     compositor.setTitleRasterizer(qtTitleRasterizer());
     std::shared_ptr<const Project> current;
     std::vector<std::uint8_t> pixels;
+    TimeUs lastTime = -1;
+    int lastW = 0, lastH = 0;
 
     for (;;) {
         std::shared_ptr<const Project> project;
@@ -55,6 +57,11 @@ void PreviewWorker::run() {
             m_pending = false;
         }
         if (!project) continue;
+        // Gleiches Bild wie zuletzt (z. B. nur Fenster neu gezeichnet): nichts zu tun.
+        if (project == current && time == lastTime && w == lastW && h == lastH) continue;
+        lastTime = time;
+        lastW = w;
+        lastH = h;
         if (project != current) {
             current = project;
             compositor.setProject(current);

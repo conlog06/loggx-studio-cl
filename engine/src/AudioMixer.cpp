@@ -208,7 +208,7 @@ void applyClipGain(const Clip& clip, std::int64_t firstSample, int rate, float* 
 }
 
 bool crossfadeLike(TransitionType t) {
-    return t == TransitionType::Crossfade || t == TransitionType::Wipe || t == TransitionType::Slide;
+    return t != TransitionType::None && t != TransitionType::DipBlack && t != TransitionType::DipWhite;
 }
 
 // Lautstärkeverlauf durch Übergänge an Anfang und Ende eines Clips.

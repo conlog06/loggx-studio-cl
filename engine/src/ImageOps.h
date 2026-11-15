@@ -28,4 +28,14 @@ void applyVignette(std::vector<std::uint8_t>& rgba, int w, int h, double amount)
 // Weichzeichnen mit Radius in Pixeln (drei Box-Filter ≈ Gauß).
 void applyBlur(std::vector<std::uint8_t>& rgba, int w, int h, double radius);
 
+// Weitere Effekte (amount jeweils 0..1, Größen relativ zur Ebene)
+void applyMirror(std::vector<std::uint8_t>& rgba, int w, int h, bool horizontal, bool vertical);
+void applyPixelate(std::vector<std::uint8_t>& rgba, int w, int h, int block);
+void applySharpen(std::vector<std::uint8_t>& rgba, int w, int h, double amount);
+void applyGlow(std::vector<std::uint8_t>& rgba, int w, int h, double amount);
+void applyRgbSplit(std::vector<std::uint8_t>& rgba, int w, int h, int shift);
+void applySepia(std::vector<std::uint8_t>& rgba, int w, int h, double amount);
+void applyInvert(std::vector<std::uint8_t>& rgba, int w, int h);
+void applyGrain(std::vector<std::uint8_t>& rgba, int w, int h, double amount, std::uint32_t seed);
+
 }  // namespace loggx

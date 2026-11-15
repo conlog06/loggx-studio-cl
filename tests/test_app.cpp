@@ -478,5 +478,87 @@ int main(int argc, char** argv) {
         MediaAsset m;
         CHECK(probeMedia(wav.toStdString(), m) && m.hasAudio && std::llabs(m.duration - kSecond) < 30'000);
     }
+    // ------------------- Tempo/Tonart erkennen und ändern, Stimme entfernen
+    {
+        // Stereo-Song: Mitte 440 Hz + Klicks im 120er-Takt, links 330 Hz
+        const QString song = dir.filePath("stereo.wav");
+        {
+            ExportSettings s;
+            s.path = song.toStdString();
+            s.video = false;
+            Exporter e;
+            CHECK(e.open(s));
+            const int rate = s.sampleRate;
+            std::vector<float> buf(static_cast<std::size_t>(rate) * 6 * 2);
+            for (int i = 0; i < rate * 6; ++i) {
+                const double t = static_cast<double>(i) / rate;
+                const double click = std::fmod(t, 0.5) < 0.01 ? 0.6 * std::sin(2 * 3.14159265 * 2000 * t) : 0.0;
+                const float voice = static_cast<float>(0.2 * std::sin(2 * 3.14159265 * 440 * t) + click);
+                buf[static_cast<std::size_t>(i) * 2] = voice + static_cast<float>(0.2 * std::sin(2 * 3.14159265 * 330 * t));
+                buf[static_cast<std::size_t>(i) * 2 + 1] = voice;
+            }
+            CHECK(e.writeAudio(buf.data(), buf.size() / 2) && e.finish());
+        }
+        AppController a;
+        a.newFromTemplate(false, 640, 360, 25, 100);
+        CHECK(a.dropFiles({QUrl::fromLocalFile(song)}) .isEmpty());
+        const QString clipId = a.selectedClipId();
+        CHECK(!clipId.isEmpty() && !a.clip().value(QStringLiteral("analyzed")).toBool());
+        CHECK(a.analyzeSelected());
+        CHECK(waitFor([&] { return !a.working(); }, 30000));
+        CHECK(a.clip().value(QStringLiteral("analyzed")).toBool());
+        const double bpm = a.clip().value(QStringLiteral("origBpm")).toDouble();
+        CHECK(std::abs(bpm - 120.0) < 2.0);
+        a.setClipBpm(90.0);
+        CHECK(std::abs(a.clip().value(QStringLiteral("speed")).toDouble() - 90.0 / bpm) < 1e-6);
+        a.matchClipTempo();
+        CHECK(std::abs(a.clip().value(QStringLiteral("bpmNow")).toDouble() - 100.0) < 0.01);
+        const int key = a.clip().value(QStringLiteral("origKey")).toInt();
+        if (key >= 0) {
+            a.setClipKey((key + 3) % 12);
+            CHECK(a.clip().value(QStringLiteral("pitch")).toInt() == 3);
+            a.setClipKey((key + 9) % 12);   // kürzer: −3
+            CHECK(a.clip().value(QStringLiteral("pitch")).toInt() == -3);
+        }
+        CHECK(a.keyNames(true).size() == 12);
+        // Analyse wird mit dem Projekt gespeichert
+        const QString pf = dir.filePath("analyse.loggx");
+        CHECK(a.saveProjectAs(QUrl::fromLocalFile(pf)));
+        {
+            AppController b;
+            CHECK(b.openRecent(pf));
+            CHECK(std::abs(b.project().assets.front().bpm - bpm) < 1e-9);
+        }
+
+        // Stimme entfernen: zwei neue Spuren, Original stumm
+        const std::size_t tracksBefore = a.project().tracks.size();
+        CHECK(a.separateSelected(false));
+        CHECK(waitFor([&] { return !a.working(); }, 60000));
+        CHECK(a.project().tracks.size() == tracksBefore + 2);
+        CHECK(a.project().findClip(clipId.toStdString())->gain == 0.0);
+        const Track* owner = nullptr;
+        const Clip* inst = a.project().findClip(a.selectedClipId().toStdString(), &owner);
+        CHECK(inst && owner && !owner->muted && owner->name == "Instrumental");
+        CHECK(inst && inst->start == a.project().findClip(clipId.toStdString())->start);
+        a.undo();
+        CHECK(a.project().tracks.size() == tracksBefore);
+        a.discardRecovery();
+    }
+    {
+        // Song-Tempo und Transponieren
+        AppController m;
+        m.newMusicProject();
+        CHECK(m.addMidiClip());
+        Clip* mc = const_cast<Clip*>(m.project().findClip(m.selectedClipId().toStdString()));
+        CHECK(mc != nullptr);
+        const TimeUs len = mc->duration;
+        CHECK(m.setSongTempo(60.0));
+        CHECK(std::abs(m.bpm() - 60.0) < 1e-9);
+        CHECK(m.project().findClip(m.selectedClipId().toStdString())->duration == 2 * len);
+        CHECK(!m.setSongTempo(1000.0));
+        CHECK(m.transposeSong(2) >= 1);
+        CHECK(m.project().findClip(m.selectedClipId().toStdString())->pitch == 2.0);
+        m.discardRecovery();
+    }
     return finish("test_app");
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
@@ -121,6 +122,38 @@ void applyColorGrade(std::vector<std::uint8_t>& rgba, int w, int h, const ColorG
     const float sat = static_cast<float>(g.saturation);
     const float mix = lut ? static_cast<float>(std::clamp(g.lutMix, 0.0, 1.0)) : 0.0f;
 
+    // Schneller Weg ohne LUT: alles in 8-Bit-Tabellen und Ganzzahlen.
+    if (mix <= 0.0f) {
+        std::array<std::array<std::uint8_t, 256>, 3> bt;
+        for (int c = 0; c < 3; ++c)
+            for (int i = 0; i < 256; ++i)
+                bt[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(
+                    table[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)] * 255.0f + 0.5f);
+        const int satQ = static_cast<int>(std::lround(sat * 256.0f));
+        const bool doSat = satQ != 256;
+        parallelRows(0, h, [&](int y0, int y1) {
+            for (int y = y0; y < y1; ++y) {
+                std::uint8_t* p = rgba.data() + static_cast<std::size_t>(y) * w * 4;
+                for (int x = 0; x < w; ++x, p += 4) {
+                    int r = bt[0][p[0]], gg = bt[1][p[1]], b = bt[2][p[2]];
+                    if (doSat) {
+                        const int luma = (54 * r + 183 * gg + 19 * b) >> 8;
+                        r = luma + (((r - luma) * satQ) >> 8);
+                        gg = luma + (((gg - luma) * satQ) >> 8);
+                        b = luma + (((b - luma) * satQ) >> 8);
+                        r = std::clamp(r, 0, 255);
+                        gg = std::clamp(gg, 0, 255);
+                        b = std::clamp(b, 0, 255);
+                    }
+                    p[0] = static_cast<std::uint8_t>(r);
+                    p[1] = static_cast<std::uint8_t>(gg);
+                    p[2] = static_cast<std::uint8_t>(b);
+                }
+            }
+        });
+        return;
+    }
+
     parallelRows(0, h, [&](int y0, int y1) {
         for (int y = y0; y < y1; ++y) {
             std::uint8_t* p = rgba.data() + static_cast<std::size_t>(y) * w * 4;
@@ -188,19 +221,27 @@ void applyChromaKey(std::vector<std::uint8_t>& rgba, int w, int h, const Effects
 
 void applyVignette(std::vector<std::uint8_t>& rgba, int w, int h, double amount) {
     const float k = static_cast<float>(std::clamp(amount, 0.0, 1.0));
+    // Abdunklung hängt nur von d² ab: Tabelle über d² (0..1) statt Wurzel je Pixel.
+    constexpr int kSteps = 1024;
+    std::array<std::uint16_t, kSteps + 1> fac;
+    for (int i = 0; i <= kSteps; ++i) {
+        const float d = std::sqrt(static_cast<float>(i) / kSteps);
+        float v = std::clamp((d - 0.35f) / 0.65f, 0.0f, 1.0f);
+        v = v * v * (3.0f - 2.0f * v);
+        fac[static_cast<std::size_t>(i)] = static_cast<std::uint16_t>((1.0f - k * v) * 256.0f + 0.5f);
+    }
     parallelRows(0, h, [&](int y0, int y1) {
         for (int y = y0; y < y1; ++y) {
             const float ny = (y + 0.5f) / h * 2.0f - 1.0f;
+            const float ny2 = ny * ny * 0.5f;
             std::uint8_t* p = rgba.data() + static_cast<std::size_t>(y) * w * 4;
             for (int x = 0; x < w; ++x, p += 4) {
                 const float nx = (x + 0.5f) / w * 2.0f - 1.0f;
-                const float d = std::sqrt(nx * nx + ny * ny) / 1.4142f;
-                float v = std::clamp((d - 0.35f) / 0.65f, 0.0f, 1.0f);
-                v = v * v * (3.0f - 2.0f * v);
-                const float f = 1.0f - k * v;
-                p[0] = static_cast<std::uint8_t>(p[0] * f);
-                p[1] = static_cast<std::uint8_t>(p[1] * f);
-                p[2] = static_cast<std::uint8_t>(p[2] * f);
+                const int idx = std::min(kSteps, static_cast<int>((nx * nx * 0.5f + ny2) * kSteps));
+                const unsigned f = fac[static_cast<std::size_t>(idx)];
+                p[0] = static_cast<std::uint8_t>((p[0] * f) >> 8);
+                p[1] = static_cast<std::uint8_t>((p[1] * f) >> 8);
+                p[2] = static_cast<std::uint8_t>((p[2] * f) >> 8);
             }
         }
     });
@@ -217,29 +258,51 @@ void boxLine(const float* in, float* out, int n, int stride, int r) {
     auto px = [&](int i) { return in + static_cast<std::ptrdiff_t>(std::clamp(i, 0, n - 1)) * stride; };
     for (int i = -r; i <= r; ++i)
         for (int c = 0; c < 4; ++c) sum[c] += px(i)[c];
+    // Mitte ohne Randprüfung, nur die Ränder mit Klemmung.
+    const int safeA = r, safeB = n - r - 1;
     for (int i = 0; i < n; ++i) {
         float* o = out + static_cast<std::ptrdiff_t>(i) * stride;
         for (int c = 0; c < 4; ++c) o[c] = sum[c] * norm;
-        const float* add = px(i + r + 1);
-        const float* sub = px(i - r);
+        const float* add;
+        const float* sub;
+        if (i >= safeA && i < safeB) {
+            add = in + static_cast<std::ptrdiff_t>(i + r + 1) * stride;
+            sub = in + static_cast<std::ptrdiff_t>(i - r) * stride;
+        } else {
+            add = px(i + r + 1);
+            sub = px(i - r);
+        }
         for (int c = 0; c < 4; ++c) sum[c] += add[c] - sub[c];
     }
 }
 
 }  // namespace
 
-void applyBlur(std::vector<std::uint8_t>& rgba, int w, int h, double radius) {
-    if (radius < 0.5 || w < 2 || h < 2) return;
-    const int r = std::max(1, static_cast<int>(std::lround(radius * 0.58)));
-    const std::size_t n = static_cast<std::size_t>(w) * h * 4;
-    std::vector<float> a(n), b(n);
-    for (std::size_t i = 0; i < n; i += 4) {
-        const float alpha = rgba[i + 3] / 255.0f;
-        a[i] = rgba[i] * alpha;
-        a[i + 1] = rgba[i + 1] * alpha;
-        a[i + 2] = rgba[i + 2] * alpha;
-        a[i + 3] = rgba[i + 3];
+namespace {
+
+// Senkrechter Box-Filter über einen Spaltenstreifen [x0, x1): läuft zeilenweise
+// mit laufenden Summen – speicherfreundlich statt Spalte für Spalte.
+void boxColumns(const float* in, float* out, int w, int h, int x0, int x1, int r) {
+    const int n = (x1 - x0) * 4;
+    const float norm = 1.0f / static_cast<float>(2 * r + 1);
+    std::vector<float> sum(static_cast<std::size_t>(n), 0.0f);
+    auto row = [&](int y) { return in + (static_cast<std::size_t>(std::clamp(y, 0, h - 1)) * w + x0) * 4; };
+    for (int y = -r; y <= r; ++y) {
+        const float* src = row(y);
+        for (int i = 0; i < n; ++i) sum[static_cast<std::size_t>(i)] += src[i];
     }
+    for (int y = 0; y < h; ++y) {
+        float* o = out + (static_cast<std::size_t>(y) * w + x0) * 4;
+        const float* add = row(y + r + 1);
+        const float* sub = row(y - r);
+        for (int i = 0; i < n; ++i) {
+            o[i] = sum[static_cast<std::size_t>(i)] * norm;
+            sum[static_cast<std::size_t>(i)] += add[i] - sub[i];
+        }
+    }
+}
+
+void blurFloat(std::vector<float>& a, std::vector<float>& b, int w, int h, int r) {
     for (int pass = 0; pass < 3; ++pass) {
         parallelRows(0, h, [&](int y0, int y1) {
             for (int y = y0; y < y1; ++y) {
@@ -247,20 +310,206 @@ void applyBlur(std::vector<std::uint8_t>& rgba, int w, int h, double radius) {
                 boxLine(a.data() + off, b.data() + off, w, 4, r);
             }
         });
-        parallelRows(0, w, [&](int x0, int x1) {
-            for (int x = x0; x < x1; ++x)
-                boxLine(b.data() + static_cast<std::size_t>(x) * 4, a.data() + static_cast<std::size_t>(x) * 4,
-                        h, w * 4, r);
-        }, 8);
+        parallelRows(0, w, [&](int x0, int x1) { boxColumns(b.data(), a.data(), w, h, x0, x1, r); }, 64);
     }
-    for (std::size_t i = 0; i < n; i += 4) {
-        const float alpha = a[i + 3];
-        const float inv = alpha > 0.5f ? 1.0f / (alpha / 255.0f) : 0.0f;
-        rgba[i] = static_cast<std::uint8_t>(std::clamp(a[i] * inv, 0.0f, 255.0f) + 0.5f);
-        rgba[i + 1] = static_cast<std::uint8_t>(std::clamp(a[i + 1] * inv, 0.0f, 255.0f) + 0.5f);
-        rgba[i + 2] = static_cast<std::uint8_t>(std::clamp(a[i + 2] * inv, 0.0f, 255.0f) + 0.5f);
-        rgba[i + 3] = static_cast<std::uint8_t>(std::clamp(alpha, 0.0f, 255.0f) + 0.5f);
-    }
+}
+
+}  // namespace
+
+void applyBlur(std::vector<std::uint8_t>& rgba, int w, int h, double radius) {
+    if (radius < 0.5 || w < 2 || h < 2) return;
+    // Große Radien auf verkleinertem Bild rechnen (2× oder 4×): sieht gleich
+    // aus, kostet aber nur einen Bruchteil.
+    const int factor = radius >= 20 ? 4 : radius >= 6 ? 2 : 1;
+    const int sw = std::max(2, w / factor), sh = std::max(2, h / factor);
+    const int r = std::max(1, static_cast<int>(std::lround(radius * 0.58 / factor)));
+    const std::size_t n = static_cast<std::size_t>(sw) * sh * 4;
+    std::vector<float> a(n), b(n);
+    // Vormultipliziert einlesen (bei Verkleinerung als Mittelwert der Blöcke).
+    parallelRows(0, sh, [&](int y0, int y1) {
+        const float inv = 1.0f / static_cast<float>(factor * factor);
+        for (int y = y0; y < y1; ++y)
+            for (int x = 0; x < sw; ++x) {
+                float acc[4] = {0, 0, 0, 0};
+                for (int j = 0; j < factor; ++j) {
+                    const std::uint8_t* p = rgba.data() + (static_cast<std::size_t>(std::min(h - 1, y * factor + j)) * w + x * factor) * 4;
+                    for (int i = 0; i < factor; ++i, p += 4) {
+                        const float alpha = p[3] / 255.0f;
+                        acc[0] += p[0] * alpha;
+                        acc[1] += p[1] * alpha;
+                        acc[2] += p[2] * alpha;
+                        acc[3] += p[3];
+                    }
+                }
+                float* o = a.data() + (static_cast<std::size_t>(y) * sw + x) * 4;
+                for (int c = 0; c < 4; ++c) o[c] = acc[c] * inv;
+            }
+    });
+    blurFloat(a, b, sw, sh, r);
+    // Zurückschreiben (bei Verkleinerung bilinear vergrößert).
+    parallelRows(0, h, [&](int y0, int y1) {
+        for (int y = y0; y < y1; ++y) {
+            const float fy = std::clamp((y + 0.5f) / factor - 0.5f, 0.0f, static_cast<float>(sh - 1));
+            const int iy = std::min(sh - 2, static_cast<int>(fy));
+            const float ty = factor == 1 ? 0.0f : fy - iy;
+            const int yy = factor == 1 ? y : iy;
+            std::uint8_t* d = rgba.data() + static_cast<std::size_t>(y) * w * 4;
+            for (int x = 0; x < w; ++x, d += 4) {
+                float px[4];
+                if (factor == 1) {
+                    const float* s = a.data() + (static_cast<std::size_t>(yy) * sw + x) * 4;
+                    for (int c = 0; c < 4; ++c) px[c] = s[c];
+                } else {
+                    const float fx = std::clamp((x + 0.5f) / factor - 0.5f, 0.0f, static_cast<float>(sw - 1));
+                    const int ix = std::min(sw - 2, static_cast<int>(fx));
+                    const float tx = fx - ix;
+                    const float* s00 = a.data() + (static_cast<std::size_t>(iy) * sw + ix) * 4;
+                    const float* s01 = s00 + 4;
+                    const float* s10 = s00 + static_cast<std::size_t>(sw) * 4;
+                    const float* s11 = s10 + 4;
+                    for (int c = 0; c < 4; ++c)
+                        px[c] = (s00[c] * (1 - tx) + s01[c] * tx) * (1 - ty) + (s10[c] * (1 - tx) + s11[c] * tx) * ty;
+                }
+                const float alpha = px[3];
+                const float inv = alpha > 0.5f ? 255.0f / alpha : 0.0f;
+                d[0] = static_cast<std::uint8_t>(std::clamp(px[0] * inv, 0.0f, 255.0f) + 0.5f);
+                d[1] = static_cast<std::uint8_t>(std::clamp(px[1] * inv, 0.0f, 255.0f) + 0.5f);
+                d[2] = static_cast<std::uint8_t>(std::clamp(px[2] * inv, 0.0f, 255.0f) + 0.5f);
+                d[3] = static_cast<std::uint8_t>(std::clamp(alpha, 0.0f, 255.0f) + 0.5f);
+            }
+        }
+    });
+}
+
+// ------------------------------------------------------- weitere Effekte
+
+void applyMirror(std::vector<std::uint8_t>& rgba, int w, int h, bool horizontal, bool vertical) {
+    auto* px = reinterpret_cast<std::uint32_t*>(rgba.data());
+    if (horizontal)
+        parallelRows(0, h, [&](int y0, int y1) {
+            for (int y = y0; y < y1; ++y) std::reverse(px + static_cast<std::size_t>(y) * w, px + static_cast<std::size_t>(y + 1) * w);
+        });
+    if (vertical)
+        for (int y = 0; y < h / 2; ++y)
+            std::swap_ranges(px + static_cast<std::size_t>(y) * w, px + static_cast<std::size_t>(y + 1) * w,
+                             px + static_cast<std::size_t>(h - 1 - y) * w);
+}
+
+void applyPixelate(std::vector<std::uint8_t>& rgba, int w, int h, int block) {
+    if (block < 2) return;
+    const int rows = (h + block - 1) / block;
+    parallelRows(0, rows, [&](int r0, int r1) {
+        for (int r = r0; r < r1; ++r) {
+            const int y0 = r * block, y1 = std::min(h, y0 + block);
+            for (int x0 = 0; x0 < w; x0 += block) {
+                const int x1 = std::min(w, x0 + block);
+                unsigned sum[4] = {0, 0, 0, 0};
+                for (int y = y0; y < y1; ++y) {
+                    const std::uint8_t* p = rgba.data() + (static_cast<std::size_t>(y) * w + x0) * 4;
+                    for (int x = x0; x < x1; ++x, p += 4)
+                        for (int c = 0; c < 4; ++c) sum[c] += p[c];
+                }
+                const unsigned n = static_cast<unsigned>((y1 - y0) * (x1 - x0));
+                std::uint8_t avg[4];
+                for (int c = 0; c < 4; ++c) avg[c] = static_cast<std::uint8_t>((sum[c] + n / 2) / n);
+                for (int y = y0; y < y1; ++y) {
+                    std::uint8_t* p = rgba.data() + (static_cast<std::size_t>(y) * w + x0) * 4;
+                    for (int x = x0; x < x1; ++x, p += 4) std::memcpy(p, avg, 4);
+                }
+            }
+        }
+    }, 1);
+}
+
+void applySharpen(std::vector<std::uint8_t>& rgba, int w, int h, double amount) {
+    // Unscharfe Maske: Original + k·(Original − Weichgezeichnet)
+    std::vector<std::uint8_t> soft = rgba;
+    applyBlur(soft, w, h, std::max(1.2, h / 600.0));
+    const int k = static_cast<int>(std::lround(std::clamp(amount, 0.0, 1.0) * 2.5 * 256));
+    parallelRows(0, h, [&](int y0, int y1) {
+        for (std::size_t i = static_cast<std::size_t>(y0) * w * 4; i < static_cast<std::size_t>(y1) * w * 4; i += 4)
+            for (int c = 0; c < 3; ++c) {
+                const int v = rgba[i + c] + (((rgba[i + c] - soft[i + c]) * k) >> 8);
+                rgba[i + c] = static_cast<std::uint8_t>(std::clamp(v, 0, 255));
+            }
+    });
+}
+
+void applyGlow(std::vector<std::uint8_t>& rgba, int w, int h, double amount) {
+    // Helle Bereiche weichzeichnen und mit „Negativ multiplizieren“ (Screen) darüberlegen.
+    std::vector<std::uint8_t> bright(rgba.size());
+    parallelRows(0, h, [&](int y0, int y1) {
+        for (std::size_t i = static_cast<std::size_t>(y0) * w * 4; i < static_cast<std::size_t>(y1) * w * 4; i += 4) {
+            const int luma = (54 * rgba[i] + 183 * rgba[i + 1] + 19 * rgba[i + 2]) >> 8;
+            const int keep = std::clamp((luma - 150) * 3, 0, 255);
+            for (int c = 0; c < 3; ++c) bright[i + c] = static_cast<std::uint8_t>((rgba[i + c] * keep) >> 8);
+            bright[i + 3] = 255;
+        }
+    });
+    applyBlur(bright, w, h, std::max(2.0, h * 0.025));
+    const int k = static_cast<int>(std::lround(std::clamp(amount, 0.0, 1.0) * 1.5 * 256));
+    parallelRows(0, h, [&](int y0, int y1) {
+        for (std::size_t i = static_cast<std::size_t>(y0) * w * 4; i < static_cast<std::size_t>(y1) * w * 4; i += 4)
+            for (int c = 0; c < 3; ++c) {
+                const int g = std::min(255, (bright[i + c] * k) >> 8);
+                rgba[i + c] = static_cast<std::uint8_t>(255 - ((255 - rgba[i + c]) * (255 - g) + 127) / 255);
+            }
+    });
+}
+
+void applyRgbSplit(std::vector<std::uint8_t>& rgba, int w, int h, int shift) {
+    if (shift < 1) return;
+    const std::vector<std::uint8_t> src = rgba;
+    parallelRows(0, h, [&](int y0, int y1) {
+        for (int y = y0; y < y1; ++y) {
+            const std::uint8_t* row = src.data() + static_cast<std::size_t>(y) * w * 4;
+            std::uint8_t* out = rgba.data() + static_cast<std::size_t>(y) * w * 4;
+            for (int x = 0; x < w; ++x) {
+                out[x * 4] = row[std::clamp(x + shift, 0, w - 1) * 4];           // Rot nach links
+                out[x * 4 + 2] = row[std::clamp(x - shift, 0, w - 1) * 4 + 2];   // Blau nach rechts
+            }
+        }
+    });
+}
+
+void applySepia(std::vector<std::uint8_t>& rgba, int w, int h, double amount) {
+    const int k = static_cast<int>(std::lround(std::clamp(amount, 0.0, 1.0) * 256));
+    parallelRows(0, h, [&](int y0, int y1) {
+        for (std::size_t i = static_cast<std::size_t>(y0) * w * 4; i < static_cast<std::size_t>(y1) * w * 4; i += 4) {
+            const int r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+            const int sr = std::min(255, (r * 101 + g * 197 + b * 48) >> 8);
+            const int sg = std::min(255, (r * 89 + g * 176 + b * 43) >> 8);
+            const int sb = std::min(255, (r * 70 + g * 137 + b * 34) >> 8);
+            rgba[i] = static_cast<std::uint8_t>(r + (((sr - r) * k) >> 8));
+            rgba[i + 1] = static_cast<std::uint8_t>(g + (((sg - g) * k) >> 8));
+            rgba[i + 2] = static_cast<std::uint8_t>(b + (((sb - b) * k) >> 8));
+        }
+    });
+}
+
+void applyInvert(std::vector<std::uint8_t>& rgba, int w, int h) {
+    parallelRows(0, h, [&](int y0, int y1) {
+        for (std::size_t i = static_cast<std::size_t>(y0) * w * 4; i < static_cast<std::size_t>(y1) * w * 4; i += 4)
+            for (int c = 0; c < 3; ++c) rgba[i + c] = static_cast<std::uint8_t>(255 - rgba[i + c]);
+    });
+}
+
+void applyGrain(std::vector<std::uint8_t>& rgba, int w, int h, double amount, std::uint32_t seed) {
+    const int k = static_cast<int>(std::lround(std::clamp(amount, 0.0, 1.0) * 60));
+    parallelRows(0, h, [&](int y0, int y1) {
+        for (int y = y0; y < y1; ++y) {
+            std::uint32_t s = seed ^ (static_cast<std::uint32_t>(y) * 0x9E3779B9u);
+            std::uint8_t* p = rgba.data() + static_cast<std::size_t>(y) * w * 4;
+            for (int x = 0; x < w; ++x, p += 4) {
+                s ^= s << 13;   // xorshift
+                s ^= s >> 17;
+                s ^= s << 5;
+                const int n = static_cast<int>((s >> 16) & 0xFF) + static_cast<int>((s >> 8) & 0xFF) - 255;   // ≈ Dreieck
+                const int d = (n * k) >> 8;
+                for (int c = 0; c < 3; ++c) p[c] = static_cast<std::uint8_t>(std::clamp(p[c] + d, 0, 255));
+            }
+        }
+    });
 }
 
 }  // namespace loggx

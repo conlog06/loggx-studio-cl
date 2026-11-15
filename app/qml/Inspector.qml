@@ -278,6 +278,107 @@ Rectangle {
                 }
             }
 
+            // ------------------------------------------ Tonart & Tempo
+            Section {
+                Layout.fillWidth: true
+                title: qsTr("Tonart & BPM")
+                visible: root.hasClip && root.clip.isMedia && root.clip.hasAudio
+                Button {
+                    visible: !root.clip.analyzed
+                    Layout.fillWidth: true
+                    icon.name: "sparkles"
+                    text: app.working ? app.workLabel : qsTr("Tempo und Tonart erkennen")
+                    enabled: !app.working
+                    onClicked: app.analyzeSelected()
+                }
+                Label {
+                    visible: root.hasClip && root.clip.analyzed === true
+                    Layout.fillWidth: true
+                    color: Theme.dim
+                    wrapMode: Text.WordWrap
+                    text: root.clip.analyzed ? qsTr("Original: %1 · %2 BPM").arg(root.clip.origKeyName || "?").arg((root.clip.origBpm || 0).toFixed(1)) : ""
+                }
+                GridLayout {
+                    visible: root.hasClip && root.clip.analyzed === true
+                    Layout.fillWidth: true
+                    columns: 2
+                    columnSpacing: 10
+                    rowSpacing: 6
+                    Label { text: qsTr("Tonart") }
+                    ComboBox {
+                        Layout.fillWidth: true
+                        enabled: root.clip.origKey >= 0
+                        model: root.clip.analyzed ? app.keyNames(root.clip.origMinor) : []
+                        currentIndex: root.clip.analyzed ? root.clip.keyNow : -1
+                        displayText: root.clip.origKey >= 0 ? currentText : qsTr("nicht erkannt")
+                        onActivated: function (i) { app.setClipKey(i) }
+                    }
+                    Label { text: qsTr("BPM") }
+                    RowLayout {
+                        spacing: 6
+                        SpinBox {
+                            Layout.fillWidth: true
+                            enabled: (root.clip.origBpm || 0) > 0
+                            from: 20; to: 300; editable: true
+                            value: Math.round(root.clip.bpmNow || 0)
+                            onValueModified: {
+                                app.setClipBpm(value)
+                                value = Qt.binding(function () { return Math.round(root.clip.bpmNow || 0) })
+                            }
+                        }
+                        IconButton {
+                            iconName: "metronome"
+                            enabled: (root.clip.origBpm || 0) > 0
+                            tip: qsTr("An das Projekt-Tempo anpassen (%1 BPM)").arg(Math.round(app.bpm))
+                            onClicked: app.matchClipTempo()
+                        }
+                    }
+                }
+                RowLayout {
+                    visible: root.hasClip && root.clip.analyzed === true
+                    Button { text: qsTr("Original"); flat: true; onClicked: { app.setClipProperty("pitch", 0); app.setClipProperty("speed", 1) } }
+                    Button { text: qsTr("Neu erkennen"); flat: true; enabled: !app.working; onClicked: app.analyzeSelected() }
+                }
+            }
+
+            // --------------------------------------------------- Stimme
+            Section {
+                Layout.fillWidth: true
+                title: qsTr("Stimme (Vocal Remover)")
+                visible: root.hasClip && root.clip.isMedia && root.clip.hasAudio
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Button {
+                        Layout.fillWidth: true
+                        text: qsTr("Stimme entfernen")
+                        icon.name: "mic"
+                        enabled: !app.working
+                        onClicked: app.separateSelected(false)
+                        ToolTip.text: qsTr("Karaoke: Instrumental hörbar, Gesang auf einer stummen Spur darunter")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 400
+                    }
+                    Button {
+                        Layout.fillWidth: true
+                        text: qsTr("Stimme isolieren")
+                        icon.name: "wave"
+                        enabled: !app.working
+                        onClicked: app.separateSelected(true)
+                        ToolTip.text: qsTr("A cappella: nur Gesang hörbar, Instrumental stumm darunter")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 400
+                    }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Theme.faint
+                    font.pixelSize: Theme.smallFont
+                    text: qsTr("Trennt ohne KI, was mittig im Stereobild liegt und tonal klingt. Funktioniert bei den meisten Songs; Mono-Aufnahmen gehen so nicht. Ergebnis: zwei WAV-Dateien auf neuen Spuren, das Original wird stumm.")
+                }
+            }
+
             // ------------------------------------------------- Effekte
             Section {
                 Layout.fillWidth: true
@@ -294,6 +395,71 @@ Rectangle {
                     label: qsTr("Vignette"); prop: "vignette"
                     value: root.hasClip ? root.clip.vignette : 0
                     resetValue: 0; displayFactor: 100; decimals: 0; suffix: " %"
+                }
+                ValueSlider {
+                    Layout.fillWidth: true
+                    label: qsTr("Schärfen"); prop: "sharpen"
+                    value: root.hasClip ? root.clip.sharpen : 0
+                    resetValue: 0; displayFactor: 100; decimals: 0; suffix: " %"
+                }
+                ValueSlider {
+                    Layout.fillWidth: true
+                    label: qsTr("Leuchten"); prop: "glow"
+                    value: root.hasClip ? root.clip.glow : 0
+                    resetValue: 0; displayFactor: 100; decimals: 0; suffix: " %"
+                }
+                ValueSlider {
+                    Layout.fillWidth: true
+                    label: qsTr("Filmkorn"); prop: "grain"
+                    value: root.hasClip ? root.clip.grain : 0
+                    resetValue: 0; displayFactor: 100; decimals: 0; suffix: " %"
+                }
+                ValueSlider {
+                    Layout.fillWidth: true
+                    label: qsTr("Sepia"); prop: "sepia"
+                    value: root.hasClip ? root.clip.sepia : 0
+                    resetValue: 0; displayFactor: 100; decimals: 0; suffix: " %"
+                }
+                ValueSlider {
+                    Layout.fillWidth: true
+                    label: qsTr("Farbversatz"); prop: "rgbSplit"
+                    value: root.hasClip ? root.clip.rgbSplit : 0
+                    resetValue: 0; displayFactor: 100; decimals: 0; suffix: " %"
+                }
+                ValueSlider {
+                    Layout.fillWidth: true
+                    label: qsTr("Verpixeln"); prop: "pixelate"
+                    value: root.hasClip ? root.clip.pixelate : 0
+                    resetValue: 0; displayFactor: 100; decimals: 0; suffix: " %"
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    CheckBox { text: qsTr("Spiegeln ↔"); checked: root.hasClip && root.clip.mirrorH; onToggled: app.setClipProperty("mirrorH", checked ? 1 : 0) }
+                    CheckBox { text: qsTr("Spiegeln ↕"); checked: root.hasClip && root.clip.mirrorV; onToggled: app.setClipProperty("mirrorV", checked ? 1 : 0) }
+                    CheckBox { text: qsTr("Negativ"); checked: root.hasClip && root.clip.invert; onToggled: app.setClipProperty("invert", checked ? 1 : 0) }
+                }
+                Button {
+                    id: lookButton
+                    text: qsTr("Look anwenden …")
+                    icon.name: "sparkles"
+                    onClicked: lookMenu.open()
+                    // Fertige Kombinationen als ein Undo-Schritt
+                    function look(values) {
+                        app.beginInteractive()
+                        for (const k in values) app.setClipProperty(k, values[k])
+                        app.endInteractive()
+                    }
+                    Menu {
+                        id: lookMenu
+                        y: parent.height
+                        MenuItem { text: qsTr("Retro-Film"); onTriggered: lookButton.look({ sepia: 0.55, grain: 0.35, vignette: 0.45, sharpen: 0, glow: 0, rgbSplit: 0, pixelate: 0, invert: 0 }) }
+                        MenuItem { text: qsTr("Traum"); onTriggered: lookButton.look({ glow: 0.7, sepia: 0, grain: 0, vignette: 0.25, sharpen: 0, rgbSplit: 0, pixelate: 0, invert: 0 }) }
+                        MenuItem { text: qsTr("Glitch"); onTriggered: lookButton.look({ rgbSplit: 0.6, grain: 0.25, sharpen: 0.3, sepia: 0, glow: 0, vignette: 0, pixelate: 0, invert: 0 }) }
+                        MenuItem { text: qsTr("Knackig"); onTriggered: lookButton.look({ sharpen: 0.6, vignette: 0.2, saturation: 1.2, grain: 0, glow: 0, sepia: 0, rgbSplit: 0, pixelate: 0, invert: 0 }) }
+                        MenuItem { text: qsTr("Schwarzweiß"); onTriggered: lookButton.look({ saturation: 0, grain: 0.2, vignette: 0.3, sepia: 0, glow: 0, rgbSplit: 0, pixelate: 0, invert: 0 }) }
+                        MenuItem { text: qsTr("Alle Effekte aus"); onTriggered: lookButton.look({ sharpen: 0, glow: 0, grain: 0, sepia: 0, rgbSplit: 0, pixelate: 0, vignette: 0, invert: 0, mirrorH: 0, mirrorV: 0, saturation: 1 }) }
+                    }
                 }
                 CheckBox {
                     text: qsTr("Greenscreen (Chroma Key)")

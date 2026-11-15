@@ -11,6 +11,7 @@ qt_add_executable(loggx-studio
   src/IconItem.cpp src/IconItem.h
   src/AppControllerMusic.cpp
   src/AppControllerTools.cpp
+  src/AppControllerAudioTools.cpp
   src/MicRecorder.cpp src/MicRecorder.h
   src/MidiInput.cpp src/MidiInput.h
 )
@@ -126,6 +127,7 @@ if(LOGGX_BUILD_TESTS)
     src/TitleRenderer.cpp src/TitleRenderer.h
     src/AppControllerMusic.cpp
     src/AppControllerTools.cpp
+    src/AppControllerAudioTools.cpp
     src/MicRecorder.cpp src/MicRecorder.h
     src/MidiInput.cpp src/MidiInput.h)
   target_include_directories(test_app PRIVATE src ../tests)

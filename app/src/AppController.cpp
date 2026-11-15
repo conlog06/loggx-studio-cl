@@ -1,4 +1,5 @@
 #include "AppController.h"
+#include "MicRecorder.h"
 
 #include <algorithm>
 #include <cmath>
@@ -81,6 +82,12 @@ AppController::~AppController() {
         m_exportWorker->cancel();
         m_exportWorker->wait();
     }
+    if (m_task) {
+        m_task->disconnect();
+        m_task->cancel();
+        m_task->wait();
+    }
+    if (m_mic) m_mic->stop();
     // Ordentlich beendet: Notfallkopie ist nicht mehr nötig.
     if (!m_dirty) removeAutosave();
 }
@@ -755,6 +762,15 @@ QVariantMap AppController::clip() const {
     m[QStringLiteral("keyTolerance")] = c->fx.keyTolerance;
     m[QStringLiteral("keySoftness")] = c->fx.keySoftness;
     m[QStringLiteral("vignette")] = c->fx.vignette;
+    m[QStringLiteral("sharpen")] = c->fx.sharpen;
+    m[QStringLiteral("grain")] = c->fx.grain;
+    m[QStringLiteral("pixelate")] = c->fx.pixelate;
+    m[QStringLiteral("glow")] = c->fx.glow;
+    m[QStringLiteral("rgbSplit")] = c->fx.rgbSplit;
+    m[QStringLiteral("sepia")] = c->fx.sepia;
+    m[QStringLiteral("invert")] = c->fx.invert;
+    m[QStringLiteral("mirrorH")] = c->fx.mirrorH;
+    m[QStringLiteral("mirrorV")] = c->fx.mirrorV;
 
     m[QStringLiteral("text")] = qstr(c->title.text);
     m[QStringLiteral("titleSize")] = c->title.size;
@@ -770,6 +786,19 @@ QVariantMap AppController::clip() const {
         if (&m_project.tracks[static_cast<std::size_t>(i)] == track) m[QStringLiteral("trackIndex")] = i;
     m[QStringLiteral("hasKeys")] = c->hasKeys();
     m[QStringLiteral("hasPrevious")] = m_project.previousAdjacent(*track, *c) != nullptr;
+    // Musik-Analyse der Quelle und was davon nach Tempo/Tonhöhe übrig ist
+    const bool analyzed = asset && (asset->bpm > 0.0 || asset->key >= 0);
+    m[QStringLiteral("analyzed")] = analyzed;
+    if (analyzed) {
+        m[QStringLiteral("origBpm")] = asset->bpm;
+        m[QStringLiteral("origKey")] = asset->key;
+        m[QStringLiteral("origMinor")] = asset->keyMinor;
+        m[QStringLiteral("origKeyName")] = asset->key >= 0 ? qstr(keyName(asset->key, asset->keyMinor)) : QString();
+        const int now = asset->key >= 0 ? ((asset->key + static_cast<int>(std::lround(c->pitch))) % 12 + 12) % 12 : -1;
+        m[QStringLiteral("keyNow")] = now;
+        m[QStringLiteral("keyNameNow")] = now >= 0 ? qstr(keyName(now, asset->keyMinor)) : QString();
+        m[QStringLiteral("bpmNow")] = asset->bpm * c->speed;
+    }
     m[QStringLiteral("transition")] = static_cast<int>(c->transition);
     m[QStringLiteral("transitionDuration")] = c->transitionDuration / 1e6;
     m[QStringLiteral("noteCount")] = static_cast<int>(c->notes.size());
@@ -832,6 +861,15 @@ void AppController::setClipProperty(const QString& name, double value) {
         else if (key == "keyTolerance") c->fx.keyTolerance = std::clamp(value, 0.0, 1.0);
         else if (key == "keySoftness") c->fx.keySoftness = std::clamp(value, 0.0, 1.0);
         else if (key == "vignette") c->fx.vignette = std::clamp(value, 0.0, 1.0);
+        else if (key == "sharpen") c->fx.sharpen = std::clamp(value, 0.0, 1.0);
+        else if (key == "grain") c->fx.grain = std::clamp(value, 0.0, 1.0);
+        else if (key == "pixelate") c->fx.pixelate = std::clamp(value, 0.0, 1.0);
+        else if (key == "glow") c->fx.glow = std::clamp(value, 0.0, 1.0);
+        else if (key == "rgbSplit") c->fx.rgbSplit = std::clamp(value, 0.0, 1.0);
+        else if (key == "sepia") c->fx.sepia = std::clamp(value, 0.0, 1.0);
+        else if (key == "invert") c->fx.invert = value != 0.0;
+        else if (key == "mirrorH") c->fx.mirrorH = value != 0.0;
+        else if (key == "mirrorV") c->fx.mirrorV = value != 0.0;
         else if (key == "titleSize") c->title.size = std::clamp(value, 0.01, 0.5);
         else if (key == "titleBold") c->title.bold = value != 0.0;
         else if (key == "titleAlign") c->title.align = std::clamp(static_cast<int>(value), 0, 2);

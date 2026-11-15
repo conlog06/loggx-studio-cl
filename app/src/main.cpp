@@ -59,6 +59,7 @@ int main(int argc, char** argv) {
     // automatische Prüfungen der Oberfläche).
     QString screenshot;
     bool showLicense = false;
+    QUrl mainQml(QStringLiteral("qrc:/qml/Main.qml"));
     bool pageGiven = false;
     int startPage = 1;   // 0 Medien, 1 Schnitt, 2 Farbe, 3 Musik, 4 Export
     int startTab = 0;    // Musik: 0 Noten, 1 Mixer
@@ -70,6 +71,8 @@ int main(int argc, char** argv) {
             startPage = qBound(0, args[++i].toInt(), 4), pageGiven = true;
         else if (args[i] == QLatin1String("--music"))
             controller.newMusicProject();
+        else if (args[i] == QLatin1String("--main") && i + 1 < args.size())   // Entwicklung: andere Oberfläche laden
+            mainQml = QUrl::fromLocalFile(args[++i]);
         else if (args[i] == QLatin1String("--license"))
             showLicense = true;
         else if (args[i] == QLatin1String("--tab") && i + 1 < args.size())
@@ -91,7 +94,7 @@ int main(int argc, char** argv) {
     engine.rootContext()->setContextProperty(QStringLiteral("startPage"), startPage);
     engine.rootContext()->setContextProperty(QStringLiteral("startTab"), startTab);
     engine.rootContext()->setContextProperty(QStringLiteral("showLicense"), showLicense);
-    engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
+    engine.load(mainQml);
     if (engine.rootObjects().isEmpty()) return 1;
 
     if (!screenshot.isEmpty()) {

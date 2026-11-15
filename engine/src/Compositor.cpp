@@ -209,6 +209,102 @@ void Compositor::mixTransition(TransitionType type, double p, int w, int h) {
             });
             break;
         }
+        case TransitionType::WipeUp: {
+            // Von unten nach oben aufdecken.
+            const float edge = std::max(1.0f, h * 0.04f);
+            const float pos = fp * (h + 2 * edge) - edge;   // von unten gemessen
+            parallelRows(0, h, [&](int y0, int y1) {
+                for (int y = y0; y < y1; ++y) {
+                    const float k = std::clamp((pos - (h - 1 - y)) / edge + 0.5f, 0.0f, 1.0f);
+                    std::uint8_t* rowA = A + static_cast<std::size_t>(y) * w * 4;
+                    const std::uint8_t* rowB = B + static_cast<std::size_t>(y) * w * 4;
+                    for (int i = 0; i < w * 4; ++i)
+                        rowA[i] = static_cast<std::uint8_t>(rowA[i] * (1.0f - k) + rowB[i] * k + 0.5f);
+                }
+            });
+            break;
+        }
+        case TransitionType::SlideUp: {
+            // A schiebt nach oben hinaus, B kommt von unten.
+            const int shift = static_cast<int>(std::lround(p * h));
+            const std::size_t rowBytes = static_cast<std::size_t>(w) * 4;
+            std::vector<std::uint8_t> out(static_cast<std::size_t>(w) * h * 4);
+            parallelRows(0, h, [&](int y0, int y1) {
+                for (int y = y0; y < y1; ++y) {
+                    const int sy = y + shift;
+                    const std::uint8_t* src = sy < h ? A + static_cast<std::size_t>(sy) * rowBytes : B + static_cast<std::size_t>(sy - h) * rowBytes;
+                    std::memcpy(out.data() + static_cast<std::size_t>(y) * rowBytes, src, rowBytes);
+                }
+            });
+            std::memcpy(A, out.data(), out.size());
+            break;
+        }
+        case TransitionType::Circle: {
+            // B erscheint in einem wachsenden Kreis aus der Mitte.
+            const float maxR = 0.5f * std::sqrt(static_cast<float>(w) * w + static_cast<float>(h) * h);
+            const float edge = std::max(1.5f, h * 0.02f);
+            const float radius = fp * (maxR + edge);
+            const float cx = w / 2.0f, cy = h / 2.0f;
+            parallelRows(0, h, [&](int y0, int y1) {
+                for (int y = y0; y < y1; ++y) {
+                    const float dy = y + 0.5f - cy;
+                    for (int x = 0; x < w; ++x) {
+                        const float dx = x + 0.5f - cx;
+                        const float k = std::clamp((radius - std::sqrt(dx * dx + dy * dy)) / edge + 0.5f, 0.0f, 1.0f);
+                        if (k <= 0.0f) continue;
+                        const std::size_t i = (static_cast<std::size_t>(y) * w + x) * 4;
+                        for (int ch = 0; ch < 4; ++ch)
+                            A[i + ch] = static_cast<std::uint8_t>(A[i + ch] * (1.0f - k) + B[i + ch] * k + 0.5f);
+                    }
+                }
+            });
+            break;
+        }
+        case TransitionType::Zoom: {
+            // A zoomt hinein und blendet aus, B kommt aus der Vergrößerung zurück.
+            const std::vector<std::uint8_t> srcA(A, A + static_cast<std::size_t>(w) * h * 4);
+            const float za = 1.0f + 0.6f * fp, zb = 1.6f - 0.6f * fp;
+            const float mixB = std::clamp((fp - 0.2f) / 0.6f, 0.0f, 1.0f);
+            auto sample = [&](const std::uint8_t* img, float zoom, int x, int y, int ch) {
+                const float sx = (x + 0.5f - w / 2.0f) / zoom + w / 2.0f - 0.5f;
+                const float sy = (y + 0.5f - h / 2.0f) / zoom + h / 2.0f - 0.5f;
+                const int ix = std::clamp(static_cast<int>(sx), 0, w - 2), iy = std::clamp(static_cast<int>(sy), 0, h - 2);
+                const float tx = std::clamp(sx - ix, 0.0f, 1.0f), ty = std::clamp(sy - iy, 0.0f, 1.0f);
+                const std::uint8_t* q = img + (static_cast<std::size_t>(iy) * w + ix) * 4 + ch;
+                const std::size_t row = static_cast<std::size_t>(w) * 4;
+                return (q[0] * (1 - tx) + q[4] * tx) * (1 - ty) + (q[row] * (1 - tx) + q[row + 4] * tx) * ty;
+            };
+            parallelRows(0, h, [&](int y0, int y1) {
+                for (int y = y0; y < y1; ++y)
+                    for (int x = 0; x < w; ++x) {
+                        const std::size_t i = (static_cast<std::size_t>(y) * w + x) * 4;
+                        for (int ch = 0; ch < 4; ++ch)
+                            A[i + ch] = static_cast<std::uint8_t>(sample(srcA.data(), za, x, y, ch) * (1.0f - mixB) +
+                                                                   sample(B, zb, x, y, ch) * mixB + 0.5f);
+                    }
+            });
+            break;
+        }
+        case TransitionType::BlurDissolve:
+        case TransitionType::Pixelate: {
+            // In der Mitte am stärksten weichgezeichnet bzw. verpixelt.
+            const double amount = std::sin(p * 3.14159265358979323846);
+            if (type == TransitionType::BlurDissolve) {
+                applyBlur(m_bufA, w, h, amount * h * 0.03);
+                applyBlur(m_bufB, w, h, amount * h * 0.03);
+            } else {
+                const int block = 1 + static_cast<int>(std::lround(amount * h * 0.06));
+                applyPixelate(m_bufA, w, h, block);
+                applyPixelate(m_bufB, w, h, block);
+            }
+            const float k = type == TransitionType::Pixelate ? std::clamp((fp - 0.4f) / 0.2f, 0.0f, 1.0f) : fp;
+            const std::uint8_t* Bn = m_bufB.data();
+            parallelRows(0, h, [&](int y0, int y1) {
+                for (std::size_t i = static_cast<std::size_t>(y0) * w * 4; i < static_cast<std::size_t>(y1) * w * 4; ++i)
+                    A[i] = static_cast<std::uint8_t>(A[i] * (1.0f - k) + Bn[i] * k + 0.5f);
+            });
+            break;
+        }
         default: {   // Überblenden
             parallelRows(0, h, [&](int y0, int y1) {
                 for (std::size_t i = static_cast<std::size_t>(y0) * w * 4; i < static_cast<std::size_t>(y1) * w * 4; ++i)
@@ -277,10 +373,20 @@ void Compositor::drawClip(const Clip& clip, TimeUs t, int w, int h, std::vector<
         std::shared_ptr<Lut3D> l = clip.color.lutPath.empty() ? nullptr : lut(clip.color.lutPath);
         applyColorGrade(m_layer, lw, lh, clip.color, l.get());
     }
-    if (clip.fx.chromaKey) applyChromaKey(m_layer, lw, lh, clip.fx);
+    const Effects& fx = clip.fx;
+    if (fx.chromaKey) applyChromaKey(m_layer, lw, lh, fx);
+    if (fx.mirrorH || fx.mirrorV) applyMirror(m_layer, lw, lh, fx.mirrorH, fx.mirrorV);
+    if (fx.pixelate > 0.0) applyPixelate(m_layer, lw, lh, std::max(2, static_cast<int>(std::lround(fx.pixelate * 0.08 * lh))));
     const double blur = clip.valueAt("blur", t);
     if (blur > 0.0) applyBlur(m_layer, lw, lh, blur * h * lh / (baseH * scale));
-    if (clip.fx.vignette > 0.0) applyVignette(m_layer, lw, lh, clip.fx.vignette);
+    if (fx.sharpen > 0.0) applySharpen(m_layer, lw, lh, fx.sharpen);
+    if (fx.glow > 0.0) applyGlow(m_layer, lw, lh, fx.glow);
+    if (fx.rgbSplit > 0.0) applyRgbSplit(m_layer, lw, lh, static_cast<int>(std::lround(fx.rgbSplit * 0.015 * lw)));
+    if (fx.sepia > 0.0) applySepia(m_layer, lw, lh, fx.sepia);
+    if (fx.invert) applyInvert(m_layer, lw, lh);
+    if (fx.vignette > 0.0) applyVignette(m_layer, lw, lh, fx.vignette);
+    // Korn ändert sich jedes Bild (Zeit als Startwert)
+    if (fx.grain > 0.0) applyGrain(m_layer, lw, lh, fx.grain, static_cast<std::uint32_t>(t / 20'000) * 2654435761u + 12345u);
 
     // ---- Ins Bild setzen
     const double cx = w / 2.0 + clip.valueAt("x", t) * w;

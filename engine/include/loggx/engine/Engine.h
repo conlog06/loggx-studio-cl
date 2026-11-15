@@ -135,6 +135,36 @@ struct BeatInfo {
 BeatInfo detectBeats(const std::string& path, TimeUs maxDuration = 90 * kSecond);
 BeatInfo detectBeatsFromSamples(const float* mono, std::size_t count, int sampleRate);
 
+// ---- Tonart
+struct KeyInfo {
+    int tonic = -1;          // 0 = C … 11 = H, -1 = unbekannt
+    bool minor = false;
+    double confidence = 0.0; // 0..1
+};
+KeyInfo detectKey(const std::string& path, TimeUs maxDuration = 120 * kSecond);
+KeyInfo detectKeyFromSamples(const float* mono, std::size_t count, int sampleRate);
+// "a-Moll", "Fis-Dur" …
+std::string keyName(int tonic, bool minor);
+
+// ---- Stimme entfernen / isolieren (ohne KI): trennt, was in der Mitte des
+// Stereobilds liegt und klingt wie Gesang, vom Rest. Instrumental + Gesang
+// ergeben zusammen wieder genau das Original.
+struct SeparationResult {
+    bool ok = false;
+    std::string error;
+    bool mono = false;       // Mono-Quelle: so nicht trennbar
+    double vocalShare = 0.0; // Anteil der Energie im Gesang
+};
+SeparationResult separateVocals(const std::string& input, const std::string& vocalsPath,
+                                const std::string& instrumentalPath, int sampleRate = 48000,
+                                const std::function<void(double)>& progress = {},
+                                const std::atomic<bool>* cancel = nullptr);
+// Für Tests: arbeitet auf Stereo-Samples im Speicher.
+SeparationResult separateVocalsBuffer(const std::vector<float>& stereo, int sampleRate,
+                                      std::vector<float>& vocals, std::vector<float>& instrumental,
+                                      const std::function<void(double)>& progress = {},
+                                      const std::atomic<bool>* cancel = nullptr);
+
 // Spielt Noten live (Computer- oder MIDI-Tastatur). Thread-sicher: Noten
 // kommen aus der Oberfläche oder dem MIDI-Thread, gerendert wird im
 // Audio-Thread.

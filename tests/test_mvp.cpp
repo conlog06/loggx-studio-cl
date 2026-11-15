@@ -1,5 +1,6 @@
 // Tests der MVP-Funktionen der Engine: Transformation, Farbe, LUT,
 // Effekte, Blenden, Keyframes, Titel, Instrumente, Mixer und H.265.
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -7,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "ImageOps.h"
 #include "check.h"
 #include "loggx/engine/Engine.h"
 
@@ -475,6 +477,34 @@ void testTransitions(const fs::path& dir) {
     CHECK(near(at(img, 40, 90), 220, 30, 30));
     CHECK(near(at(img, 280, 90), 30, 30, 220));
 
+    // Neue Übergänge, jeweils in der Mitte (Bild 320×180)
+    cb->transition = TransitionType::WipeUp;
+    render(kSecond);
+    CHECK(near(at(img, 160, 20), 220, 30, 30));    // oben noch Rot
+    CHECK(near(at(img, 160, 160), 30, 30, 220));   // unten schon Blau
+    cb->transition = TransitionType::SlideUp;
+    render(kSecond);
+    CHECK(near(at(img, 160, 20), 220, 30, 30));
+    CHECK(near(at(img, 160, 160), 30, 30, 220));
+    cb->transition = TransitionType::Circle;
+    render(kSecond);
+    CHECK(near(at(img, 160, 90), 30, 30, 220));    // Mitte Blau
+    CHECK(near(at(img, 2, 2), 220, 30, 30));       // Ecke noch Rot
+    cb->transition = TransitionType::Zoom;
+    render(1190000);
+    CHECK(near(at(img, 160, 90), 30, 30, 220));
+    render(810000);
+    CHECK(near(at(img, 160, 90), 220, 30, 30));
+    cb->transition = TransitionType::BlurDissolve;
+    render(kSecond);
+    CHECK(near(at(img, 160, 90), 125, 30, 125, 35));
+    cb->transition = TransitionType::Pixelate;
+    render(900000);
+    CHECK(near(at(img, 160, 90), 220, 30, 30));
+    render(1100000);
+    CHECK(near(at(img, 160, 90), 30, 30, 220));
+    for (int i = 0; i < kTransitionCount; ++i) CHECK(std::string(transitionName(static_cast<TransitionType>(i))) != "?");
+
     // Ton beim Überblenden: kein Loch in der Mitte (gleiche Leistung).
     cb->transition = TransitionType::Crossfade;
     AudioMixer mixer;
@@ -632,6 +662,137 @@ void testBeatsAndLive(const fs::path& dir) {
 
 }  // namespace
 
+void testVocalsAndKey(const fs::path& dir) {
+    // Mitte: „Gesang“ 440 Hz mit Obertönen und Vibrato; links 330 Hz, rechts 523 Hz.
+    const std::size_t n = static_cast<std::size_t>(kRate) * 6;
+    std::vector<float> mix(n * 2);
+    double phase = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const double t = static_cast<double>(i) / kRate;
+        phase += 2 * kPi * 440.0 * (1.0 + 0.004 * std::sin(2 * kPi * 5 * t)) / kRate;
+        const float voice = static_cast<float>(0.25 * std::sin(phase) + 0.08 * std::sin(2 * phase));
+        const float left = static_cast<float>(0.25 * std::sin(2 * kPi * 330.0 * t));
+        const float right = static_cast<float>(0.25 * std::sin(2 * kPi * 523.25 * t));
+        mix[i * 2] = voice + left;
+        mix[i * 2 + 1] = voice + 0.1f * left + right;
+    }
+    std::vector<float> vocals, inst;
+    std::atomic<int> calls{0};
+    const SeparationResult r = separateVocalsBuffer(mix, kRate, vocals, inst, [&](double) { ++calls; });
+    CHECK(r.ok && calls > 0);
+    std::printf("Stimmentrennung: Gesangsanteil %.2f, Gesang 440/330: %.1f dB, Instrumental 330/440: %.1f dB\n",
+                r.vocalShare, 10 * std::log10(power(vocals, 440) / (power(vocals, 330) + 1e-12)),
+                10 * std::log10(power(inst, 330) / (power(inst, 440) + 1e-12)));
+    CHECK(power(vocals, 440) > 20 * power(vocals, 330));   // Gesang ohne linkes Instrument
+    CHECK(power(inst, 330) > 5 * power(inst, 440));       // Instrumental fast ohne Gesang
+    // Beide zusammen ergeben das Original.
+    double err = 0;
+    for (std::size_t i = 0; i < mix.size(); ++i) err = std::max(err, static_cast<double>(std::abs(vocals[i] + inst[i] - mix[i])));
+    CHECK(err < 1e-4);
+    // Mono lässt sich so nicht trennen.
+    std::vector<float> mono(mix.size());
+    for (std::size_t i = 0; i < n; ++i) mono[i * 2] = mono[i * 2 + 1] = mix[i * 2];
+    const SeparationResult rm = separateVocalsBuffer(mono, kRate, vocals, inst);
+    CHECK(!rm.ok && rm.mono);
+
+    // Über Dateien: WAV hinein, zwei WAV heraus.
+    const std::string in = (dir / "song.wav").string();
+    {
+        ExportSettings s;
+        s.path = in;
+        s.video = false;
+        s.sampleRate = kRate;
+        Exporter e;
+        CHECK(e.open(s) && e.writeAudio(mix.data(), n) && e.finish());
+    }
+    const SeparationResult rf = separateVocals(in, (dir / "gesang.wav").string(), (dir / "instrumental.wav").string(), kRate);
+    CHECK(rf.ok);
+    MediaAsset va, ia;
+    CHECK(probeMedia((dir / "gesang.wav").string(), va) && probeMedia((dir / "instrumental.wav").string(), ia));
+    CHECK(std::llabs(va.duration - 6 * kSecond) < 50'000 && std::llabs(ia.duration - 6 * kSecond) < 50'000);
+
+    // Tonart: Akkorde C – F – G – C (C-Dur) und a – d – E – a (a-Moll)
+    auto chords = [&](const std::vector<std::vector<double>>& seq) {
+        std::vector<float> m;
+        for (const auto& chord : seq)
+            for (int i = 0; i < kRate; ++i) {
+                double v = 0;
+                for (double midi : chord) v += std::sin(2 * kPi * 440.0 * std::pow(2.0, (midi - 69) / 12.0) * i / kRate);
+                m.push_back(static_cast<float>(0.2 * v));
+            }
+        return m;
+    };
+    const auto cmaj = chords({{60, 64, 67}, {65, 69, 72}, {67, 71, 74}, {60, 64, 67}, {48, 60, 64, 67}});
+    KeyInfo k = detectKeyFromSamples(cmaj.data(), cmaj.size(), kRate);
+    std::printf("Tonart 1: %s (%.2f)\n", keyName(k.tonic, k.minor).c_str(), k.confidence);
+    CHECK(k.tonic == 0 && !k.minor);
+    const auto amin = chords({{57, 60, 64}, {62, 65, 69}, {64, 68, 71}, {57, 60, 64}, {45, 57, 60, 64}});
+    k = detectKeyFromSamples(amin.data(), amin.size(), kRate);
+    std::printf("Tonart 2: %s (%.2f)\n", keyName(k.tonic, k.minor).c_str(), k.confidence);
+    CHECK(k.tonic == 9 && k.minor);
+    CHECK(keyName(6, false) == "Fis-Dur" && keyName(1, true) == "cis-Moll");
+}
+
+void testEffects() {
+    // Bildoperationen direkt: 4×2-Bild, links rot, rechts blau
+    const int w = 4, h = 2;
+    std::vector<std::uint8_t> img(w * h * 4);
+    auto fill = [&] {
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                std::uint8_t* p = img.data() + (y * w + x) * 4;
+                p[0] = x < 2 ? 200 : 20;
+                p[1] = 40;
+                p[2] = x < 2 ? 20 : 200;
+                p[3] = 255;
+            }
+    };
+    fill();
+    applyMirror(img, w, h, true, false);
+    CHECK(img[0] == 20 && img[2] == 200);           // links jetzt blau
+    fill();
+    applyInvert(img, w, h);
+    CHECK(img[0] == 55 && img[1] == 215 && img[3] == 255);
+    fill();
+    applyPixelate(img, w, h, 4);
+    CHECK(img[0] == img[(w - 1) * 4] && std::abs(img[0] - 110) <= 1);   // ein Block = Mittelwert
+    fill();
+    applySepia(img, w, h, 1.0);
+    CHECK(img[0] > img[1] && img[1] > img[2]);      // warmer Braunton
+    fill();
+    applyRgbSplit(img, w, h, 1);
+    CHECK(img[1 * 4] == 20);                        // Rot von rechts nachgerückt
+    std::vector<std::uint8_t> gray(64 * 64 * 4, 128);
+    applyGrain(gray, 64, 64, 1.0, 7);
+    int differs = 0;
+    for (std::size_t i = 0; i < gray.size(); i += 4) differs += gray[i] != 128;
+    CHECK(differs > 64 * 64 / 2);
+    std::vector<std::uint8_t> edge(64 * 64 * 4, 255);
+    for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 32; ++x)
+            for (int c = 0; c < 3; ++c) edge[(y * 64 + x) * 4 + c] = 60;
+    auto sharp = edge;
+    applySharpen(sharp, 64, 64, 1.0);
+    CHECK(sharp[(32 * 64 + 30) * 4] < 60);          // dunkle Seite an der Kante dunkler
+    auto glow = edge;
+    applyGlow(glow, 64, 64, 1.0);
+    CHECK(glow[(32 * 64 + 29) * 4] > 60);           // Licht strahlt in die dunkle Seite
+
+    // Effekte bleiben beim Speichern erhalten
+    Project p = baseProject();
+    const std::string v = videoTrack(p);
+    const std::string t = p.addTitleClip(v, 0);
+    Clip* c = p.findClip(t);
+    c->fx.sepia = 0.5;
+    c->fx.mirrorH = true;
+    c->fx.grain = 0.25;
+    c->transition = TransitionType::Zoom;
+    Project back;
+    CHECK(Project::fromJson(p.toJson(), {}, back));
+    const Clip* bc = back.findClip(t);
+    CHECK(bc && bc->fx.sepia == 0.5 && bc->fx.mirrorH && bc->fx.grain == 0.25 && !bc->fx.isNeutral());
+}
+
 int main() {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     const fs::path dir = fs::temp_directory_path() / ("loggx_mvp_" + std::to_string(stamp));
@@ -643,6 +804,8 @@ int main() {
     testTransitions(dir);
     testAudioExport(dir);
     testBeatsAndLive(dir);
+    testVocalsAndKey(dir);
+    testEffects();
     std::error_code ec;
     fs::remove_all(dir, ec);
     return finish("test_mvp");

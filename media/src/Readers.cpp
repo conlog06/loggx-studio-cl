@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <thread>
 
 #include "FFmpegUtil.h"
 
@@ -121,6 +122,7 @@ struct VideoReader::Impl {
     // Cache des zuletzt skalierten Bilds.
     TimeUs cachePts = -1;
     int cacheW = 0, cacheH = 0;
+    int swsKey[5] = {0, 0, -1, 0, 0};   // Quelle w/h/Format, Ziel w/h
     std::vector<std::uint8_t> cache;
 
     ~Impl() { close(); }
@@ -264,10 +266,33 @@ bool VideoReader::frameAt(TimeUs t, int w, int h, std::vector<std::uint8_t>& rgb
     }
 
     const AVFrame* f = d->frame;
-    d->sws = sws_getCachedContext(d->sws, f->width, f->height,
-                                  static_cast<AVPixelFormat>(f->format), w, h,
-                                  AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
-    if (!d->sws) return false;
+    // Skalierer mit mehreren Threads (FFmpeg ≥ 5); bei 4K-Quellen spürbar schneller.
+    const int key[5] = {f->width, f->height, f->format, w, h};
+    if (!d->sws || !std::equal(key, key + 5, d->swsKey)) {
+        sws_freeContext(d->sws);
+        d->sws = nullptr;
+#if LIBSWSCALE_VERSION_MAJOR >= 6
+        if (SwsContext* c = sws_alloc_context()) {
+            av_opt_set_int(c, "srcw", f->width, 0);
+            av_opt_set_int(c, "srch", f->height, 0);
+            av_opt_set_int(c, "src_format", f->format, 0);
+            av_opt_set_int(c, "dstw", w, 0);
+            av_opt_set_int(c, "dsth", h, 0);
+            av_opt_set_int(c, "dst_format", AV_PIX_FMT_RGBA, 0);
+            av_opt_set_int(c, "sws_flags", SWS_BILINEAR, 0);
+            av_opt_set_int(c, "threads", std::clamp(static_cast<int>(std::thread::hardware_concurrency()), 1, 16), 0);
+            if (sws_init_context(c, nullptr, nullptr) >= 0)
+                d->sws = c;
+            else
+                sws_freeContext(c);
+        }
+#endif
+        if (!d->sws)
+            d->sws = sws_getContext(f->width, f->height, static_cast<AVPixelFormat>(f->format), w, h,
+                                    AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (!d->sws) return false;
+        std::copy(key, key + 5, d->swsKey);
+    }
     // Farbmatrix und Pegelbereich der Quelle beachten. Ohne Angabe gilt wie
     // üblich BT.709 ab 720 Zeilen, sonst BT.601.
     int matrix = f->height >= 720 ? SWS_CS_ITU709 : SWS_CS_ITU601;
@@ -285,7 +310,26 @@ bool VideoReader::frameAt(TimeUs t, int w, int h, std::vector<std::uint8_t>& rgb
     d->cache.resize(bytes);
     std::uint8_t* dst[4] = {d->cache.data(), nullptr, nullptr, nullptr};
     int dstStride[4] = {w * 4, 0, 0, 0};
+#if LIBSWSCALE_VERSION_MAJOR >= 6
+    // sws_scale_frame nutzt die Threads; das Ziel zeigt direkt in unseren Puffer.
+    AVFrame* out = av_frame_alloc();
+    bool scaled = false;
+    if (out) {
+        out->format = AV_PIX_FMT_RGBA;
+        out->width = w;
+        out->height = h;
+        out->buf[0] = av_buffer_create(d->cache.data(), static_cast<int>(bytes), [](void*, std::uint8_t*) {}, nullptr, 0);
+        if (out->buf[0]) {
+            out->data[0] = d->cache.data();
+            out->linesize[0] = w * 4;
+            scaled = sws_scale_frame(d->sws, out, f) >= 0;
+        }
+        av_frame_free(&out);
+    }
+    if (!scaled) sws_scale(d->sws, f->data, f->linesize, 0, f->height, dst, dstStride);
+#else
     sws_scale(d->sws, f->data, f->linesize, 0, f->height, dst, dstStride);
+#endif
     d->cachePts = d->framePts;
     d->cacheW = w;
     d->cacheH = h;

@@ -17,7 +17,13 @@ T.ComboBox {
 
     delegate: ItemDelegate {
         width: ListView.view.width
-        text: control.textRole ? (Array.isArray(control.model) ? modelData[control.textRole] : model[control.textRole]) : modelData
+        // JS-Listen aus Objekten liefern die Rolle nur über modelData.
+        text: {
+            if (!control.textRole) return modelData
+            if (modelData !== undefined && modelData !== null && typeof modelData === "object" && modelData[control.textRole] !== undefined)
+                return modelData[control.textRole]
+            return model[control.textRole] !== undefined ? model[control.textRole] : ""
+        }
         highlighted: control.highlightedIndex === index
         font.weight: control.currentIndex === index ? Font.DemiBold : Font.Normal
     }

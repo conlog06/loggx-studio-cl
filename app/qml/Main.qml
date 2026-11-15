@@ -367,6 +367,14 @@ ApplicationWindow {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 10
             Row {
+                visible: app.working
+                spacing: 8
+                anchors.verticalCenter: parent.verticalCenter
+                Label { text: app.workLabel; color: Theme.text; anchors.verticalCenter: parent.verticalCenter }
+                ProgressBar { width: 120; value: app.workProgress; anchors.verticalCenter: parent.verticalCenter }
+                IconButton { iconName: "close"; tip: qsTr("Abbrechen"); onClicked: app.cancelWork() }
+            }
+            Row {
                 visible: app.recording
                 spacing: 5
                 anchors.verticalCenter: parent.verticalCenter

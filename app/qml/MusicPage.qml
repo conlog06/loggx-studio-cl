@@ -141,7 +141,15 @@ FocusScope {
                     to: 300
                     value: Math.round(app.bpm)
                     editable: true
-                    onValueModified: app.bpm = value
+                    // Musikprojekt: Noten und Audio ziehen mit; sonst nur das Raster.
+                    onValueModified: {
+                        if (app.musicMode) app.setSongTempo(value)
+                        else app.bpm = value
+                        value = Qt.binding(function () { return Math.round(app.bpm) })
+                    }
+                    ToolTip.text: app.musicMode ? qsTr("Song-Tempo: Noten und Audio werden mitgezogen (Tonhöhe bleibt)") : qsTr("Tempo des Takt-Rasters")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
                 }
                 Label { text: qsTr("BPM"); color: Theme.dim }
                 IconButton {
@@ -156,6 +164,22 @@ FocusScope {
                     enabled: root.hasAudioClip
                     onClicked: app.detectTempo()
                     tip: qsTr("Tempo aus dem ausgewählten Audio-Clip erkennen")
+                }
+                Button {
+                    text: qsTr("Transponieren")
+                    icon.name: "key"
+                    flat: true
+                    onClicked: transposeMenu.open()
+                    Menu {
+                        id: transposeMenu
+                        y: parent.height
+                        MenuItem { text: qsTr("+1 Halbton"); onTriggered: app.transposeSong(1) }
+                        MenuItem { text: qsTr("−1 Halbton"); onTriggered: app.transposeSong(-1) }
+                        MenuItem { text: qsTr("+1 Ganzton"); onTriggered: app.transposeSong(2) }
+                        MenuItem { text: qsTr("−1 Ganzton"); onTriggered: app.transposeSong(-2) }
+                        MenuItem { text: qsTr("Oktave höher"); onTriggered: app.transposeSong(12) }
+                        MenuItem { text: qsTr("Oktave tiefer"); onTriggered: app.transposeSong(-12) }
+                    }
                 }
                 Item { Layout.fillWidth: true }
                 Button { text: qsTr("Spur"); icon.name: "plus"; flat: true; onClicked: app.addInstrumentTrack() }
