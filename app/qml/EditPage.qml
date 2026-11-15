@@ -10,6 +10,12 @@ Item {
     signal importRequested()
     signal openPage(int page)
 
+    TimelineMenu {
+        id: editMenu
+        onOpenPage: function (p) { editRoot.openPage(p) }
+        onImportRequested: editRoot.importRequested()
+    }
+
     SplitView {
         anchors.fill: parent
         orientation: Qt.Vertical
@@ -245,6 +251,7 @@ Item {
                     Layout.fillHeight: true
                     controller: app
                     clip: true
+                    onContextMenuRequested: function (x, y, index, header, clipId, seconds) { editMenu.show(x, y, index, header, clipId, seconds) }
 
                     ScrollBar {
                         anchors.right: parent.right

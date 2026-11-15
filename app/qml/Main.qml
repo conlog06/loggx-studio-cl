@@ -13,24 +13,26 @@ ApplicationWindow {
     minimumHeight: 680
     visible: true
     color: Theme.bg
-    title: (app.dirty ? "● " : "") + app.projectName + " – LoggX Studio"
+    title: window.djMode ? "LXStudio DJ" : (app.dirty ? "● " : "") + app.projectName + " – LXStudio"
 
-    property int page: startPage
+    property int page: startPage === 6 ? 3 : startPage
+    // DJ ist ein eigener Modus in derselben App (oben umschalten)
+    property bool djMode: startPage === 6
     // Während auf der Computertastatur gespielt wird, sind Buchstaben-Kürzel aus.
-    readonly property bool playingKeys: !app.showStart && page === 3 && musicPage.keyboardActive
+    readonly property bool playingKeys: studioActive && page === 3 && musicPage.keyboardActive
+    // Studio (Video/Musik) sichtbar – Kürzel des Studios nur dann
+    readonly property bool studioActive: !app.showStart && !window.djMode
 
     // Arbeitsbereiche: Videoprojekte zeigen alle, Musikprojekte nur die passenden.
     readonly property var workspaces: app.musicMode
         ? [{ page: 3, text: qsTr("Musik"), icon: "piano" },
            { page: 0, text: qsTr("Samples"), icon: "wave" },
-           { page: 4, text: qsTr("Export"), icon: "export" },
-           { page: 6, text: qsTr("DJ"), icon: "disc" }]
+           { page: 4, text: qsTr("Export"), icon: "export" }]
         : [{ page: 0, text: qsTr("Medien"), icon: "folder" },
            { page: 1, text: qsTr("Schnitt"), icon: "scissors" },
            { page: 2, text: qsTr("Farbe"), icon: "palette" },
            { page: 3, text: qsTr("Musik"), icon: "piano" },
-           { page: 4, text: qsTr("Export"), icon: "export" },
-           { page: 6, text: qsTr("DJ"), icon: "disc" }]
+           { page: 4, text: qsTr("Export"), icon: "export" }]
 
     Connections {
         target: app
@@ -40,7 +42,22 @@ ApplicationWindow {
                 window.page = 3
         }
     }
-    Component.onCompleted: if (showLicense) licenseDialog.open()
+    Component.onCompleted: {
+        if (showLicense) licenseDialog.open()
+        if (showSettings) { generalSettings.tab = settingsTab; generalSettings.open() }
+    }
+    // Aus dem DJ-Bereich: Track im Musik-Editor öffnen
+    Connections {
+        target: dj
+        function onOpenInEditor(path, bpm) {
+            window.guarded(function () {
+                if (app.openAudioInMusicEditor(path, bpm)) {
+                    window.djMode = false
+                    window.page = 3
+                }
+            })
+        }
+    }
 
     // Projektdatei wurde ins Fenster gezogen
     function openDropped(path) { guarded(function () { app.openRecent(path) }) }
@@ -83,23 +100,26 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Undo]; onActivated: app.undo() }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Y"]; onActivated: app.redo() }
     Shortcut { sequence: "Ctrl+I"; onActivated: importDialog.open() }
-    Shortcut { sequences: [StandardKey.Copy]; enabled: !app.showStart; onActivated: app.copySelected() }
-    Shortcut { sequences: [StandardKey.Paste]; enabled: !app.showStart && app.canPaste; onActivated: app.pasteAtPlayhead() }
-    Shortcut { sequence: "Ctrl+D"; enabled: !app.showStart; onActivated: app.duplicateSelected() }
-    Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.open() }
-    Shortcut { sequence: "Space"; enabled: !app.showStart && window.page !== 6; onActivated: app.recording ? app.stopRecording() : app.togglePlay() }
-    Shortcut { sequences: ["S", "Ctrl+B"]; enabled: !window.playingKeys && !app.musicMode; onActivated: app.splitAtPlayhead() }
-    Shortcut { sequence: "Ctrl+B"; enabled: app.musicMode; onActivated: app.splitAtPlayhead() }
-    Shortcut { sequence: "R"; enabled: !app.showStart && window.page === 3; onActivated: app.recording ? app.stopRecording() : app.startRecording() }
+    Shortcut { sequences: [StandardKey.Copy]; enabled: studioActive; onActivated: app.copySelected() }
+    Shortcut { sequences: [StandardKey.Paste]; enabled: studioActive && app.canPaste; onActivated: app.pasteAtPlayhead() }
+    Shortcut { sequences: [StandardKey.Cut]; enabled: studioActive; onActivated: app.cutSelected() }
+    Shortcut { sequence: "Ctrl+D"; enabled: studioActive; onActivated: app.duplicateSelected() }
+    Shortcut { sequence: "Ctrl+,"; onActivated: generalSettings.open() }
+    Shortcut { sequence: "Ctrl+Shift+,"; enabled: !window.djMode; onActivated: settingsDialog.open() }
+    Shortcut { sequence: "Ctrl+Tab"; onActivated: window.djMode = !window.djMode }
+    Shortcut { sequence: "Space"; enabled: studioActive; onActivated: app.recording ? app.stopRecording() : app.togglePlay() }
+    Shortcut { sequences: ["S", "Ctrl+B"]; enabled: studioActive && !window.playingKeys && !app.musicMode; onActivated: app.splitAtPlayhead() }
+    Shortcut { sequence: "Ctrl+B"; enabled: studioActive && app.musicMode; onActivated: app.splitAtPlayhead() }
+    Shortcut { sequence: "R"; enabled: studioActive && window.page === 3; onActivated: app.recording ? app.stopRecording() : app.startRecording() }
     Shortcut { sequence: "Ctrl+Home"; onActivated: app.showStart = true }
-    Shortcut { sequences: ["Delete", "Backspace"]; enabled: !app.showStart; onActivated: app.deleteSelected(false) }
-    Shortcut { sequences: ["Shift+Delete", "Shift+Backspace"]; onActivated: app.deleteSelected(true) }
-    Shortcut { sequence: "Left"; onActivated: app.stepFrames(-1) }
-    Shortcut { sequence: "Right"; onActivated: app.stepFrames(1) }
-    Shortcut { sequence: "Home"; onActivated: app.seek(0) }
-    Shortcut { sequence: "T"; enabled: !window.playingKeys && !app.musicMode; onActivated: app.addTitle() }
-    Shortcut { sequence: "Ctrl+M"; onActivated: app.addMidiClip() }
-    Shortcut { sequence: "End"; onActivated: app.seek(app.duration) }
+    Shortcut { sequences: ["Delete", "Backspace"]; enabled: studioActive; onActivated: app.deleteSelected(false) }
+    Shortcut { sequences: ["Shift+Delete", "Shift+Backspace"]; enabled: studioActive; onActivated: app.deleteSelected(true) }
+    Shortcut { sequence: "Left"; enabled: studioActive; onActivated: app.stepFrames(-1) }
+    Shortcut { sequence: "Right"; enabled: studioActive; onActivated: app.stepFrames(1) }
+    Shortcut { sequence: "Home"; enabled: studioActive; onActivated: app.seek(0) }
+    Shortcut { sequence: "T"; enabled: studioActive && !window.playingKeys && !app.musicMode; onActivated: app.addTitle() }
+    Shortcut { sequence: "Ctrl+M"; enabled: studioActive; onActivated: app.addMidiClip() }
+    Shortcut { sequence: "End"; enabled: studioActive; onActivated: app.seek(app.duration) }
 
     // ------------------------------------------------------------ Dialoge
     FileDialog {
@@ -185,7 +205,7 @@ ApplicationWindow {
         Label {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: app.recoveryInfo + "\n\n" + qsTr("LoggX Studio wurde nicht ordentlich beendet. Die automatisch gesicherte Fassung wiederherstellen?")
+            text: app.recoveryInfo + "\n\n" + qsTr("LXStudio wurde nicht ordentlich beendet. Die automatisch gesicherte Fassung wiederherstellen?")
         }
         footer: DialogButtonBox {
             Button { text: qsTr("Wiederherstellen"); DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
@@ -197,6 +217,7 @@ ApplicationWindow {
 
     LicenseDialog { id: licenseDialog }
     ProjectSettingsDialog { id: settingsDialog }
+    SettingsDialog { id: generalSettings }
 
     // ---------------------------------------------------------- Kopfzeile
     header: Rectangle {
@@ -218,35 +239,71 @@ ApplicationWindow {
                     id: logoRow
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 9
-                    Rectangle {
-                        width: 28; height: 28; radius: 8
-                        gradient: Gradient {
-                            orientation: Gradient.Horizontal
-                            GradientStop { position: 0; color: Theme.accent }
-                            GradientStop { position: 1; color: Theme.accent2 }
-                        }
-                        Text { anchors.centerIn: parent; text: "LX"; color: "white"; font.pixelSize: 12; font.bold: true }
-                    }
+                    LogoMark { size: 28 }
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "LoggX Studio"
+                        text: "LXStudio"
                         font.pixelSize: 15
                         font.bold: true
                     }
                 }
             }
-            Divider { Layout.leftMargin: 10; Layout.rightMargin: 6 }
-            IconButton { iconName: "home"; tip: qsTr("Startbildschirm (Strg+Pos1)"); checked: app.showStart; onClicked: app.showStart = !app.showStart }
-            IconButton { iconName: "folder"; tip: qsTr("Projekt öffnen (Strg+O)"); onClicked: guarded(function () { openDialog.open() }) }
-            IconButton { iconName: "save"; tip: qsTr("Speichern (Strg+S)"); enabled: app.dirty || app.filePath === ""; onClicked: save() }
-            Divider { Layout.leftMargin: 6; Layout.rightMargin: 6 }
-            IconButton { iconName: "undo"; tip: qsTr("Rückgängig (Strg+Z)"); enabled: app.canUndo; onClicked: app.undo() }
-            IconButton { iconName: "redo"; tip: qsTr("Wiederholen (Strg+Y)"); enabled: app.canRedo; onClicked: app.redo() }
+            // Modus: Studio (Video/Musik) oder DJ – getrennt, aber eine App
+            Rectangle {
+                Layout.leftMargin: 12
+                Layout.preferredHeight: 30
+                Layout.preferredWidth: modeSwitch.implicitWidth + 6
+                radius: 15
+                color: Theme.bg
+                border.color: Theme.border
+                Row {
+                    id: modeSwitch
+                    anchors.centerIn: parent
+                    spacing: 2
+                    Repeater {
+                        model: [{ dj: false, text: qsTr("Studio"), icon: "film" }, { dj: true, text: qsTr("DJ"), icon: "disc" }]
+                        Rectangle {
+                            required property var modelData
+                            readonly property bool active: window.djMode === modelData.dj
+                            width: modeText.implicitWidth + 40
+                            height: 24
+                            radius: 12
+                            color: active ? (modelData.dj ? Theme.alpha(Theme.warn, 0.22) : Theme.alpha(Theme.accent, 0.22)) : modeMouse.containsMouse ? Theme.hover : "transparent"
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 5
+                                Icon { width: 13; height: 13; anchors.verticalCenter: parent.verticalCenter; name: modelData.icon; color: active ? (modelData.dj ? Theme.warn : Theme.accent) : Theme.dim }
+                                Label { id: modeText; anchors.verticalCenter: parent.verticalCenter; text: modelData.text; font.pixelSize: 12; font.weight: active ? Font.DemiBold : Font.Normal; color: active ? Theme.text : Theme.dim }
+                            }
+                            MouseArea {
+                                id: modeMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    window.djMode = modelData.dj
+                                    if (!modelData.dj && app.showStart && app.duration > 0) app.showStart = false
+                                }
+                            }
+                            ToolTip.visible: modeMouse.containsMouse
+                            ToolTip.delay: 600
+                            ToolTip.text: modelData.dj ? qsTr("DJ: auflegen mit zwei Decks (Strg+Tab)") : qsTr("Studio: Video schneiden und Musik machen (Strg+Tab)")
+                        }
+                    }
+                }
+            }
+            Divider { Layout.leftMargin: 10; Layout.rightMargin: 6; visible: !window.djMode }
+            IconButton { visible: !window.djMode; iconName: "home"; tip: qsTr("Startbildschirm (Strg+Pos1)"); checked: app.showStart; onClicked: app.showStart = !app.showStart }
+            IconButton { visible: !window.djMode; iconName: "folder"; tip: qsTr("Projekt öffnen (Strg+O)"); onClicked: guarded(function () { openDialog.open() }) }
+            IconButton { visible: !window.djMode; iconName: "save"; tip: qsTr("Speichern (Strg+S)"); enabled: app.dirty || app.filePath === ""; onClicked: save() }
+            Divider { Layout.leftMargin: 6; Layout.rightMargin: 6; visible: !window.djMode }
+            IconButton { visible: !window.djMode; iconName: "undo"; tip: qsTr("Rückgängig (Strg+Z)"); enabled: app.canUndo; onClicked: app.undo() }
+            IconButton { visible: !window.djMode; iconName: "redo"; tip: qsTr("Wiederholen (Strg+Y)"); enabled: app.canRedo; onClicked: app.redo() }
 
             Item { Layout.fillWidth: true }
             // Projekttyp + Name
             Rectangle {
-                visible: !app.showStart
+                visible: window.studioActive
                 Layout.preferredHeight: 22
                 Layout.preferredWidth: modeLabel.implicitWidth + 30
                 radius: 11
@@ -258,9 +315,21 @@ ApplicationWindow {
                     Label { id: modeLabel; text: app.musicMode ? qsTr("Musik") : qsTr("Video"); font.pixelSize: 11; color: app.musicMode ? Theme.music : Theme.video }
                 }
             }
+            // DJ: Controller-Status in der Mitte
+            Row {
+                visible: window.djMode
+                spacing: 8
+                Rectangle { width: 8; height: 8; radius: 4; anchors.verticalCenter: parent.verticalCenter; color: djmidi.connected ? Theme.ok : Theme.faint }
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: djmidi.connected ? djmidi.device : qsTr("Kein Controller – Tastatur & Maus")
+                    color: djmidi.connected ? Theme.text : Theme.dim
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { generalSettings.tab = 2; generalSettings.open() } }
+                }
+            }
             TextField {
                 id: nameField
-                visible: !app.showStart
+                visible: window.studioActive
                 Layout.preferredWidth: 250
                 horizontalAlignment: Text.AlignHCenter
                 text: app.projectName + (app.dirty ? " •" : "")
@@ -279,15 +348,16 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             Button {
-                visible: !app.showStart
+                visible: window.studioActive
                 flat: true
-                icon.name: "settings"
+                icon.name: "sliders"
                 text: app.musicMode ? qsTr("%1 BPM · %2").arg(Math.round(app.bpm * 10) / 10).arg(app.beatsPerBar >= 6 ? app.beatsPerBar + "/8" : app.beatsPerBar + "/4") : app.formatInfo
                 onClicked: settingsDialog.open()
                 ToolTip.text: qsTr("Projekteinstellungen: Auflösung, Bildrate, Tempo (Strg+,)")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
             }
+            IconButton { iconName: "settings"; tip: qsTr("Einstellungen (Strg+,)"); onClicked: generalSettings.open() }
             // Edition / Lizenz / Admin
             Button {
                 flat: true
@@ -305,6 +375,7 @@ ApplicationWindow {
     // Dateien von außen: überall dort, wo kein eigener Ablagebereich ist.
     FileDropArea {
         anchors.fill: parent
+        enabled: !window.djMode
         hint: app.showStart ? qsTr("Ablegen: importieren und schneiden") : qsTr("Ablegen: am Abspielkopf einfügen")
         onFilesDropped: if (app.showStart && app.duration > 0) app.showStart = false
     }
@@ -312,7 +383,7 @@ ApplicationWindow {
     // -------------------------------------------------------- Arbeitsbereiche
     StackLayout {
         anchors.fill: parent
-        currentIndex: app.showStart ? 5 : window.page
+        currentIndex: window.djMode ? 6 : app.showStart ? 5 : window.page
 
         MediaPage { onImportRequested: importDialog.open() }
         EditPage {
@@ -320,14 +391,14 @@ ApplicationWindow {
             onOpenPage: function (p) { window.page = p }
         }
         ColorPage {}
-        MusicPage { id: musicPage }
+        MusicPage { id: musicPage; onImportRequested: importDialog.open() }
         ExportPage {}
         StartPage {
             onOpenRequested: guarded(function () { openDialog.open() })
             onGuard: function (action) { window.guarded(action) }
-            onOpenDj: { app.showStart = false; window.page = 6 }
+            onOpenDj: window.djMode = true
         }
-        DjPage { active: !app.showStart && window.page === 6 }
+        DjPage { active: window.djMode }
     }
 
     // ------------------------------------------------------------ Fußzeile
@@ -338,7 +409,7 @@ ApplicationWindow {
         TabBar {
             id: tabs
             anchors.centerIn: parent
-            visible: !app.showStart
+            visible: window.studioActive
             width: window.workspaces.length * 118
             currentIndex: {
                 for (let i = 0; i < window.workspaces.length; ++i)
@@ -362,7 +433,7 @@ ApplicationWindow {
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
             elide: Text.ElideRight
-            text: app.status
+            text: window.djMode ? dj.status : app.status
             color: Theme.dim
         }
         Row {

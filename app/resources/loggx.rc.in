@@ -13,9 +13,9 @@ BEGIN
     BLOCK "040704B0"
     BEGIN
       VALUE "CompanyName", "LoggX"
-      VALUE "FileDescription", "LoggX Studio"
+      VALUE "FileDescription", "LXStudio"
       VALUE "FileVersion", "@PROJECT_VERSION@"
-      VALUE "ProductName", "LoggX Studio"
+      VALUE "ProductName", "LXStudio"
       VALUE "ProductVersion", "@PROJECT_VERSION@"
       VALUE "OriginalFilename", "LoggX Studio.exe"
     END

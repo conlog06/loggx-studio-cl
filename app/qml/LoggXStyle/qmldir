@@ -16,6 +16,7 @@ ProgressBar 2.15 ProgressBar.qml
 ScrollBar 2.15 ScrollBar.qml
 Menu 2.15 Menu.qml
 MenuItem 2.15 MenuItem.qml
+MenuSeparator 2.15 MenuSeparator.qml
 ToolTip 2.15 ToolTip.qml
 Dialog 2.15 Dialog.qml
 Popup 2.15 Popup.qml

@@ -19,6 +19,7 @@
 #include "MicRecorder.h"
 #include "ModelManager.h"
 #include "DjController.h"
+#include "DjMidi.h"
 #include <QCryptographicHash>
 #include <cstdlib>
 #include "check.h"
@@ -274,6 +275,26 @@ int main(int argc, char** argv) {
     CHECK(!app.removeTrack(instTrack));
     app.addInstrumentTrack();
     CHECK(app.removeTrack(static_cast<int>(app.project().tracks.size()) - 1));
+    // Rechtsklick-Funktionen: umbenennen, verschieben, volle Spur löschen (Undo)
+    {
+        const int before = static_cast<int>(app.project().tracks.size());
+        CHECK(app.renameTrack(instTrack, QStringLiteral("  Lead  ")));
+        CHECK(app.project().tracks[static_cast<std::size_t>(instTrack)].name == "Lead");
+        CHECK(!app.renameTrack(instTrack, QStringLiteral("   ")));
+        const std::string id = app.project().tracks[static_cast<std::size_t>(instTrack)].id;
+        if (instTrack > 0) {
+            CHECK(app.moveTrack(instTrack, -1));
+            CHECK(app.project().tracks[static_cast<std::size_t>(instTrack - 1)].id == id);
+            CHECK(app.moveTrack(instTrack - 1, 1));
+        }
+        CHECK(!app.moveTrack(before - 1, 1));
+        CHECK(!app.project().tracks[static_cast<std::size_t>(instTrack)].clips.empty());
+        CHECK(app.deleteTrack(instTrack));
+        CHECK(static_cast<int>(app.project().tracks.size()) == before - 1);
+        app.undo();
+        CHECK(static_cast<int>(app.project().tracks.size()) == before);
+        CHECK(app.project().tracks[static_cast<std::size_t>(instTrack)].id == id);
+    }
 
     // Export mit Titel und Instrument (H.265, falls vorhanden – sonst H.264).
     const QString out2 = dir.filePath("mvp.mp4");
@@ -643,6 +664,146 @@ int main(int argc, char** argv) {
         const QString mix = dj.stopRecording();
         CHECK(!mix.isEmpty() && QFile::exists(mix));
         QFile::remove(mix);
+        // Tempo von Hand: ×2, Eingabe, Raster – gilt für Deck und Bibliothek
+        const double bpm0 = dj.deckA().value("bpm").toDouble();
+        dj.multiplyBpm(0, 2.0);
+        CHECK(std::abs(dj.deckA().value("bpm").toDouble() - std::round(bpm0 * 200.0) / 100.0) < 0.011);
+        CHECK(dj.library().first().toMap().value("gridEdited").toBool());
+        dj.setDeckBpm(0, 143.75);
+        CHECK(std::abs(dj.deckA().value("bpm").toDouble() - 143.75) < 1e-9);
+        CHECK(std::abs(dj.library().first().toMap().value("bpm").toDouble() - 143.75) < 1e-9);
+        dj.exitLoop(0);
+        dj.seek(0, 1.0);
+        dj.setGridHere(0);
+        CHECK(std::abs(dj.mixer().gridFirstBeat(0) - std::fmod(1.0, 60.0 / 143.75)) < 0.01);
+        dj.shiftGrid(0, 10);
+        CHECK(std::abs(dj.mixer().gridFirstBeat(0) - std::fmod(1.01, 60.0 / 143.75)) < 0.011);
+        // Hot Cue gehört zum Track (bleibt in der Bibliothek)
+        CHECK(dj.library().first().toMap().value("hotCount").toInt() >= 1);
+        // Playlists und Verlauf
+        const int pl = dj.createPlaylist(QStringLiteral("Warm-up"));
+        dj.addToPlaylist(pl, {song, song});
+        CHECK(dj.playlists().size() == 1 && dj.playlists().first().toMap().value("count").toInt() == 1);
+        dj.setView(pl);
+        CHECK(dj.trackCount() == 1 && dj.pathAt(0) == song);
+        dj.setView(-1);
+        dj.togglePlay(0);
+        dj.togglePlay(0);
+        dj.setView(-2);
+        CHECK(dj.trackCount() == 1);
+        dj.setView(-1);
+        CHECK(dj.library().first().toMap().value("plays").toInt() == 1);
+        dj.setRating(song, 4);
+        CHECK(dj.library().first().toMap().value("rating").toInt() == 4);
+        CHECK(dj.searchUrl("beatport", song).startsWith("https://www.beatport.com/search?q="));
+        // Kopfhörer: Vorhören an
+        dj.setPfl(0, true);
+        CHECK(dj.deckA().value("pfl").toBool());
+        // Controller: Pioneer DDJ-FLX4 (Nachrichten wie vom Gerät)
+        {
+            DjMidi midi(&dj);
+            midi.usePreset(true);
+            std::vector<std::vector<unsigned char>> sent;
+            midi.setOutputHook([&](const std::vector<unsigned char>& m) { sent.push_back(m); });
+            dj.setTempoRange(0, 8.0);
+            midi.handle(0xB0, 0x00, 0x7F);   // Tempo-Fader ganz unten (MSB) …
+            midi.handle(0xB0, 0x20, 0x7F);   // … und LSB: +8 %
+            CHECK(std::abs(dj.deckA().value("tempo").toDouble() - 8.0) < 1e-6);
+            midi.handle(0xB0, 0x00, 0x40);
+            midi.handle(0xB0, 0x20, 0x00);   // Mitte: 0 %
+            CHECK(std::abs(dj.deckA().value("tempo").toDouble()) < 0.05);
+            midi.handle(0x97, 0x01, 0x7F);   // Pad 2 (Hot Cue B) setzen
+            CHECK(dj.deckA().value("hot").toList().at(1).toDouble() >= 0);
+            midi.handle(0x98, 0x01, 0x7F);   // Shift + Pad 2: löschen
+            CHECK(dj.deckA().value("hot").toList().at(1).toDouble() < 0);
+            midi.handle(0x90, 0x54, 0x7F);   // CUE (Kopfhörer) aus
+            CHECK(!dj.deckA().value("pfl").toBool());
+            midi.handle(0xB6, 0x1F, 0x00);
+            midi.handle(0xB6, 0x3F, 0x00);   // Crossfader ganz links
+            CHECK(std::abs(dj.crossfader() + 1.0) < 1e-6);
+            midi.handle(0x97, 0x64, 0x7F);   // Beat-Loop-Pad: 4 Schläge
+            CHECK(dj.deckA().value("looping").toBool() && dj.deckA().value("loopBeats").toDouble() == 4.0);
+            midi.handle(0x90, 0x4D, 0x7F);   // Reloop/Exit
+            CHECK(!dj.deckA().value("looping").toBool());
+            midi.handle(0x90, 0x0B, 0x7F);   // Play
+            CHECK(dj.deckA().value("playing").toBool());
+            midi.handle(0x90, 0x0B, 0x00);   // Loslassen ändert nichts
+            CHECK(dj.deckA().value("playing").toBool());
+            midi.updateLeds(true);
+            bool playLed = false;
+            for (const auto& m : sent)
+                if (m.size() == 3 && m[0] == 0x90 && m[1] == 0x0B && m[2] == 0x7F) playLed = true;
+            CHECK(playLed);
+            midi.handle(0x90, 0x0B, 0x7F);   // Pause
+            CHECK(!dj.deckA().value("playing").toBool());
+            // MIDI-Learn: beliebiger Controller
+            midi.usePreset(false);
+            midi.learn(QStringLiteral("fader"), 1);
+            midi.handle(0xB3, 0x07, 10);
+            CHECK(midi.mappings().size() == 1 && midi.learning().isEmpty());
+            midi.handle(0xB3, 0x07, 0);
+            CHECK(dj.deckB().value("fader").toDouble() == 0.0);
+            midi.clearMappings();
+        }
+        // Fremde Bibliotheken: rekordbox-XML und iTunes-Library.xml
+        {
+            QString loc = QUrl::fromLocalFile(song).toString(QUrl::FullyEncoded);
+            loc.replace(QStringLiteral("file://"), QStringLiteral("file://localhost"));
+            QFile rb(dir.filePath("rekordbox.xml"));
+            CHECK(rb.open(QIODevice::WriteOnly));
+            rb.write(QStringLiteral(
+                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DJ_PLAYLISTS Version=\"1.0.0\"><PRODUCT Name=\"rekordbox\"/>"
+                         "<COLLECTION Entries=\"2\">"
+                         "<TRACK TrackID=\"7\" Name=\"Movin' To The Sun\" Artist=\"HUGEL\" Genre=\"House\" AverageBpm=\"138.00\" "
+                         "Tonality=\"Fm\" Rating=\"204\" TotalTime=\"6\" Location=\"%1\">"
+                         "<TEMPO Inizio=\"0.025\" Bpm=\"138.00\" Metro=\"4/4\" Battito=\"1\"/>"
+                         "<POSITION_MARK Name=\"\" Type=\"0\" Start=\"1.5\" Num=\"2\"/></TRACK>"
+                         "<TRACK TrackID=\"8\" Name=\"Stream\" Location=\"\"/>"
+                         "</COLLECTION><PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\"><NODE Type=\"0\" Name=\"Sets\">"
+                         "<NODE Name=\"Sommer\" Type=\"1\" KeyType=\"0\" Entries=\"1\"><TRACK Key=\"7\"/></NODE>"
+                         "</NODE></NODE></PLAYLISTS></DJ_PLAYLISTS>")
+                         .arg(loc)
+                         .toUtf8());
+            rb.close();
+            CHECK(dj.importLibraryXml(QUrl::fromLocalFile(rb.fileName())) == 1);
+            const QVariantMap t = dj.trackInfo(song);
+            CHECK(t.value("title").toString() == QStringLiteral("Movin' To The Sun"));
+            CHECK(std::abs(t.value("bpm").toDouble() - 138.0) < 1e-9);
+            CHECK(t.value("keyName").toString().startsWith(QStringLiteral("f")));   // f-Moll
+            CHECK(t.value("rating").toInt() == 4 && t.value("genre").toString() == QStringLiteral("House"));
+            bool found = false;
+            for (const QVariant& v : dj.playlists())
+                if (v.toMap().value("name").toString() == QStringLiteral("Sets / Sommer")) found = true;
+            CHECK(found);
+            // Raster aus rekordbox gilt sofort im Deck
+            CHECK(std::abs(dj.deckA().value("bpm").toDouble() - 138.0) < 1e-9);
+            CHECK(std::abs(dj.mixer().hotCue(0, 2) - 1.5) < 1e-9 || dj.trackInfo(song).value("hotCount").toInt() >= 1);
+
+            QFile it(dir.filePath("Library.xml"));
+            CHECK(it.open(QIODevice::WriteOnly));
+            it.write(QStringLiteral(
+                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict><key>Tracks</key><dict>"
+                         "<key>42</key><dict><key>Track ID</key><integer>42</integer><key>Name</key><string>Mono</string>"
+                         "<key>Artist</key><string>Test</string><key>Total Time</key><integer>4000</integer>"
+                         "<key>Location</key><string>%1</string></dict>"
+                         "<key>43</key><dict><key>Track ID</key><integer>43</integer><key>Name</key><string>Nur Stream</string></dict>"
+                         "</dict><key>Playlists</key><array>"
+                         "<dict><key>Name</key><string>Mediathek</string><key>Master</key><true/><key>Playlist Items</key><array>"
+                         "<dict><key>Track ID</key><integer>42</integer></dict></array></dict>"
+                         "<dict><key>Name</key><string>Lieblinge</string><key>Playlist Items</key><array>"
+                         "<dict><key>Track ID</key><integer>42</integer></dict></array></dict>"
+                         "</array></dict></plist>")
+                         .arg(QUrl::fromLocalFile(dir.filePath("mono.wav")).toString(QUrl::FullyEncoded))
+                         .toUtf8());
+            it.close();
+            CHECK(dj.importLibraryXml(QUrl::fromLocalFile(it.fileName())) == 1);
+            CHECK(dj.trackInfo(dir.filePath("mono.wav")).value("artist").toString() == QStringLiteral("Test"));
+            found = false;
+            for (const QVariant& v : dj.playlists())
+                if (v.toMap().value("name").toString() == QStringLiteral("Lieblinge")) found = v.toMap().value("count").toInt() == 1;
+            CHECK(found);
+            dj.removeTrack(dir.filePath("mono.wav"));
+        }
         dj.removeTrack(song);
         CHECK(dj.library().isEmpty());
         host.discardRecovery();

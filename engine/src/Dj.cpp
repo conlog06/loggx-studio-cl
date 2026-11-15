@@ -127,6 +127,12 @@ struct DjMixer::Deck {
     double pos = 0.0;           // in Samples der Spur
     double cue = 0.0;           // Sekunden
     double tempo = 0.0;         // Prozent
+    double gridBpm = 0.0;       // Beatgrid (aus der Spur, änderbar)
+    double gridFirst = 0.0;     // Sekunden
+    bool pfl = false;           // Vorhören (Kopfhörer)
+    double bend = 0.0;          // Jog-Rad am Rand: kurz schneller/langsamer
+    bool scratch = false;       // Jog-Rad oben berührt
+    double scratchPending = 0.0, scratchVel = 0.0;   // Samples
     bool keyLock = false;
     bool sync = false;
     std::array<double, 8> hot{};
@@ -149,9 +155,10 @@ struct DjMixer::Deck {
     std::vector<float> inL, inR, outL, outR;
 
     Deck() { hot.fill(-1.0); }
-    double rate() const { return (1.0 + tempo / 100.0) * brake; }
+    double rate() const { return (1.0 + tempo / 100.0) * brake * (1.0 + bend); }
+    double beatLen() const { return gridBpm > 0 ? 60.0 / gridBpm : 0.0; }
     double seconds() const { return track ? pos / track->sampleRate : 0.0; }
-    double bpm() const { return track && track->bpm > 0 ? track->bpm * (1.0 + tempo / 100.0) : 0.0; }
+    double bpm() const { return track && gridBpm > 0 ? gridBpm * (1.0 + tempo / 100.0) : 0.0; }
 
     // Ein Sample der Spur (mit Stems) an ganzzahliger Stelle, Loop beachtet
     std::size_t wrap(double i) const {
@@ -231,9 +238,14 @@ void DjMixer::load(int deck, std::shared_ptr<const DjTrack> track) {
     d.filt = keep.filt;
     d.trim = keep.trim;
     d.fader = keep.fader;
+    d.pfl = keep.pfl;
     d.track = std::move(track);
+    if (d.track) {
+        d.gridBpm = d.track->bpm;
+        d.gridFirst = d.track->firstBeat;
+    }
     // Cue auf den ersten Schlag
-    if (d.track && d.track->bpm > 0) d.cue = d.track->firstBeat;
+    if (d.track && d.gridBpm > 0) d.cue = d.gridFirst;
     if (d.track) d.pos = d.cue * d.track->sampleRate;
 }
 
@@ -333,25 +345,25 @@ bool DjMixer::keyLock(int deck) const {
 }
 
 void DjMixer::applySync(Deck& d, const Deck& other) {
-    if (!d.track || !other.track || d.track->bpm <= 0 || other.track->bpm <= 0) return;
+    if (!d.track || !other.track || d.gridBpm <= 0 || other.gridBpm <= 0) return;
     // Halbes/doppeltes Tempo erkennen (z. B. 87 ↔ 174 BPM)
     double target = other.bpm();
-    while (target / d.track->bpm > 1.5) target /= 2;
-    while (target / d.track->bpm < 0.67) target *= 2;
-    d.tempo = std::clamp((target / d.track->bpm - 1.0) * 100.0, -50.0, 50.0);
+    while (target / d.gridBpm > 1.5) target /= 2;
+    while (target / d.gridBpm < 0.67) target *= 2;
+    d.tempo = std::clamp((target / d.gridBpm - 1.0) * 100.0, -50.0, 50.0);
 }
 
 void DjMixer::sync(int deck) {
     LOCK;
     Deck& d = DECK(deck);
     const Deck& other = DECK(deck + 1);
-    if (!d.track || !other.track || d.track->bpm <= 0 || other.track->bpm <= 0) return;
+    if (!d.track || !other.track || d.gridBpm <= 0 || other.gridBpm <= 0) return;
     applySync(d, other);
     // Phase: gleiche Stelle im Schlag wie das andere Deck
-    const double lo = other.track->beatLength(), ls = d.track->beatLength();
+    const double lo = other.beatLen(), ls = d.beatLen();
     auto frac = [](double x) { return x - std::floor(x); };
-    const double po = frac((other.seconds() - other.track->firstBeat) / lo);
-    const double ps = frac((d.seconds() - d.track->firstBeat) / ls);
+    const double po = frac((other.seconds() - other.gridFirst) / lo);
+    const double ps = frac((d.seconds() - d.gridFirst) / ls);
     double diff = po - ps;
     if (diff > 0.5) diff -= 1.0;
     if (diff < -0.5) diff += 1.0;
@@ -385,9 +397,9 @@ bool DjMixer::quantize() const {
 }
 
 double DjMixer::snapToBeat(const Deck& d, double s) const {
-    if (!d.track || d.track->bpm <= 0) return s;
-    const double len = d.track->beatLength();
-    return std::max(0.0, d.track->firstBeat + std::round((s - d.track->firstBeat) / len) * len);
+    if (!d.track || d.gridBpm <= 0) return s;
+    const double len = d.beatLen();
+    return std::max(0.0, d.gridFirst + std::round((s - d.gridFirst) / len) * len);
 }
 
 void DjMixer::setHotCue(int deck, int index) {
@@ -416,6 +428,13 @@ void DjMixer::clearHotCue(int deck, int index) {
     if (index >= 0 && index < 8) DECK(deck).hot[static_cast<std::size_t>(index)] = -1.0;
 }
 
+void DjMixer::setHotCuePoint(int deck, int index, double seconds) {
+    LOCK;
+    Deck& d = DECK(deck);
+    if (index < 0 || index > 7) return;
+    d.hot[static_cast<std::size_t>(index)] = d.track && seconds >= 0 && seconds < d.track->duration() ? seconds : -1.0;
+}
+
 double DjMixer::hotCue(int deck, int index) const {
     LOCK;
     return index >= 0 && index < 8 ? DECK(deck).hot[static_cast<std::size_t>(index)] : -1.0;
@@ -424,8 +443,8 @@ double DjMixer::hotCue(int deck, int index) const {
 void DjMixer::setLoop(int deck, double beats) {
     LOCK;
     Deck& d = DECK(deck);
-    if (!d.track || d.track->bpm <= 0 || beats <= 0) return;
-    const double len = d.track->beatLength() * beats;
+    if (!d.track || d.gridBpm <= 0 || beats <= 0) return;
+    const double len = d.beatLen() * beats;
     double start = d.seconds();
     // Gleiche Länge erneut: Loop aus; sonst neue Länge ab gleichem Start
     if (d.loop) {
@@ -435,8 +454,8 @@ void DjMixer::setLoop(int deck, double beats) {
         }
         start = d.loopStart / d.track->sampleRate;
     } else if (m_quantize) {
-        const double b = d.track->beatLength();
-        start = std::max(0.0, d.track->firstBeat + std::floor((start - d.track->firstBeat) / b + 1e-6) * b);
+        const double b = d.beatLen();
+        start = std::max(0.0, d.gridFirst + std::floor((start - d.gridFirst) / b + 1e-6) * b);
     }
     d.loopStart = start * d.track->sampleRate;
     d.loopEnd = (start + len) * d.track->sampleRate;
@@ -463,8 +482,8 @@ double DjMixer::loopBeats(int deck) const {
 void DjMixer::beatJump(int deck, double beats) {
     LOCK;
     Deck& d = DECK(deck);
-    if (!d.track || d.track->bpm <= 0) return;
-    const double shift = beats * d.track->beatLength() * d.track->sampleRate;
+    if (!d.track || d.gridBpm <= 0) return;
+    const double shift = beats * d.beatLen() * d.track->sampleRate;
     d.pos = std::clamp(d.pos + shift, 0.0, static_cast<double>(d.track->frames()));
     if (d.loop) {
         d.loopStart += shift;
@@ -556,7 +575,7 @@ void DjMixer::setFxOn(bool on) {
     if (on && !m_fx->on && m_fx->type == DjFx::Brake) {
         // Bremse: Zieldeck über „beats“ Schläge zum Stillstand bringen
         Deck& d = DECK(m_fx->target == 2 ? m_master : m_fx->target);
-        const double seconds = d.track && d.track->bpm > 0 ? m_fx->beats * 60.0 / d.bpm() : m_fx->beats * 0.5;
+        const double seconds = d.track && d.gridBpm > 0 ? m_fx->beats * 60.0 / d.bpm() : m_fx->beats * 0.5;
         d.brakeStep = 1.0 / std::max(1.0, seconds * m_rate);
     }
     if (!on) {
@@ -580,11 +599,71 @@ void DjMixer::setRecorder(std::function<void(const float*, std::size_t)> recorde
     m_recorder = std::move(recorder);
 }
 
+void DjMixer::setBeatGrid(int deck, double bpm, double firstBeat) {
+    LOCK;
+    Deck& d = DECK(deck);
+    if (!d.track) return;
+    d.gridBpm = std::clamp(bpm, 0.0, 400.0);
+    d.gridFirst = d.gridBpm > 0 ? std::fmod(std::max(0.0, firstBeat), 60.0 / d.gridBpm) : 0.0;
+}
+
+double DjMixer::gridBpm(int deck) const {
+    LOCK;
+    return DECK(deck).gridBpm;
+}
+
+double DjMixer::gridFirstBeat(int deck) const {
+    LOCK;
+    return DECK(deck).gridFirst;
+}
+
+void DjMixer::setPfl(int deck, bool on) {
+    LOCK;
+    DECK(deck).pfl = on;
+}
+
+bool DjMixer::pfl(int deck) const {
+    LOCK;
+    return DECK(deck).pfl;
+}
+
+void DjMixer::setHeadphones(double mix, double volume) {
+    LOCK;
+    m_headMix = std::clamp(mix, 0.0, 1.0);
+    m_headVol = std::clamp(volume, 0.0, 1.5);
+}
+
+void DjMixer::setScratch(int deck, bool on) {
+    LOCK;
+    Deck& d = DECK(deck);
+    d.scratch = on;
+    d.scratchPending = 0.0;
+    d.scratchVel = 0.0;
+    d.stretchReset = true;
+}
+
+bool DjMixer::scratching(int deck) const {
+    LOCK;
+    return DECK(deck).scratch;
+}
+
+void DjMixer::jogScratch(int deck, double seconds) {
+    LOCK;
+    Deck& d = DECK(deck);
+    if (d.track) d.scratchPending += seconds * d.track->sampleRate;
+}
+
+void DjMixer::jogBend(int deck, double amount) {
+    LOCK;
+    DECK(deck).bend = std::clamp(DECK(deck).bend + amount, -0.5, 0.5);
+}
+
 // ------------------------------------------------------------ Audio
 
-void DjMixer::render(float* out, std::size_t frames) {
+void DjMixer::render(float* out, std::size_t frames, float* cue) {
     LOCK;
     std::fill(out, out + frames * 2, 0.0f);
+    if (cue) m_cueBus.assign(frames * 2, 0.0f);
     m_bufA.assign(frames * 2, 0.0f);
     m_bufB.assign(frames * 2, 0.0f);
 
@@ -599,7 +678,10 @@ void DjMixer::render(float* out, std::size_t frames) {
     for (int di = 0; di < 2; ++di) {
         Deck& d = *m_decks[static_cast<std::size_t>(di)];
         float* buf = di == 0 ? m_bufA.data() : m_bufB.data();
-        if (!d.track || !d.playing) {
+        // Jog-Bend klingt von selbst ab
+        d.bend *= 0.8;
+        if (std::abs(d.bend) < 1e-4) d.bend = 0.0;
+        if (!d.track || (!d.playing && !d.scratch)) {
             d.level *= 0.8;
             continue;
         }
@@ -612,7 +694,7 @@ void DjMixer::render(float* out, std::size_t frames) {
 
         bool useStretch = false;
 #ifdef LOGGX_WITH_RUBBERBAND
-        useStretch = d.keyLock && std::abs(d.rate() - 1.0) > 1e-4 && d.brakeStep == 0.0;
+        useStretch = d.keyLock && !d.scratch && std::abs(d.rate() - 1.0) > 1e-4 && d.brakeStep == 0.0;
         if (useStretch) {
             using RB = RubberBand::RubberBandStretcher;
             if (!d.stretcher)
@@ -658,6 +740,15 @@ void DjMixer::render(float* out, std::size_t frames) {
 #endif
         if (!useStretch) {
             d.stretchReset = true;
+            // Scratchen: Geschwindigkeit folgt dem Jog-Rad (weich geglättet)
+            double step = d.rate();
+            if (d.scratch) {
+                const double target = d.scratchPending / static_cast<double>(frames);
+                d.scratchVel = 0.55 * d.scratchVel + 0.45 * std::clamp(target, -4.0, 4.0);
+                d.scratchPending -= d.scratchVel * static_cast<double>(frames);
+                if (std::abs(d.scratchPending) < 1.0 && std::abs(d.scratchVel) < 0.02) d.scratchVel *= 0.5;
+                step = d.scratchVel;
+            }
             for (std::size_t k = 0; k < frames; ++k) {
                 if (ramp) {
                     const float a = static_cast<float>(k) / static_cast<float>(frames);
@@ -676,7 +767,7 @@ void DjMixer::render(float* out, std::size_t frames) {
                 };
                 buf[k * 2] = cr(l);
                 buf[k * 2 + 1] = cr(r);
-                d.pos += d.rate();
+                d.pos = std::max(0.0, d.pos + step);
                 if (d.loop && d.loopEnd > d.loopStart && d.pos >= d.loopEnd) d.pos -= d.loopEnd - d.loopStart;
                 if (d.brakeStep > 0.0) {
                     d.brake = std::max(0.0, d.brake - d.brakeStep);
@@ -708,6 +799,7 @@ void DjMixer::render(float* out, std::size_t frames) {
                 if (eqOn) x = d.high.process(d.mid.process(d.low.process(x, c), c), c);
                 if (filtOn) x = d.filter.process(x, c);
                 peak = std::max(peak, static_cast<double>(std::abs(x)));
+                if (cue && d.pfl) m_cueBus[k * 2 + c] += x;   // vor dem Fader
                 buf[k * 2 + c] = x * fade;
             }
         d.level = std::max(peak, d.level * 0.85);
@@ -764,6 +856,15 @@ void DjMixer::render(float* out, std::size_t frames) {
         peak = std::max(peak, static_cast<double>(std::abs(v)));
     }
     m_masterLevel = std::max(peak, m_masterLevel * 0.85);
+    if (cue) {
+        // Kopfhörer: Vorhören ↔ Master überblenden
+        const float mixAmt = static_cast<float>(m_headMix), hv = static_cast<float>(m_headVol);
+        for (std::size_t i = 0; i < frames * 2; ++i) {
+            float v = (m_cueBus[i] * (1.0f - mixAmt) + out[i] * mixAmt) * hv;
+            v = std::clamp(v, -1.0f, 1.0f);
+            cue[i] = v;
+        }
+    }
     if (m_recorder) m_recorder(out, frames);
 }
 

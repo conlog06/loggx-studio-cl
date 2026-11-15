@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <chrono>
 #include <cmath>
+#include <random>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -986,6 +987,95 @@ void testAi(const fs::path& dir) {
     }
 }
 
+// Kopfhörer (Vorhören vor dem Fader), Scratchen, Beatgrid je Deck
+void testDjCueAndJog() {
+    DjMixer dj(kRate);
+    auto a = makeDjTrack(120, 20, 440);
+    dj.load(0, a);
+    std::vector<float> out(1024 * 2), cue(1024 * 2);
+    auto energy = [](const std::vector<float>& v) {
+        double e = 0;
+        for (float x : v) e += static_cast<double>(x) * x;
+        return e / static_cast<double>(v.size());
+    };
+    dj.play(0);
+    dj.setFader(0, 0.0);
+    dj.setPfl(0, true);
+    dj.setHeadphones(0.0, 1.0);
+    for (int i = 0; i < 4; ++i) dj.render(out.data(), 1024, cue.data());
+    CHECK(energy(out) < 1e-8);     // Fader zu: Master stumm
+    CHECK(energy(cue) > 1e-3);     // Kopfhörer hört trotzdem
+    dj.setPfl(0, false);
+    dj.render(out.data(), 1024, cue.data());
+    CHECK(energy(cue) < 1e-8);
+    // Scratchen: angehalten, Jog oben bewegt die Position
+    dj.pause(0);
+    const double p0 = dj.position(0);
+    dj.setScratch(0, true);
+    dj.jogScratch(0, 0.25);
+    for (int i = 0; i < 40; ++i) dj.render(out.data(), 1024);
+    CHECK(std::abs(dj.position(0) - p0 - 0.25) < 0.03);
+    dj.jogScratch(0, -0.1);   // rückwärts
+    for (int i = 0; i < 40; ++i) dj.render(out.data(), 1024);
+    CHECK(std::abs(dj.position(0) - p0 - 0.15) < 0.03);
+    dj.setScratch(0, false);
+    // Beatgrid ändern: BPM ×2 nur für dieses Deck
+    dj.setBeatGrid(0, 240.0, 0.0);
+    CHECK(std::abs(dj.currentBpm(0) - 240.0) < 1e-9 && std::abs(a->bpm - 120.0) < 1e-9);
+    dj.setHotCuePoint(0, 3, 2.5);
+    CHECK(std::abs(dj.hotCue(0, 3) - 2.5) < 1e-12);
+    dj.setHotCuePoint(0, 3, 999.0);   // hinter dem Ende: leer
+    CHECK(dj.hotCue(0, 3) < 0);
+}
+
+// Tempo-Erkennung auf synthetischen Mustern (inkl. „krummer“ Tempi und
+// DnB, das gern halbiert erkannt wird)
+void testTempoDetection() {
+    constexpr int R = 22050;
+    constexpr double PI = 3.14159265358979;
+    std::mt19937 rng(11);
+    std::uniform_real_distribution<float> U(-1, 1);
+    auto kick = [&](std::vector<float>& o, double t) {
+        const std::size_t s = static_cast<std::size_t>(t * R);
+        for (int i = 0; i < R / 4 && s + i < o.size(); ++i) {
+            const double x = i / double(R), f = 50 + 90 * std::exp(-x * 30);
+            o[s + i] += static_cast<float>(0.9 * std::sin(2 * PI * f * x) * std::exp(-x * 9));
+        }
+    };
+    auto noise = [&](std::vector<float>& o, double t, double len, double amp) {
+        const std::size_t s = static_cast<std::size_t>(t * R);
+        float lp = 0;
+        for (int i = 0; i < R * len && s + i < o.size(); ++i) {
+            const float n = U(rng), hp = n - lp;
+            lp = n;
+            o[s + i] += static_cast<float>(amp * hp * std::exp(-i / (R * len / 4)));
+        }
+    };
+    struct Case { double bpm; bool dnb; };
+    for (const Case c : {Case{138, false}, Case{143.75, false}, Case{124, false}, Case{174, true}}) {
+        std::vector<float> o(static_cast<std::size_t>(60 * R), 0.f);
+        const double b = 60 / c.bpm;
+        for (int k = 0; k < static_cast<int>(58 / b); ++k) {
+            const double t = 0.05 + k * b;
+            if (c.dnb) {
+                if (k % 4 == 0) kick(o, t);
+                if (k % 4 == 2) kick(o, t + b / 2);
+                if (k % 2 == 1) noise(o, t, 0.12, 0.6);
+                for (int q = 0; q < 4; ++q) noise(o, t + q * b / 4, 0.03, 0.12);
+            } else {
+                kick(o, t);
+                noise(o, t + b / 2, 0.08, 0.25);
+                if (k % 2 == 1) noise(o, t, 0.15, 0.4);
+            }
+        }
+        const BeatInfo info = detectBeatsFromSamples(o.data(), o.size(), R);
+        const double phase = std::remainder(info.firstBeat / 1e6 - 0.05, b);
+        std::printf("Tempo %.2f -> %.2f (Phase %.1f ms)\n", c.bpm, info.bpm, phase * 1000);
+        CHECK(std::abs(info.bpm - c.bpm) < 0.05);
+        CHECK(std::abs(phase) < 0.02);
+    }
+}
+
 int main() {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     const fs::path dir = fs::temp_directory_path() / ("loggx_mvp_" + std::to_string(stamp));
@@ -1000,6 +1090,8 @@ int main() {
     testVocalsAndKey(dir);
     testEffects();
     testDj();
+    testDjCueAndJog();
+    testTempoDetection();
     testAi(dir);
     std::error_code ec;
     fs::remove_all(dir, ec);

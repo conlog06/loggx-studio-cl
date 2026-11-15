@@ -14,6 +14,8 @@ qt_add_executable(loggx-studio
   src/AppControllerAudioTools.cpp
   src/ModelManager.cpp src/ModelManager.h
   src/DjController.cpp src/DjController.h
+  src/DjLibraryImport.cpp
+  src/DjMidi.cpp src/DjMidi.h
   src/DjWaveItem.cpp src/DjWaveItem.h
   src/MicRecorder.cpp src/MicRecorder.h
   src/MidiInput.cpp src/MidiInput.h
@@ -44,6 +46,9 @@ qt_add_resources(loggx-studio "qml"
     qml/DjPage.qml
     qml/DjDeck.qml
     qml/Knob.qml
+    qml/TimelineMenu.qml
+    qml/SettingsDialog.qml
+    qml/LogoMark.qml
     qml/LoggXStyle/Button.qml
     qml/LoggXStyle/CheckBox.qml
     qml/LoggXStyle/ComboBox.qml
@@ -52,6 +57,7 @@ qt_add_resources(loggx-studio "qml"
     qml/LoggXStyle/Label.qml
     qml/LoggXStyle/Menu.qml
     qml/LoggXStyle/MenuItem.qml
+    qml/LoggXStyle/MenuSeparator.qml
     qml/LoggXStyle/Popup.qml
     qml/LoggXStyle/ProgressBar.qml
     qml/LoggXStyle/ScrollBar.qml
@@ -118,7 +124,7 @@ target_link_libraries(loggx-studio PRIVATE loggx_rtmidi
 set_target_properties(loggx-studio PROPERTIES
   WIN32_EXECUTABLE ON
   MACOSX_BUNDLE ON
-  MACOSX_BUNDLE_BUNDLE_NAME "LoggX Studio"
+  MACOSX_BUNDLE_BUNDLE_NAME "LXStudio"
   MACOSX_BUNDLE_GUI_IDENTIFIER "de.loggx.studio"
   MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
   OUTPUT_NAME "LoggX Studio")
@@ -136,6 +142,8 @@ if(LOGGX_BUILD_TESTS)
     src/AppControllerAudioTools.cpp
     src/ModelManager.cpp src/ModelManager.h
     src/DjController.cpp src/DjController.h
+    src/DjLibraryImport.cpp
+    src/DjMidi.cpp src/DjMidi.h
     src/MicRecorder.cpp src/MicRecorder.h
     src/MidiInput.cpp src/MidiInput.h)
   target_include_directories(test_app PRIVATE src ../tests)

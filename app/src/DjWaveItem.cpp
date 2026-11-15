@@ -57,15 +57,19 @@ void DjWaveItem::paint(QPainter* p) {
         t1 = pos + m_zoom / 2;
     }
     auto xOf = [&](double t) { return (t - t0) / (t1 - t0) * w; };
+    // Beatgrid des Decks (kann von der Spur abweichen, z. B. nach BPM ×2)
+    const double gridBpm = m_controller->mixer().gridBpm(m_deck);
+    const double gridFirst = m_controller->mixer().gridFirstBeat(m_deck);
+    const double beatLen = gridBpm > 0 ? 60.0 / gridBpm : 0.0;
 
     // Loop-Bereich
     const double loopBeats = m_controller->loopBeats(m_deck);
-    if (loopBeats > 0 && track->bpm > 0) {
+    if (loopBeats > 0 && gridBpm > 0) {
         // Start = letzter Schlag vor der Position innerhalb des Loops (Anzeige genähert)
-        const double len = loopBeats * track->beatLength();
-        const double b = track->beatLength();
-        double start = track->firstBeat + std::floor((pos - track->firstBeat) / b) * b;
-        start = std::max(0.0, start - std::fmod(std::max(0.0, start - track->firstBeat), len));
+        const double len = loopBeats * beatLen;
+        const double b = beatLen;
+        double start = gridFirst + std::floor((pos - gridFirst) / b) * b;
+        start = std::max(0.0, start - std::fmod(std::max(0.0, start - gridFirst), len));
         p->fillRect(QRectF(xOf(start), 0, xOf(start + len) - xOf(start), h), QColor(60, 220, 120, 45));
     }
 
@@ -99,11 +103,11 @@ void DjWaveItem::paint(QPainter* p) {
     }
 
     // Beat-Raster (gezoomt): Schläge fein, Takte deutlich
-    if (!m_overview && track->bpm > 0) {
-        const double b = track->beatLength();
-        const long long first = static_cast<long long>(std::floor((t0 - track->firstBeat) / b));
+    if (!m_overview && gridBpm > 0) {
+        const double b = beatLen;
+        const long long first = static_cast<long long>(std::floor((t0 - gridFirst) / b));
         for (long long k = first; ; ++k) {
-            const double t = track->firstBeat + k * b;
+            const double t = gridFirst + k * b;
             if (t > t1) break;
             if (t < 0) continue;
             const bool bar = k % 4 == 0;

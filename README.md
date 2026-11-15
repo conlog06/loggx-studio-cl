@@ -1,8 +1,8 @@
-# LoggX Studio
+# LXStudio
 
-Videoschnitt und Musikbearbeitung in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls).
+Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.6**: Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.7**: DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -12,21 +12,37 @@ Dieses Repository enthält die **MVP-Vorschau 0.6**: Startbildschirm, neues Desi
 
 ## Funktionen
 
-**DJ**
-- Eigener Arbeitsbereich mit **zwei Decks** und Mixer: farbige Wellenformen (Übersicht und mitlaufend mit Beat-Raster), BPM und Tonart (Camelot, z. B. 8A), Tempo-Fader ±8/16/50 %, **Master Tempo** (Tonhöhe bleibt), **SYNC** (Tempo und Takt, auch halbe/doppelte Tempi), Master-Deck
-- CUE wie am CDJ, Jog-Rad, **8 Hot Cues**, **Loops** (½–16 Schläge), Beat-Sprünge, Quantisieren
-- Mixer: Trim, 3-Band-EQ mit Kill, Filter (Tief-/Hochpass), Kanalfader, Pegel, **Crossfader**, Master
+**DJ** (eigener Modus: oben „Studio | DJ“ oder Strg+Tab – gleiche App, Tracks lassen sich direkt im Musik-Editor öffnen)
+- **Zwei Decks** und Mixer: farbige Wellenformen (Übersicht und mitlaufend mit Beat-Raster), BPM und Tonart (Camelot, z. B. 8A), Tempo-Fader ±6/8/10/16/25/50 % (oben = langsamer wie am CDJ), **Master Tempo** (Tonhöhe bleibt), **SYNC** (Tempo und Takt, auch halbe/doppelte Tempi), Master-Deck, Takt-Anzeige und „Takte bis zum nächsten Cue“
+- CUE wie am CDJ, Jog-Rad (Maus: festhalten = **Scratchen**), **8 Hot Cues** (werden pro Track gespeichert), **Loops** (½–32 Schläge, Loop In/Out, Reloop), Beat-Sprünge, Quantisieren
+- **Beatgrid von Hand**: TAP-Tempo, ×2 / ÷2, Tempo eingeben (z. B. 143,75), Raster verschieben (±10 ms), „Schlag 1 hier“ – Handarbeit wird von keiner Analyse überschrieben
+- Mixer: Trim, 3-Band-EQ mit Kill, Filter (Tief-/Hochpass), Kanalfader, Pegel, **Crossfader**, Master, **Kopfhörer** (CUE je Kanal vor dem Fader, Mix Cue↔Master, Pegel) – über Kanäle 3/4 des Controllers oder ein eigenes Ausgabegerät
 - **Effekte**: Echo und Hall (im Takt), Bremse (Vinyl-Stopp) – auf Deck 1, 2 oder Master
 - **KI-Stems** pro Track: Gesang, Instrumente, Bass, Schlagzeug einzeln stummschalten (drei MDX-Net-Modelle, einmalig ~90 MB)
-- **Bibliothek**: Dateien/Ordner hinzufügen oder hineinziehen, Titel/Interpret aus den Tags, BPM und Tonart automatisch, Suche, Sortierung, ziehen oder doppelklicken zum Laden
+- **Bibliothek wie in rekordbox**: Sammlung, **Verlauf** (History, als Playlist sicherbar), **Playlists** (anlegen, umbenennen, Tracks hineinziehen), Spalten Titel/Interpret/Genre/BPM/Tonart/Zeit/Bewertung/Hinzugefügt, Suche, Sortierung, Pfeiltasten + Enter/←/→ zum Laden
+- **rekordbox übernehmen** (XML-Export: Tracks, BPM/Beatgrid, Tonart, Hot Cues, Bewertung, Playlists) und **Apple Music/iTunes** (Library.xml: Tracks, Bewertung, Playlists)
+- Rechtsklick auf einen Track: laden, im Musik-Editor öffnen, Playlists, Tempo (eingeben, ×2, ÷2, neu analysieren), Bewertung, **online suchen** bei Beatport, SoundCloud, Spotify, Apple Music, TIDAL, YouTube, KI-Stems, im Ordner zeigen
 - **Mix aufnehmen** als WAV und auf Wunsch ins Projekt übernehmen
+
+**DJ-Controller**
+- **Pioneer DDJ-FLX4** wird beim Einstecken automatisch erkannt (USB, ohne Einrichtung): Play/Cue, Shift+Cue (Anfang), Sync / Shift+Sync (Sync dauerhaft), Tempo-Fader (14 Bit), Tempo-Bereich, Jog-Räder (oben berührt = Scratchen, Rand = Pitch-Bend, Shift = schnell suchen), Kanalfader, Trim, 3-Band-EQ, CFX/Filter, Crossfader, Kopfhörer-CUE und -Mix, Browse-Regler + LOAD, Loop In/Out/Reloop, 4-Beat-Loop, Cue/Loop-Call (Loop halbieren/verdoppeln bzw. Beat-Sprung), Quantize
+- Pads: Hot Cue (Shift = löschen), Beat Loop (¼–32), Beat Jump (±1–8), Sampler-Modus → Stems (Gesang, Drums, Bass, Rest), Pad FX (Echo/Hall/Bremse solange gedrückt), Key-Shift → Key Lock; Beat FX: an/aus, Auswahl, Länge, Level/Depth, Kanal
+- **LEDs** (Play, Cue blinkt wie am CDJ, Sync, CUE, Loop, Hot-Cue-Pads, Loop-Pads, Stems, Pegelanzeigen) und Keep-alive wie von rekordbox
+- **Kopfhörer am FLX4**: Einstellungen → Audio → Ausgang „DDJ-FLX4“, Kopfhörer „Kanäle 3/4“
+- **Andere Controller**: verbinden und per **MIDI-Learn** Tasten/Regler zuordnen (Einstellungen → Controller)
+- Die MIDI-Nummern des FLX4 stammen aus der Zuordnung des freien DJ-Programms Mixxx (eigene Umsetzung, kein Mixxx-Code). Ohne echtes Gerät getestet: per Simulation der Nachrichten in den automatischen Tests. Unter Windows kann ein MIDI-Gerät nur von einem Programm gleichzeitig benutzt werden – rekordbox vorher schließen.
+
+**Einstellungen** (Zahnrad oben rechts, Strg+,): Audio (DJ-Ausgang, Kopfhörer, Puffer, Mikrofon), DJ (BPM-Bereich der Erkennung wie in rekordbox, Standard-Tempobereich, Key Lock beim Laden, Quantize), Controller, Bibliothek (rekordbox/iTunes übernehmen, Verlauf leeren), KI, Über.
+
+**Streaming**: Spotify, Apple Music, SoundCloud und Beatport geben ihre Streams nur an DJ-Programme mit eigenem Partnervertrag frei (so wie bei rekordbox, Serato oder djay). Ohne diese Verträge kann LXStudio sie nicht abspielen; es gibt die Suche bei diesen Diensten per Rechtsklick und den Import gekaufter Dateien bzw. der Apple-Music-Library (nur lokale Dateien).
 
 **Start und Projekte**
 - Startbildschirm mit Vorlagen: Videoprojekt (Full HD, 4K, Hochkant 9:16, Quadrat, 24/60 fps) oder **Musikprojekt** (Beat 120, Dance 128, Hip-Hop 90, Ballade 72 BPM), zuletzt geöffnete Projekte
 - **Musikprojekte** zeigen nur Musik, Samples und Export – ganz ohne Video
 - Neues dunkles Design (eigener Qt-Quick-Stil mit Vektor-Symbolen), farbige Spuren, Takt-Lineal
 - **Dateien hineinziehen** aus Explorer/Finder: auf die Timeline (an die Stelle unter der Maus), auf die Vorschau (am Abspielkopf), in die Medienliste (nur importieren); `.loggx` öffnet das Projekt, `.mid` importiert Noten
-- **Projekteinstellungen** (Zahnrad oben rechts, Strg+,): Auflösung bis 8K oder eigene Größe, Bildrate 23,976 / 24 / 25 / 29,97 / 30 / 48 / 50 / 59,94 / 60 / 100 / 120 fps, Tempo und Taktart – für jedes Projekt jederzeit änderbar
+- **Rechtsklick** auf Clips (ausschneiden, kopieren, hier einfügen/teilen, duplizieren, Tempo/Tonart, an Projekt-Tempo anpassen, Gesang entfernen, löschen), auf Spurköpfe (umbenennen, stumm/solo, Instrument, verschieben, neue Spur, **Spur samt Inhalt löschen** – mit Undo) und auf leere Flächen
+- **Projekteinstellungen** (Schieberegler-Knopf oben, Strg+Umschalt+,): Auflösung bis 8K oder eigene Größe, Bildrate 23,976 / 24 / 25 / 29,97 / 30 / 48 / 50 / 59,94 / 60 / 100 / 120 fps, Tempo und Taktart – für jedes Projekt jederzeit änderbar
 
 **Video**
 - Import von Video, Audio und Bildern (alles, was FFmpeg liest)
@@ -86,10 +102,10 @@ Bekannte Grenzen:
 
 - Bilder werden auf der CPU berechnet (alle Kerne). Beim Abspielen verkleinert „Auto“ die Vorschau bei Bedarf; 4K-Material und viele Effekte können ruckeln. Angehalten ist die Vorschau so scharf wie das Fenster.
 - Die Mikrofon-Aufnahme gleicht die Latenz des Audiogeräts noch nicht aus (bei großen Puffern liegt sie minimal zu spät). Ein 8K-Export ist langsam und braucht rund 4 GB Arbeitsspeicher.
-- Die Tempo-Erkennung erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück).
+- Die Tempo-Erkennung (spektraler Fluss, feine Rastersuche über den ganzen Track, Bereich wie rekordbox 70–180 BPM einstellbar) erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück). Bei halb/doppelt erkannten Tempi hilft ×2 / ÷2, bei Live-Aufnahmen TAP.
 - Die KI-Trennung rechnet auf der CPU: grob 0,3–1× Echtzeit je nach Rechner und Stufe (ein 3-Minuten-Song braucht also etwa 1–10 Minuten). GPU-Beschleunigung fehlt noch.
 - **Lizenzen der KI-Modelle:** Die Modelle werden nicht mit dem Programm verteilt, sondern bei Bedarf aus dem öffentlichen Modell-Archiv von *Ultimate Vocal Remover* geladen. Die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass) stehen unter MIT-Lizenz; für „Kim Vocal 2“ ist keine Lizenz angegeben – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
-- DJ: Vorhören über Kopfhörer (zweiter Audioausgang) und DJ-Controller (MIDI-Zuordnung) fehlen noch; Tempo- und Tonart-Erkennung erwarten ein gleichmäßiges Tempo.
+- DJ: Kopfhörer auf einem eigenen Gerät (statt Kanälen 3/4) läuft über eine zweite Audioausgabe und kann sich bei sehr langen Sets minimal verschieben. Sampler, Key-Shift-Pads und Wellenform-Zoom per Controller fehlen noch. Ob Windows die Kanäle 3/4 des FLX4 anbietet, hängt vom Treiber ab (Pioneer-Treiber installieren); die Info-Zeile unter Einstellungen → Audio zeigt, was aktiv ist – sonst Kopfhörer über „Eigenes Gerät“.
 - Ohne öffentlichen Schlüssel in `license/public_key.txt` baut man eine Entwicklerversion: alle Funktionen frei, Admin-Bereich sichtbar.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.
 - Hall und Echo setzen nach einem Sprung in der Timeline neu an (kein Nachklang von der vorherigen Stelle).
@@ -163,11 +179,14 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
 | MIDI-Clip anlegen | Strg+M |
 | Rückgängig / Wiederholen | Strg+Z / Strg+Umschalt+Z |
 | Clip kopieren / einfügen / duplizieren | Strg+C / Strg+V / Strg+D |
-| Projekteinstellungen | Strg+, |
+| Einstellungen / Projekteinstellungen | Strg+, / Strg+Umschalt+, |
+| Studio ↔ DJ | Strg+Tab |
+| Clip ausschneiden | Strg+X |
+| DJ-Bibliothek: Auswahl / laden in Deck 1, 2 | ↑ ↓ / ← → (Enter = freies Deck) |
 | Medien importieren | Strg+I |
 | Timeline zoomen | Strg + Mausrad |
 
-Doppelklick auf eine Datei in der Medienliste legt sie am Abspielkopf in die Timeline. ◇ neben einem Regler setzt einen Keyframe am Abspielkopf; sobald ein Parameter Keyframes hat, setzt jede Reglerbewegung automatisch einen Keyframe. In der Piano-Roll: Klick setzt eine Note (ziehen = Länge), Rechtsklick löscht. Ein Klick auf den Spurkopf schaltet die Spur stumm bzw. unsichtbar. Doppelklick auf die Beschriftung eines Reglers setzt ihn zurück.
+Doppelklick auf eine Datei in der Medienliste legt sie am Abspielkopf in die Timeline. ◇ neben einem Regler setzt einen Keyframe am Abspielkopf; sobald ein Parameter Keyframes hat, setzt jede Reglerbewegung automatisch einen Keyframe. In der Piano-Roll: Klick setzt eine Note (ziehen = Länge), Rechtsklick löscht. Ein Klick auf den Spurkopf schaltet die Spur stumm bzw. unsichtbar, ein Rechtsklick öffnet das Spurmenü (umbenennen, löschen …). Doppelklick auf die Beschriftung eines Reglers setzt ihn zurück.
 
 ## Lizenzen der Abhängigkeiten
 

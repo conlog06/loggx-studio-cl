@@ -54,6 +54,143 @@ Rectangle {
         }
     }
 
+    FileDialog {
+        id: xmlDialog
+        title: qsTr("rekordbox-XML oder Apple-Music-/iTunes-Library.xml übernehmen")
+        nameFilters: [qsTr("Bibliothek (*.xml)")]
+        onAccepted: dj.importLibraryXml(selectedFile)
+    }
+    // Playlist anlegen/umbenennen
+    Dialog {
+        id: nameDialog
+        property int index: -1
+        property var addPaths: []
+        title: index < 0 ? qsTr("Neue Playlist") : qsTr("Playlist umbenennen")
+        modal: true
+        anchors.centerIn: parent
+        width: 360
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        TextField { id: nameField; width: parent.width; onAccepted: nameDialog.accept() }
+        onOpened: { nameField.text = index >= 0 && dj.playlists[index] ? dj.playlists[index].name : ""; nameField.forceActiveFocus() }
+        onAccepted: {
+            if (index >= 0) dj.renamePlaylist(index, nameField.text)
+            else {
+                const i = dj.createPlaylist(nameField.text)
+                if (addPaths.length > 0) dj.addToPlaylist(i, addPaths)
+            }
+            addPaths = []
+        }
+        onRejected: addPaths = []
+    }
+    // Tempo von Hand
+    Dialog {
+        id: bpmDialog
+        property string path
+        property int deck: -1
+        title: qsTr("Tempo eingeben")
+        modal: true
+        anchors.centerIn: parent
+        width: 340
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        ColumnLayout {
+            width: parent.width
+            TextField {
+                id: bpmField
+                Layout.fillWidth: true
+                validator: DoubleValidator { bottom: 20; top: 400; decimals: 2 }
+                inputMethodHints: Qt.ImhFormattedNumbersOnly
+                onAccepted: bpmDialog.accept()
+            }
+            Label { text: qsTr("z. B. 138 oder 143,75 – das Raster bleibt am ersten Schlag"); color: Theme.faint; font.pixelSize: 11 }
+        }
+        onOpened: { bpmField.selectAll(); bpmField.forceActiveFocus() }
+        onAccepted: {
+            const v = parseFloat(bpmField.text.replace(",", "."))
+            if (v > 0) { if (deck >= 0) dj.setDeckBpm(deck, v); else dj.setTrackBpm(path, v) }
+        }
+    }
+    function askBpm(path, deck, current) {
+        bpmDialog.path = path
+        bpmDialog.deck = deck
+        bpmField.text = current > 0 ? current.toFixed(2) : ""
+        bpmDialog.open()
+    }
+    Menu {
+        id: playlistMenu
+        property int index: -1
+        MenuItem { text: qsTr("Umbenennen …"); onTriggered: { nameDialog.index = playlistMenu.index; nameDialog.open() } }
+        MenuItem { text: qsTr("Löschen"); danger: true; icon.name: "trash"; onTriggered: dj.deletePlaylist(playlistMenu.index) }
+    }
+    // Rechtsklick auf einen Track
+    Menu {
+        id: trackMenu
+        property string path
+        property var info: ({})
+        MenuItem { text: qsTr("In Deck 1 laden"); hint: "←"; onTriggered: dj.loadTrack(0, trackMenu.path) }
+        MenuItem { text: qsTr("In Deck 2 laden"); hint: "→"; onTriggered: dj.loadTrack(1, trackMenu.path) }
+        MenuItem { text: qsTr("Im Musik-Editor öffnen"); icon.name: "piano"; onTriggered: dj.openInMusicEditor(trackMenu.path) }
+        MenuSeparator {}
+        Menu {
+            title: qsTr("Zu Playlist hinzufügen")
+            Repeater {
+                model: dj.playlists
+                MenuItem {
+                    required property var modelData
+                    required property int index
+                    text: modelData.name
+                    onTriggered: dj.addToPlaylist(index, [trackMenu.path])
+                }
+            }
+            MenuSeparator {}
+            MenuItem { text: qsTr("Neue Playlist …"); icon.name: "plus"; onTriggered: { nameDialog.index = -1; nameDialog.addPaths = [trackMenu.path]; nameDialog.open() } }
+        }
+        MenuItem {
+            text: qsTr("Aus dieser Playlist entfernen")
+            visible: dj.view >= 0
+            height: visible ? implicitHeight : 0
+            onTriggered: dj.removeFromPlaylist(dj.view, trackMenu.path)
+        }
+        Menu {
+            title: qsTr("Tempo (BPM)")
+            MenuItem { text: qsTr("Tempo eingeben …"); onTriggered: page.askBpm(trackMenu.path, -1, trackMenu.info.bpm || 0) }
+            MenuItem { text: qsTr("Doppelt (×2)"); enabled: trackMenu.info.bpm > 0; onTriggered: dj.setTrackBpm(trackMenu.path, trackMenu.info.bpm * 2) }
+            MenuItem { text: qsTr("Halb (/2)"); enabled: trackMenu.info.bpm > 0; onTriggered: dj.setTrackBpm(trackMenu.path, trackMenu.info.bpm / 2) }
+            MenuItem { text: qsTr("Auf ganze Zahl runden"); enabled: trackMenu.info.bpm > 0; onTriggered: dj.setTrackBpm(trackMenu.path, Math.round(trackMenu.info.bpm)) }
+            MenuSeparator {}
+            MenuItem { text: qsTr("Neu analysieren"); onTriggered: dj.reanalyze(trackMenu.path) }
+        }
+        Menu {
+            title: qsTr("Bewertung")
+            Repeater {
+                model: 6
+                MenuItem {
+                    required property int index
+                    text: index === 0 ? qsTr("Keine") : "★".repeat(index)
+                    checkable: true
+                    checked: trackMenu.info.rating === index
+                    onTriggered: dj.setRating(trackMenu.path, index)
+                }
+            }
+        }
+        Menu {
+            title: qsTr("Online suchen")
+            MenuItem { text: "Beatport"; onTriggered: Qt.openUrlExternally(dj.searchUrl("beatport", trackMenu.path)) }
+            MenuItem { text: "SoundCloud"; onTriggered: Qt.openUrlExternally(dj.searchUrl("soundcloud", trackMenu.path)) }
+            MenuItem { text: "Spotify"; onTriggered: Qt.openUrlExternally(dj.searchUrl("spotify", trackMenu.path)) }
+            MenuItem { text: "Apple Music"; onTriggered: Qt.openUrlExternally(dj.searchUrl("applemusic", trackMenu.path)) }
+            MenuItem { text: "TIDAL"; onTriggered: Qt.openUrlExternally(dj.searchUrl("tidal", trackMenu.path)) }
+            MenuItem { text: "YouTube"; onTriggered: Qt.openUrlExternally(dj.searchUrl("youtube", trackMenu.path)) }
+        }
+        MenuItem { text: qsTr("Stems mit KI vorbereiten"); icon.name: "sparkles"; enabled: dj.aiAvailable && !trackMenu.info.stems; onTriggered: dj.prepareStems(trackMenu.path) }
+        MenuItem {
+            text: qsTr("Im Ordner zeigen")
+            icon.name: "folder"
+            onTriggered: Qt.openUrlExternally("file:///" + trackMenu.path.substring(0, trackMenu.path.lastIndexOf("/")).replace(/^\/+/, ""))
+        }
+        MenuSeparator {}
+        MenuItem { text: qsTr("Aus der Bibliothek entfernen"); danger: true; icon.name: "trash"; onTriggered: dj.removeTrack(trackMenu.path) }
+    }
+
     // Dateien von außen → Bibliothek
     DropArea {
         anchors.fill: parent
@@ -144,14 +281,14 @@ Rectangle {
         // --------------------------------- mitlaufende Wellenformen
         DjWave {
             Layout.fillWidth: true
-            Layout.preferredHeight: 62
+            Layout.preferredHeight: 56
             controller: dj
             deck: 0
             accent: "#3d8bff"
         }
         DjWave {
             Layout.fillWidth: true
-            Layout.preferredHeight: 62
+            Layout.preferredHeight: 56
             controller: dj
             deck: 1
             accent: "#ff8a3d"
@@ -161,12 +298,12 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumHeight: 430
+            Layout.minimumHeight: 450
             spacing: 8
-            DjDeck { deck: 0; Layout.fillWidth: true; Layout.fillHeight: true }
+            DjDeck { deck: 0; Layout.fillWidth: true; Layout.fillHeight: true; onAskBpm: function (path, deck, current) { page.askBpm(path, deck, current) } }
 
             Rectangle {
-                Layout.preferredWidth: 190
+                Layout.preferredWidth: 200
                 Layout.fillHeight: true
                 color: Theme.panel
                 radius: 10
@@ -221,6 +358,20 @@ Rectangle {
                                         onMoved: dj.setFader(strip.index, value)
                                     }
                                 }
+                                Button {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: "CUE"
+                                    checkable: true
+                                    checked: strip.info.pfl === true
+                                    highlighted: checked
+                                    implicitWidth: 54
+                                    implicitHeight: 24
+                                    font.pixelSize: 11
+                                    onClicked: dj.setPfl(strip.index, checked)
+                                    ToolTip.text: qsTr("Im Kopfhörer vorhören (vor dem Fader)")
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                }
                             }
                         }
                         // Master-Pegel
@@ -253,146 +404,260 @@ Rectangle {
                     }
                     RowLayout {
                         Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 2
+                        Knob { label: qsTr("KH MIX"); from: 0; to: 1; value: dj.headMix; resetValue: 0.5; bipolar: false; tint: Theme.warn; onMoved: function (v) { dj.headMix = v } }
+                        Knob { label: qsTr("KH PEGEL"); from: 0; to: 1.5; value: dj.headVolume; resetValue: 1; bipolar: false; tint: Theme.warn; onMoved: function (v) { dj.headVolume = v } }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
                         Label { text: qsTr("Master"); color: Theme.dim }
                         Slider { Layout.fillWidth: true; from: 0; to: 1.5; value: dj.masterVolume; onMoved: dj.masterVolume = value }
                     }
                 }
             }
 
-            DjDeck { deck: 1; Layout.fillWidth: true; Layout.fillHeight: true }
+            DjDeck { deck: 1; Layout.fillWidth: true; Layout.fillHeight: true; onAskBpm: function (path, deck, current) { page.askBpm(path, deck, current) } }
         }
 
         // ----------------------------------------- Bibliothek
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(130, page.height * 0.2)
+            Layout.preferredHeight: Math.max(150, page.height * 0.22)
             color: Theme.panel
             radius: 10
             border.color: Theme.border
-            ColumnLayout {
+            RowLayout {
                 anchors.fill: parent
                 anchors.margins: 8
-                spacing: 6
-                RowLayout {
-                    Layout.fillWidth: true
-                    Label { text: qsTr("Bibliothek"); font.bold: true }
-                    Label { text: qsTr("%1 Tracks").arg(dj.library.length); color: Theme.dim }
-                    Button { text: qsTr("Dateien …"); icon.name: "plus"; flat: true; onClicked: addDialog.open() }
-                    Button { text: qsTr("Ordner …"); icon.name: "folder"; flat: true; onClicked: folderDialog.open() }
-                    Item { Layout.fillWidth: true }
-                    TextField {
-                        Layout.preferredWidth: 260
-                        placeholderText: qsTr("Suchen (Titel, Interpret)")
-                        text: dj.search
-                        onTextEdited: dj.search = text
+                spacing: 8
+
+                // Seitenleiste: Sammlung, Verlauf, Playlists
+                ColumnLayout {
+                    Layout.preferredWidth: 190
+                    Layout.fillHeight: true
+                    spacing: 2
+                    component SideItem: Rectangle {
+                        property string text
+                        property string iconName
+                        property int viewIndex
+                        property int count: -1
+                        property bool removable: false
+                        Layout.fillWidth: true
+                        height: 26
+                        radius: 5
+                        color: dj.view === viewIndex ? Theme.alpha(Theme.accent, 0.22) : sideMouse.containsMouse ? Theme.hover : "transparent"
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 6
+                            anchors.rightMargin: 6
+                            spacing: 6
+                            Icon { width: 14; height: 14; name: iconName; color: dj.view === viewIndex ? Theme.accent : Theme.dim }
+                            Label { Layout.fillWidth: true; text: parent.parent.text; elide: Text.ElideRight; font.pixelSize: 12 }
+                            Label { visible: count >= 0; text: count; color: Theme.faint; font.pixelSize: 11 }
+                        }
+                        MouseArea {
+                            id: sideMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            onClicked: function (m) {
+                                dj.view = viewIndex
+                                if (m.button === Qt.RightButton && removable) { playlistMenu.index = viewIndex; playlistMenu.popup() }
+                            }
+                        }
+                        // Tracks hierher ziehen = zur Playlist hinzufügen
+                        DropArea {
+                            anchors.fill: parent
+                            keys: ["loggx/djtrack"]
+                            enabled: viewIndex >= 0
+                            onDropped: function (drop) { dj.addToPlaylist(viewIndex, [drop.source.trackPath]) }
+                            Rectangle { anchors.fill: parent; radius: 5; color: "transparent"; border.color: Theme.accent; visible: parent.containsDrag }
+                        }
                     }
-                }
-                // Spaltenköpfe (klicken = sortieren)
-                RowLayout {
-                    id: header
-                    Layout.fillWidth: true
-                    spacing: 0
-                    readonly property var widths: [0, 220, 80, 70, 70, 60, 90]
-                    Repeater {
-                        model: [{ t: qsTr("Titel"), c: 0 }, { t: qsTr("Interpret"), c: 1 }, { t: "BPM", c: 2 }, { t: qsTr("Tonart"), c: 3 }, { t: qsTr("Dauer"), c: 4 }, { t: "Stems", c: -1 }, { t: qsTr("Laden"), c: -1 }]
-                        Rectangle {
+                    SideItem { text: qsTr("Sammlung"); iconName: "folder"; viewIndex: -1 }
+                    SideItem { text: qsTr("Verlauf"); iconName: "clock"; viewIndex: -2 }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 6
+                        Label { text: qsTr("PLAYLISTS"); color: Theme.faint; font.pixelSize: 10; font.bold: true; Layout.fillWidth: true; leftPadding: 6 }
+                        IconButton { iconName: "plus"; tip: qsTr("Neue Playlist"); implicitWidth: 24; implicitHeight: 24; onClicked: { nameDialog.index = -1; nameDialog.open() } }
+                    }
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: dj.playlists
+                        spacing: 2
+                        delegate: SideItem {
                             required property var modelData
                             required property int index
-                            Layout.fillWidth: index === 0
-                            Layout.preferredWidth: header.widths[index]
-                            height: 24
-                            color: "transparent"
-                            Label {
-                                anchors.verticalCenter: parent.verticalCenter
-                                x: 8
-                                text: parent.modelData.t + (Math.abs(dj.sortColumn) === parent.modelData.c && parent.modelData.c >= 0 ? (dj.sortColumn < 0 ? " ▼" : " ▲") : "")
-                                color: Theme.dim
-                                font.pixelSize: 11
-                                font.bold: true
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                enabled: parent.modelData.c >= 0
-                                onClicked: {
-                                    const c = parent.modelData.c
-                                    dj.sortColumn = (Math.abs(dj.sortColumn) % 10 === c && dj.sortColumn >= 0) ? -(c === 0 ? 10 : c) : c
+                            width: ListView.view.width
+                            text: modelData.name
+                            iconName: "music"
+                            viewIndex: index
+                            count: modelData.count
+                            removable: true
+                        }
+                    }
+                    Button { Layout.fillWidth: true; text: qsTr("rekordbox / iTunes …"); icon.name: "import"; flat: true; onClicked: xmlDialog.open() }
+                }
+                Rectangle { Layout.fillHeight: true; Layout.preferredWidth: 1; color: Theme.border }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 6
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: dj.view === -1 ? qsTr("Sammlung") : dj.view === -2 ? qsTr("Verlauf") : (dj.playlists[dj.view] ? dj.playlists[dj.view].name : ""); font.bold: true }
+                        Label { text: qsTr("%1 Tracks").arg(dj.trackCount); color: Theme.dim }
+                        Button { text: qsTr("Dateien …"); icon.name: "plus"; flat: true; onClicked: addDialog.open() }
+                        Button { text: qsTr("Ordner …"); icon.name: "folder"; flat: true; onClicked: folderDialog.open() }
+                        Button { visible: dj.view === -2 && dj.trackCount > 0; text: qsTr("Als Playlist sichern"); flat: true; onClicked: { const i = dj.createPlaylist(qsTr("Set %1").arg(new Date().toLocaleDateString(Qt.locale(), "dd.MM.yyyy"))); const paths = []; for (let r = 0; r < dj.trackCount; ++r) paths.unshift(dj.pathAt(r)); dj.addToPlaylist(i, paths) } }
+                        Item { Layout.fillWidth: true }
+                        TextField {
+                            Layout.preferredWidth: 260
+                            placeholderText: qsTr("Suchen (Titel, Interpret, Genre, Kommentar)")
+                            text: dj.search
+                            onTextEdited: dj.search = text
+                        }
+                    }
+                    // Spaltenköpfe (klicken = sortieren)
+                    RowLayout {
+                        id: header
+                        Layout.fillWidth: true
+                        spacing: 0
+                        readonly property var columns: [
+                            { t: qsTr("Titel"), c: 0, w: 0 }, { t: qsTr("Interpret"), c: 1, w: 180 }, { t: qsTr("Genre"), c: 5, w: 100 },
+                            { t: "BPM", c: 2, w: 74 }, { t: qsTr("Tonart"), c: 3, w: 60 }, { t: qsTr("Zeit"), c: 4, w: 56 },
+                            { t: qsTr("Bewertung"), c: 6, w: 80 }, { t: qsTr("Neu"), c: 7, w: 70 }, { t: "", c: -1, w: 96 }]
+                        Repeater {
+                            model: header.columns
+                            Rectangle {
+                                required property var modelData
+                                required property int index
+                                Layout.fillWidth: modelData.w === 0
+                                Layout.preferredWidth: modelData.w
+                                height: 22
+                                color: "transparent"
+                                Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: 8
+                                    text: parent.modelData.t + (Math.abs(dj.sortColumn) % 20 === parent.modelData.c && parent.modelData.c >= 0 && (dj.sortColumn !== 0 || dj.view === -1) ? (dj.sortColumn < 0 ? " ▼" : " ▲") : "")
+                                    color: Theme.dim
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: parent.modelData.c >= 0
+                                    onClicked: {
+                                        const c = parent.modelData.c
+                                        dj.sortColumn = (Math.abs(dj.sortColumn) % 20 === c && dj.sortColumn >= 0) ? -(c === 0 ? 20 : c) : c
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                ListView {
-                    id: list
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    model: dj.library
-                    ScrollBar.vertical: ScrollBar {}
-                    delegate: Rectangle {
-                        id: row
-                        required property var modelData
-                        required property int index
-                        readonly property string trackPath: modelData.path
-                        width: list.width
-                        height: 28
-                        color: rowMouse.containsMouse ? Theme.hover : index % 2 ? Theme.panel2 : "transparent"
-                        opacity: modelData.exists ? 1 : 0.45
-                        MouseArea {
-                            id: rowMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton | Qt.RightButton
-                            drag.target: dragProxy
-                            onReleased: { dragProxy.x = 0; dragProxy.y = 0 }
-                            onDoubleClicked: {
-                                // In das Deck, das gerade nicht spielt (zuerst 1)
-                                const a = dj.deckA, b = dj.deckB
-                                dj.loadTrack(!a.playing ? 0 : !b.playing ? 1 : 0, row.modelData.path)
+                    ListView {
+                        id: list
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: dj.library
+                        currentIndex: dj.cursor
+                        highlightFollowsCurrentItem: true
+                        highlightMoveDuration: 0
+                        keyNavigationEnabled: false
+                        ScrollBar.vertical: ScrollBar {}
+                        delegate: Rectangle {
+                            id: row
+                            required property var modelData
+                            required property int index
+                            readonly property string trackPath: modelData.path
+                            readonly property bool selected: index === dj.cursor
+                            width: list.width
+                            height: 27
+                            color: selected ? Theme.alpha(Theme.accent, 0.20) : rowMouse.containsMouse ? Theme.hover : index % 2 ? Theme.panel2 : "transparent"
+                            opacity: modelData.exists ? 1 : 0.45
+                            MouseArea {
+                                id: rowMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                drag.target: dragProxy
+                                onPressed: { dj.cursor = row.index; list.forceActiveFocus() }
+                                onReleased: { dragProxy.x = 0; dragProxy.y = 0 }
+                                onDoubleClicked: {
+                                    // In das Deck, das gerade nicht spielt (zuerst 1)
+                                    const a = dj.deckA, b = dj.deckB
+                                    dj.loadTrack(!a.playing ? 0 : !b.playing ? 1 : 0, row.modelData.path)
+                                }
+                                onClicked: function (m) { if (m.button === Qt.RightButton) { trackMenu.path = row.modelData.path; trackMenu.info = row.modelData; trackMenu.popup() } }
                             }
-                            onClicked: function (m) { if (m.button === Qt.RightButton) rowMenu.popup() }
-                        }
-                        Item { id: dragProxy; width: 1; height: 1; Drag.active: rowMouse.drag.active; Drag.keys: ["loggx/djtrack"]; Drag.source: row }
-                        Menu {
-                            id: rowMenu
-                            MenuItem { text: qsTr("In Deck 1 laden"); onTriggered: dj.loadTrack(0, row.modelData.path) }
-                            MenuItem { text: qsTr("In Deck 2 laden"); onTriggered: dj.loadTrack(1, row.modelData.path) }
-                            MenuItem { text: qsTr("Stems mit KI vorbereiten"); enabled: dj.aiAvailable && !row.modelData.stems; onTriggered: dj.prepareStems(row.modelData.path) }
-                            MenuItem { text: qsTr("Aus der Bibliothek entfernen"); onTriggered: dj.removeTrack(row.modelData.path) }
-                        }
-                        RowLayout {
-                            anchors.fill: parent
-                            spacing: 0
-                            Label {
-                                Layout.fillWidth: true
-                                leftPadding: 8
-                                elide: Text.ElideRight
-                                text: row.modelData.title
-                                color: row.modelData.onDeck === 1 ? "#3d8bff" : row.modelData.onDeck === 2 ? "#ff8a3d" : Theme.text
-                                font.bold: row.modelData.onDeck > 0
-                            }
-                            Label { Layout.preferredWidth: 220; leftPadding: 8; elide: Text.ElideRight; text: row.modelData.artist; color: Theme.dim }
-                            Label { Layout.preferredWidth: 80; leftPadding: 8; text: row.modelData.bpm > 0 ? row.modelData.bpm.toFixed(1) : row.modelData.analyzed ? "–" : "…"; font.family: "monospace" }
-                            Label { Layout.preferredWidth: 70; leftPadding: 8; text: row.modelData.key || (row.modelData.analyzed ? "–" : "…"); color: Theme.ok; font.bold: true }
-                            Label { Layout.preferredWidth: 70; leftPadding: 8; text: row.modelData.durationText; color: Theme.dim; font.family: "monospace" }
-                            Item {
-                                Layout.preferredWidth: 60
-                                implicitHeight: 20
-                                Icon { anchors.centerIn: parent; width: 14; height: 14; name: "sparkles"; color: Theme.ok; visible: row.modelData.stems }
-                            }
+                            Item { id: dragProxy; width: 1; height: 1; Drag.active: rowMouse.drag.active; Drag.keys: ["loggx/djtrack"]; Drag.source: row }
                             RowLayout {
-                                Layout.preferredWidth: 90
-                                spacing: 2
-                                Button { text: "1"; implicitWidth: 34; implicitHeight: 22; onClicked: dj.loadTrack(0, row.modelData.path) }
-                                Button { text: "2"; implicitWidth: 34; implicitHeight: 22; onClicked: dj.loadTrack(1, row.modelData.path) }
+                                anchors.fill: parent
+                                spacing: 0
+                                Label {
+                                    Layout.fillWidth: true
+                                    leftPadding: 8
+                                    elide: Text.ElideRight
+                                    text: row.modelData.title
+                                    color: row.modelData.onDeck === 1 ? "#3d8bff" : row.modelData.onDeck === 2 ? "#ff8a3d" : Theme.text
+                                    font.bold: row.modelData.onDeck > 0
+                                }
+                                Label { Layout.preferredWidth: 180; leftPadding: 8; elide: Text.ElideRight; text: row.modelData.artist; color: Theme.dim }
+                                Label { Layout.preferredWidth: 100; leftPadding: 8; elide: Text.ElideRight; text: row.modelData.genre; color: Theme.dim }
+                                Label {
+                                    Layout.preferredWidth: 74
+                                    leftPadding: 8
+                                    text: row.modelData.bpm > 0 ? row.modelData.bpm.toFixed(2) : row.modelData.analyzed ? "–" : "…"
+                                    font.family: "monospace"
+                                    color: row.modelData.gridEdited ? Theme.warn : Theme.text
+                                }
+                                Label { Layout.preferredWidth: 60; leftPadding: 8; text: row.modelData.key || (row.modelData.analyzed ? "–" : "…"); color: Theme.ok; font.bold: true }
+                                Label { Layout.preferredWidth: 56; leftPadding: 8; text: row.modelData.durationText; color: Theme.dim; font.family: "monospace" }
+                                Row {
+                                    Layout.preferredWidth: 80
+                                    leftPadding: 8
+                                    spacing: 1
+                                    Repeater {
+                                        model: 5
+                                        Label {
+                                            required property int index
+                                            text: "★"
+                                            font.pixelSize: 11
+                                            color: index < row.modelData.rating ? Theme.warn : Theme.alpha(Theme.faint, 0.5)
+                                            MouseArea { anchors.fill: parent; onClicked: dj.setRating(row.modelData.path, row.modelData.rating === index + 1 ? 0 : index + 1) }
+                                        }
+                                    }
+                                }
+                                Label { Layout.preferredWidth: 70; leftPadding: 8; text: row.modelData.addedText; color: Theme.faint; font.pixelSize: 11 }
+                                RowLayout {
+                                    Layout.preferredWidth: 96
+                                    spacing: 2
+                                    Icon { width: 13; height: 13; name: "sparkles"; color: Theme.ok; opacity: row.modelData.stems ? 1 : 0 }
+                                    Button { text: "1"; implicitWidth: 34; implicitHeight: 21; onClicked: dj.loadTrack(0, row.modelData.path) }
+                                    Button { text: "2"; implicitWidth: 34; implicitHeight: 21; onClicked: dj.loadTrack(1, row.modelData.path) }
+                                }
                             }
                         }
-                    }
-                    Label {
-                        anchors.centerIn: parent
-                        visible: list.count === 0
-                        color: Theme.faint
-                        horizontalAlignment: Text.AlignHCenter
-                        text: qsTr("Noch keine Musik. Dateien oder Ordner hierher ziehen oder „Dateien …“ wählen.\nTempo (BPM) und Tonart werden automatisch erkannt.")
+                        Label {
+                            anchors.centerIn: parent
+                            visible: list.count === 0
+                            color: Theme.faint
+                            horizontalAlignment: Text.AlignHCenter
+                            text: dj.view >= 0 ? qsTr("Playlist ist leer – Tracks aus der Sammlung auf die Playlist links ziehen\noder Rechtsklick → „Zu Playlist hinzufügen“.")
+                                : dj.view === -2 ? qsTr("Noch nichts gespielt.")
+                                : qsTr("Noch keine Musik. Dateien oder Ordner hierher ziehen oder „Dateien …“ wählen.\nTempo (BPM) und Tonart werden automatisch erkannt – oder rekordbox/iTunes übernehmen.")
+                        }
+                        Keys.onUpPressed: dj.moveCursor(-1)
+                        Keys.onDownPressed: dj.moveCursor(1)
+                        Keys.onReturnPressed: { const a = dj.deckA; dj.loadCursor(!a.playing ? 0 : 1) }
+                        Keys.onLeftPressed: dj.loadCursor(0)
+                        Keys.onRightPressed: dj.loadCursor(1)
                     }
                 }
             }

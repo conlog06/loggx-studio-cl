@@ -155,7 +155,7 @@ Rectangle {
                 ColumnLayout {
                     spacing: 6
                     Label {
-                        text: qsTr("Willkommen bei LoggX Studio")
+                        text: qsTr("Willkommen bei LXStudio")
                         font.pixelSize: 30
                         font.bold: true
                     }
@@ -206,7 +206,7 @@ Rectangle {
                             Layout.fillWidth: true
                             spacing: 2
                             Label { text: qsTr("DJ"); font.pixelSize: 18; font.bold: true }
-                            Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.dim; text: qsTr("Zwei Decks, Sync, Hot Cues, Loops, EQ, Effekte und KI-Stems – Mix live aufnehmen.") }
+                            Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.dim; text: qsTr("Zwei Decks, Sync, Hot Cues, Loops, EQ, Effekte, KI-Stems, Pioneer DDJ-FLX4 – Mix live aufnehmen.") }
                         }
                         Button { text: qsTr("Öffnen"); icon.name: "chevron-right"; onClicked: root.openDj() }
                     }

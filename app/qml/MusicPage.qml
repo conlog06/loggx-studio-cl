@@ -21,6 +21,13 @@ FocusScope {
         [Qt.Key_J]: 11, [Qt.Key_K]: 12, [Qt.Key_O]: 13, [Qt.Key_L]: 14
     })
     property var down: ({})
+    signal importRequested()
+
+    TimelineMenu {
+        id: musicMenu
+        onOpenPage: function (p) { if (p === 3) roll.forceActiveFocus() }
+        onImportRequested: root.importRequested()
+    }
 
     onKeyboardActiveChanged: {
         if (keyboardActive)
@@ -220,6 +227,7 @@ FocusScope {
                         controller: app
                         clip: true
                         Component.onCompleted: if (!app.musicMode) scrollY = contentHeight
+                        onContextMenuRequested: function (x, y, index, header, clipId, seconds) { musicMenu.show(x, y, index, header, clipId, seconds) }
                         FileDropArea { anchors.fill: parent; timeline: arrangement }
                     }
 

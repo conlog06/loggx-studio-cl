@@ -81,6 +81,7 @@ public:
     void setHotCue(int deck, int index);         // index 0..7
     void jumpHotCue(int deck, int index);        // leer → setzen
     void clearHotCue(int deck, int index);
+    void setHotCuePoint(int deck, int index, double seconds);   // z. B. aus der Bibliothek
     double hotCue(int deck, int index) const;    // −1 = leer
 
     void setLoop(int deck, double beats);        // ab Position (Quantize: ab Schlag)
@@ -88,6 +89,23 @@ public:
     bool looping(int deck) const;
     double loopBeats(int deck) const;
     void beatJump(int deck, double beats);
+
+    // Beatgrid des Decks (startet mit dem der Spur; z. B. BPM ×2, Grid verschieben)
+    void setBeatGrid(int deck, double bpm, double firstBeat);
+    double gridBpm(int deck) const;
+    double gridFirstBeat(int deck) const;
+
+    // Jog-Rad: oben berührt = Scratchen (Position folgt dem Rad),
+    // am Rand gedreht = kurz schneller/langsamer (Bend klingt ab)
+    void setScratch(int deck, bool on);
+    bool scratching(int deck) const;
+    void jogScratch(int deck, double seconds);
+    void jogBend(int deck, double amount);
+
+    // Kopfhörer: Vorhören (vor dem Fader), Mischung Vorhören↔Master
+    void setPfl(int deck, bool on);
+    bool pfl(int deck) const;
+    void setHeadphones(double mix, double volume);   // mix 0 = nur Vorhören, 1 = Master
 
     void setStem(int deck, DjStem stem, bool on);
     bool stem(int deck, DjStem stem) const;
@@ -116,8 +134,9 @@ public:
     // Mitschnitt: bekommt jeden fertigen Master-Block
     void setRecorder(std::function<void(const float*, std::size_t)> recorder);
 
-    // Audio-Thread: Stereo, verschachtelt
-    void render(float* out, std::size_t frames);
+    // Audio-Thread: Stereo, verschachtelt; cue (optional) bekommt den
+    // Kopfhörer-Mix ebenfalls als Stereo
+    void render(float* out, std::size_t frames, float* cue = nullptr);
 
 private:
     struct Deck;
@@ -132,7 +151,8 @@ private:
     struct Fx;
     std::unique_ptr<Fx> m_fx;
     std::function<void(const float*, std::size_t)> m_recorder;
-    std::vector<float> m_bufA, m_bufB;
+    std::vector<float> m_bufA, m_bufB, m_cueBus;
+    double m_headMix = 0.0, m_headVol = 1.0;
 };
 
 }  // namespace loggx

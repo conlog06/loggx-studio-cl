@@ -64,6 +64,8 @@ public:
 signals:
     void controllerChanged();
     void viewChanged();
+    // Rechtsklick: auf Spurkopf (header), Clip (clipId) oder leere Fläche
+    void contextMenuRequested(double x, double y, int trackIndex, bool header, const QString& clipId, double seconds);
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;

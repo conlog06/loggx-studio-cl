@@ -102,7 +102,7 @@ void ViewerItem::itemChange(ItemChange change, const ItemChangeData& value) {
 // ---------------------------------------------------------- TimelineItem
 
 TimelineItem::TimelineItem(QQuickItem* parent) : QQuickPaintedItem(parent) {
-    setAcceptedMouseButtons(Qt::LeftButton);
+    setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton);
     setAcceptHoverEvents(true);
     setFillColor(kBackground);
     setAntialiasing(true);
@@ -262,6 +262,20 @@ void TimelineItem::mousePressEvent(QMouseEvent* event) {
     if (!m_controller) return;
     forceActiveFocus();
     const QPointF pos = event->position();
+
+    if (event->button() == Qt::RightButton) {
+        // Kontextmenü: Clip darunter auswählen, Menü in QML anzeigen
+        const int index = pos.y() >= kRulerHeight ? trackIndexAt(pos.y()) : -1;
+        const bool header = pos.x() < kHeaderWidth;
+        QString clipId;
+        if (!header && pos.y() >= kRulerHeight) {
+            clipId = hitTest(pos).clipId;
+            if (!clipId.isEmpty()) m_controller->setSelectedClipId(clipId);
+        }
+        const double seconds = header ? -1.0 : static_cast<double>(timeOf(pos.x())) / 1e6;
+        emit contextMenuRequested(pos.x(), pos.y(), index, header, clipId, seconds);
+        return;
+    }
 
     if (pos.x() < kHeaderWidth) {
         // Klick auf den Spurkopf schaltet die Spur stumm bzw. unsichtbar.

@@ -273,7 +273,7 @@ Rectangle {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             color: Theme.warn
-                            text: qsTr("Über 1080p und H.265 sind Teil von LoggX Studio Pro. Lizenz oben rechts eingeben.")
+                            text: qsTr("Über 1080p und H.265 sind Teil von LXStudio Pro. Lizenz oben rechts eingeben.")
                         }
                     }
                 }

@@ -283,6 +283,13 @@ public:
     Q_INVOKABLE void addTrack(bool video);
     Q_INVOKABLE void addInstrumentTrack();
     Q_INVOKABLE bool removeTrack(int trackIndex);
+    // Spur samt Inhalt löschen (ein Undo-Schritt), umbenennen, verschieben
+    Q_INVOKABLE bool deleteTrack(int trackIndex);
+    Q_INVOKABLE bool renameTrack(int trackIndex, const QString& name);
+    Q_INVOKABLE bool moveTrack(int trackIndex, int direction);
+    Q_INVOKABLE bool cutSelected();
+    // Audiodatei als neues Musikprojekt öffnen (z. B. aus dem DJ-Bereich)
+    Q_INVOKABLE bool openAudioInMusicEditor(const QString& path, double bpm = 0.0);
     Q_INVOKABLE void toggleTrackMute(int trackIndex);
     Q_INVOKABLE void setTrackProperty(int trackIndex, const QString& name, double value);
     Q_INVOKABLE void undo();

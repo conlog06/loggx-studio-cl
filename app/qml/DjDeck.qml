@@ -17,6 +17,28 @@ Rectangle {
     radius: 10
     border.color: info.master ? accent : Theme.border
 
+    signal askBpm(string path, int deck, real current)
+
+    // Rechtsklick ins Deck
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        onClicked: if (deckRoot.loaded) deckMenu.popup()
+    }
+    Menu {
+        id: deckMenu
+        MenuItem { text: qsTr("Tempo eingeben …"); onTriggered: deckRoot.askBpm(info.path, deckRoot.deck, info.bpm || 0) }
+        MenuItem { text: qsTr("Tempo verdoppeln (×2)"); onTriggered: dj.multiplyBpm(deckRoot.deck, 2) }
+        MenuItem { text: qsTr("Tempo halbieren (/2)"); onTriggered: dj.multiplyBpm(deckRoot.deck, 0.5) }
+        MenuItem { text: qsTr("Raster: Schlag 1 hier"); onTriggered: dj.setGridHere(deckRoot.deck) }
+        MenuItem { text: qsTr("Neu analysieren"); onTriggered: dj.reanalyze(info.path) }
+        MenuSeparator {}
+        MenuItem { text: qsTr("Im Musik-Editor öffnen"); icon.name: "piano"; onTriggered: dj.openInMusicEditor(info.path) }
+        MenuItem { text: qsTr("Stems mit KI vorbereiten"); icon.name: "sparkles"; enabled: dj.aiAvailable && !info.hasStems; onTriggered: dj.prepareStems(info.path) }
+        MenuSeparator {}
+        MenuItem { text: qsTr("Auswerfen"); enabled: !info.playing; onTriggered: dj.eject(deckRoot.deck) }
+    }
+
     // Track aus der Bibliothek hierher ziehen
     DropArea {
         anchors.fill: parent
@@ -96,16 +118,74 @@ Rectangle {
         }
         RowLayout {
             Layout.fillWidth: true
+            spacing: 4
             Label { text: info.elapsedText || "00:00.0"; font.family: "monospace"; color: Theme.dim }
             Item { Layout.fillWidth: true }
+            // Takt-Anzeige: vier Felder wie im CDJ-Display
+            Row {
+                visible: deckRoot.loaded && info.bar !== undefined
+                spacing: 2
+                Repeater {
+                    model: 4
+                    Rectangle {
+                        required property int index
+                        width: 12; height: 8; radius: 2
+                        color: (info.beatInBar || 0) === index + 1 ? (index === 0 ? Theme.danger : deckRoot.accent) : Theme.panel2
+                    }
+                }
+            }
             Label {
                 visible: deckRoot.loaded && info.bar !== undefined
-                text: qsTr("Takt %1 · %2").arg(info.bar || 0).arg(info.beatInBar || 0)
+                text: (info.barsToCue !== undefined && info.barsToCue >= 0 ? qsTr("%1 Takte bis Cue").arg(info.barsToCue.toFixed(1)) : qsTr("Takt %1").arg(info.bar || 0))
                 color: Theme.dim
                 font.family: "monospace"
+                font.pixelSize: 11
             }
             Item { Layout.fillWidth: true }
             Label { text: info.remainingText || "-00:00.0"; font.family: "monospace"; color: Theme.text }
+        }
+        // Tempo/Beatgrid von Hand: TAP, ×2, ÷2, Raster verschieben
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 3
+            visible: deckRoot.loaded
+            Button {
+                text: "TAP"
+                implicitWidth: 46
+                implicitHeight: 24
+                font.pixelSize: 11
+                onClicked: dj.tap(deckRoot.deck)
+                ToolTip.text: qsTr("Im Takt tippen (mind. 4×) – setzt das Tempo")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
+            Button { text: "×2"; implicitWidth: 38; implicitHeight: 24; font.pixelSize: 11; onClicked: dj.multiplyBpm(deckRoot.deck, 2) }
+            Button { text: "/2"; implicitWidth: 38; implicitHeight: 24; font.pixelSize: 11; onClicked: dj.multiplyBpm(deckRoot.deck, 0.5) }
+            Button {
+                text: (info.bpm || 0).toFixed(2)
+                flat: true
+                implicitHeight: 24
+                font.pixelSize: 11
+                font.family: "monospace"
+                onClicked: deckRoot.askBpm(info.path, deckRoot.deck, info.bpm || 0)
+                ToolTip.text: qsTr("Original-Tempo des Tracks – klicken zum Ändern")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
+            Item { Layout.fillWidth: true }
+            Label { text: qsTr("Raster"); color: Theme.faint; font.pixelSize: 11 }
+            IconButton { iconName: "chevron-left"; tip: qsTr("Raster 10 ms früher"); implicitWidth: 26; implicitHeight: 24; onClicked: dj.shiftGrid(deckRoot.deck, -10) }
+            IconButton { iconName: "chevron-right"; tip: qsTr("Raster 10 ms später"); implicitWidth: 26; implicitHeight: 24; onClicked: dj.shiftGrid(deckRoot.deck, 10) }
+            Button {
+                text: "1"
+                implicitWidth: 30
+                implicitHeight: 24
+                font.pixelSize: 11
+                onClicked: dj.setGridHere(deckRoot.deck)
+                ToolTip.text: qsTr("Schlag 1 des Rasters an die aktuelle Stelle legen")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
         }
 
         // ------------------------------------- Bedienung
@@ -188,13 +268,16 @@ Rectangle {
                         anchors.fill: parent
                         property real lastAngle
                         function angle(m) { return Math.atan2(m.y - height / 2, m.x - width / 2) }
-                        onPressed: function (m) { lastAngle = angle(m) }
+                        // Wie am Jog-Rad oben: festhalten = Scratchen
+                        onPressed: function (m) { lastAngle = angle(m); dj.setScratch(deckRoot.deck, true) }
+                        onReleased: dj.setScratch(deckRoot.deck, false)
+                        onCanceled: dj.setScratch(deckRoot.deck, false)
                         onPositionChanged: function (m) {
                             let a = angle(m), d = a - lastAngle
                             if (d > Math.PI) d -= 2 * Math.PI
                             if (d < -Math.PI) d += 2 * Math.PI
                             lastAngle = a
-                            dj.nudge(deckRoot.deck, d / (2 * Math.PI) * 1.8)
+                            dj.jogScratch(deckRoot.deck, d / (2 * Math.PI) * 1.8)
                         }
                     }
                 }
@@ -237,12 +320,13 @@ Rectangle {
                     }
                     ComboBox {
                         implicitWidth: 64
-                        model: ["±8", "±16", "±50"]
-                        currentIndex: info.range === 16 ? 1 : info.range === 50 ? 2 : 0
-                        onActivated: function (i) { dj.setTempoRange(deckRoot.deck, [8, 16, 50][i]) }
+                        readonly property var ranges: [6, 8, 10, 16, 25, 50]
+                        model: ranges.map(function (r) { return "±" + r })
+                        currentIndex: Math.max(0, ranges.indexOf(info.range || 8))
+                        onActivated: function (i) { dj.setTempoRange(deckRoot.deck, ranges[i]) }
                     }
                 }
-                // Tempo-Fader (oben = schneller wie am CDJ: hier oben = +)
+                // Tempo-Fader wie am CDJ/DDJ: oben = langsamer, unten = schneller
                 RowLayout {
                     Layout.fillHeight: true
                     spacing: 4
@@ -251,8 +335,8 @@ Rectangle {
                         Layout.fillHeight: true
                         Layout.preferredHeight: 90
                         orientation: Qt.Vertical
-                        from: -(info.range || 8)
-                        to: info.range || 8
+                        from: info.range || 8
+                        to: -(info.range || 8)
                         value: info.tempo || 0
                         onMoved: dj.setTempo(deckRoot.deck, value)
                     }

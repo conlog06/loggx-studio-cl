@@ -357,3 +357,60 @@ void AppController::stopMicRecording() {
     if (!clipId.empty()) setSelectedClipId(qstr(clipId));
     setStatus(tr("Aufnahme eingefügt (%1 s)").arg(QString::number(seconds, 'f', 1)));
 }
+
+// ------------------------------------------------------------ Spuren
+
+bool AppController::deleteTrack(int trackIndex) {
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_project.tracks.size())) return false;
+    const QString name = qstr(m_project.tracks[static_cast<std::size_t>(trackIndex)].name);
+    const bool ok = apply([&](Project& p) {
+        p.tracks.erase(p.tracks.begin() + trackIndex);
+        return true;
+    });
+    if (ok) {
+        if (!m_selected.isEmpty() && !m_project.findClip(str(m_selected))) setSelectedClipId(QString());
+        setStatus(tr("Spur „%1“ gelöscht (Strg+Z holt sie zurück)").arg(name));
+    }
+    return ok;
+}
+
+bool AppController::renameTrack(int trackIndex, const QString& name) {
+    const QString clean = name.trimmed();
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_project.tracks.size()) || clean.isEmpty()) return false;
+    return apply([&](Project& p) {
+        p.tracks[static_cast<std::size_t>(trackIndex)].name = str(clean.left(60));
+        return true;
+    });
+}
+
+bool AppController::moveTrack(int trackIndex, int direction) {
+    const int target = trackIndex + (direction < 0 ? -1 : 1);
+    const int n = static_cast<int>(m_project.tracks.size());
+    if (trackIndex < 0 || trackIndex >= n || target < 0 || target >= n) return false;
+    return apply([&](Project& p) {
+        std::swap(p.tracks[static_cast<std::size_t>(trackIndex)], p.tracks[static_cast<std::size_t>(target)]);
+        return true;
+    });
+}
+
+bool AppController::cutSelected() {
+    if (!copySelected()) return false;
+    deleteSelected(false);
+    setStatus(tr("Clip ausgeschnitten"));
+    return true;
+}
+
+bool AppController::openAudioInMusicEditor(const QString& path, double bpm) {
+    if (!QFileInfo(path).isFile()) {
+        setStatus(tr("Datei nicht gefunden: %1").arg(path));
+        return false;
+    }
+    newFromTemplate(true, 1920, 1080, 30, bpm > 0 ? bpm : 120.0);
+    m_project.name = str(QFileInfo(path).completeBaseName());
+    dropFiles({QUrl::fromLocalFile(path)}, -1, 0.0);
+    // Projekt-Tempo = Tempo des Songs: Raster passt sofort
+    setDirty(true);
+    emit fileChanged();
+    setStatus(tr("„%1“ im Musik-Editor geöffnet").arg(QFileInfo(path).completeBaseName()));
+    return true;
+}

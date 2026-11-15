@@ -132,8 +132,12 @@ struct BeatInfo {
     TimeUs firstBeat = 0;      // Lage des ersten Schlags im Material
     double confidence = 0.0;   // 0..1
 };
-BeatInfo detectBeats(const std::string& path, TimeUs maxDuration = 90 * kSecond);
-BeatInfo detectBeatsFromSamples(const float* mono, std::size_t count, int sampleRate);
+BeatInfo detectBeats(const std::string& path, TimeUs maxDuration = 120 * kSecond, double minBpm = 70.0,
+                     double maxBpm = 180.0);
+// Tempo-Bereich wie in DJ-Programmen: das Ergebnis wird durch Verdoppeln/
+// Halbieren hineingefaltet (z. B. 70–180 BPM).
+BeatInfo detectBeatsFromSamples(const float* mono, std::size_t count, int sampleRate, double minBpm = 70.0,
+                                double maxBpm = 180.0);
 
 // ---- Tonart
 struct KeyInfo {

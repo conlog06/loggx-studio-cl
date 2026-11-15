@@ -10,13 +10,16 @@
 
 #include "AppController.h"
 #include "DjController.h"
+#include "DjMidi.h"
 #include "DjWaveItem.h"
 #include "IconItem.h"
 #include "Items.h"
 
 int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
+    // Interner Name bleibt (Einstellungen, Modelle, Bibliothek); angezeigt wird „LXStudio“
     QGuiApplication::setApplicationName(QStringLiteral("LoggX Studio"));
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("LXStudio"));
     QGuiApplication::setOrganizationName(QStringLiteral("LoggX"));
     QGuiApplication::setApplicationVersion(QStringLiteral(LOGGX_VERSION));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/resources/loggx-256.png")));
@@ -55,9 +58,11 @@ int main(int argc, char** argv) {
     qmlRegisterType<IconItem>("LoggX", 1, 0, "Icon");
     qmlRegisterType<DjWaveItem>("LoggX", 1, 0, "DjWave");
     qmlRegisterUncreatableType<DjController>("LoggX", 1, 0, "DjController", QStringLiteral("nur als dj"));
+    qmlRegisterUncreatableType<DjMidi>("LoggX", 1, 0, "DjMidi", QStringLiteral("nur als djmidi"));
 
     AppController controller;
     DjController dj(&controller);
+    DjMidi djmidi(&dj);
 
     // Aufruf: "LoggX Studio" [projekt.loggx] [--music] [--page N] [--tab N]
     //         [--select CLIP] [--seek SEK] [--license] [--screenshot bild.png]
@@ -68,7 +73,9 @@ int main(int argc, char** argv) {
     bool showLicense = false;
     QUrl mainQml(QStringLiteral("qrc:/qml/Main.qml"));
     bool pageGiven = false;
-    int startPage = 1;   // 0 Medien, 1 Schnitt, 2 Farbe, 3 Musik, 4 Export
+    int startPage = 1;   // 0 Medien, 1 Schnitt, 2 Farbe, 3 Musik, 4 Export, 6 DJ
+    bool showSettings = false;
+    int settingsTab = 0;
     int startTab = 0;    // Musik: 0 Noten, 1 Mixer
     const QStringList args = QGuiApplication::arguments();
     for (int i = 1; i < args.size(); ++i) {
@@ -90,6 +97,8 @@ int main(int argc, char** argv) {
         }
         else if (args[i] == QLatin1String("--license"))
             showLicense = true;
+        else if (args[i] == QLatin1String("--settings") && i + 1 < args.size())   // Einstellungen offen (Tab)
+            showSettings = true, settingsTab = args[++i].toInt();
         else if (args[i] == QLatin1String("--tab") && i + 1 < args.size())
             startTab = qBound(0, args[++i].toInt(), 1);
         else if (args[i] == QLatin1String("--select") && i + 1 < args.size())
@@ -107,9 +116,12 @@ int main(int argc, char** argv) {
     engine.addImportPath(QStringLiteral("qrc:/qml"));
     engine.rootContext()->setContextProperty(QStringLiteral("app"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("dj"), &dj);
+    engine.rootContext()->setContextProperty(QStringLiteral("djmidi"), &djmidi);
     engine.rootContext()->setContextProperty(QStringLiteral("startPage"), startPage);
     engine.rootContext()->setContextProperty(QStringLiteral("startTab"), startTab);
     engine.rootContext()->setContextProperty(QStringLiteral("showLicense"), showLicense);
+    engine.rootContext()->setContextProperty(QStringLiteral("showSettings"), showSettings);
+    engine.rootContext()->setContextProperty(QStringLiteral("settingsTab"), settingsTab);
     engine.load(mainQml);
     if (engine.rootObjects().isEmpty()) return 1;
 

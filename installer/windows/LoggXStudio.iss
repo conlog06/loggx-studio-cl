@@ -1,4 +1,4 @@
-; Inno-Setup-Skript für LoggX Studio (Windows 10/11, 64 Bit).
+; Inno-Setup-Skript für LXStudio (Windows 10/11, 64 Bit).
 ; Aufruf: ISCC.exe /DAppVersion=0.1.0 /DSourceDir=<dist-Ordner> /DOutputDir=<Ziel> LoggXStudio.iss
 
 #ifndef AppVersion
@@ -11,7 +11,7 @@
   #define OutputDir "..\..\dist"
 #endif
 
-#define AppName "LoggX Studio"
+#define AppName "LXStudio"
 #define AppExe "LoggX Studio.exe"
 
 [Setup]
@@ -46,6 +46,11 @@ Name: "assoc"; Description: "LoggX-Projekte (.loggx) mit {#AppName} öffnen"; Gr
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Verknüpfungen unter dem alten Namen (bis 0.6) entfernen
+Type: files; Name: "{autoprograms}\LoggX Studio.lnk"
+Type: files; Name: "{autodesktop}\LoggX Studio.lnk"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
