@@ -159,6 +159,32 @@ SeparationResult separateVocals(const std::string& input, const std::string& voc
                                 const std::string& instrumentalPath, int sampleRate = 48000,
                                 const std::function<void(double)>& progress = {},
                                 const std::atomic<bool>* cancel = nullptr);
+// ---- KI-Stemtrennung (MDX-Net über ONNX Runtime). Modelle werden bei
+// Bedarf heruntergeladen (siehe url/sha256) und lokal gespeichert.
+struct StemModelInfo {
+    std::string id, name, file, url, sha256, stem;
+    std::int64_t bytes = 0;
+    int nFft = 0, dimF = 0, dimTPow = 0;
+    double compensate = 1.0;
+};
+const std::vector<StemModelInfo>& stemModels();
+const StemModelInfo* findStemModel(const std::string& id);
+bool aiSeparationAvailable();   // mit ONNX Runtime gebaut?
+// Modell auf Stereo-Audio (44,1 kHz, verschachtelt) anwenden → Stem.
+bool runStemModel(const StemModelInfo& model, const std::string& modelPath, const std::vector<float>& stereo44k,
+                  std::vector<float>& stem, bool denoise = false, const std::function<void(double)>& progress = {},
+                  const std::atomic<bool>* cancel = nullptr, std::string* error = nullptr);
+struct StemJob {
+    const StemModelInfo* model = nullptr;
+    std::string modelPath;
+    std::string outputPath;
+};
+// Datei trennen: jeder Job schreibt einen Stem als WAV, restPath bekommt den
+// Rest (Original minus alle Stems, z. B. „Instrumental“).
+SeparationResult separateStemsAi(const std::string& input, const std::vector<StemJob>& jobs, const std::string& restPath,
+                                 bool denoise = false, const std::function<void(double)>& progress = {},
+                                 const std::atomic<bool>* cancel = nullptr);
+
 // Für Tests: arbeitet auf Stereo-Samples im Speicher.
 SeparationResult separateVocalsBuffer(const std::vector<float>& stereo, int sampleRate,
                                       std::vector<float>& vocals, std::vector<float>& instrumental,

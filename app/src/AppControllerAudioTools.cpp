@@ -8,6 +8,9 @@
 #include <QStandardPaths>
 
 #include "AppController.h"
+#include "ModelManager.h"
+
+#include <QSettings>
 
 using namespace loggx;
 
@@ -36,6 +39,46 @@ void AppController::runTask(const QString& label, TaskWorker::Job job, std::func
 
 void AppController::cancelWork() {
     if (m_task) m_task->cancel();
+    if (m_downloading && m_models) m_models->cancel();
+}
+
+bool AppController::aiAvailable() const { return aiSeparationAvailable(); }
+
+void AppController::setSeparationMethod(int method) {
+    method = std::clamp(method, 0, 2);
+    if (method == m_separationMethod) return;
+    m_separationMethod = method;
+    QSettings().setValue(QStringLiteral("ai/method"), method);
+    emit workChanged();
+}
+
+void AppController::ensureModels(const QStringList& ids, std::function<void()> then) {
+    for (const QString& id : ids) {
+        const StemModelInfo* model = findStemModel(str(id));
+        if (!model || m_models->isReady(*model)) continue;
+        // Dieses fehlt: laden, danach den Rest prüfen
+        m_downloading = true;
+        m_workLabel = tr("Lade KI-Modell „%1“ (%2 MB) …").arg(qstr(model->name)).arg(model->bytes / 1000000);
+        m_workProgress = 0.0;
+        emit workChanged();
+        auto conn = std::make_shared<QMetaObject::Connection>();
+        *conn = connect(m_models, &ModelManager::progress, this, [this](qint64 got, qint64 total) {
+            m_workProgress = total > 0 ? static_cast<double>(got) / static_cast<double>(total) : 0.0;
+            emit workChanged();
+        });
+        m_models->download(*model, [this, ids, then, conn](bool ok, const QString& error) {
+            disconnect(*conn);
+            m_downloading = false;
+            emit workChanged();
+            if (!ok) {
+                setStatus(error);
+                return;
+            }
+            ensureModels(ids, then);   // nächstes fehlendes Modell
+        });
+        return;
+    }
+    if (then) then();
 }
 
 QStringList AppController::keyNames(bool minor) const {
@@ -111,8 +154,13 @@ void AppController::setClipBpm(double bpm) {
 
 void AppController::matchClipTempo() { setClipBpm(m_project.bpm); }
 
-bool AppController::separateSelected(bool keepVocals) {
-    if (m_task) return false;
+bool AppController::separateSelected(bool keepVocals, int method) {
+    if (working()) return false;
+    if (method < 0) method = m_separationMethod;
+    if (method < 2 && !aiSeparationAvailable()) {
+        setStatus(tr("Diese Version hat keine KI eingebaut – Trennung ohne KI"));
+        method = 2;
+    }
     const Track* owner = nullptr;
     const Clip* c = m_selected.isEmpty() ? nullptr : m_project.findClip(str(m_selected), &owner);
     const MediaAsset* asset = c && c->kind == ClipKind::Media ? m_project.findAsset(c->assetId) : nullptr;
@@ -135,9 +183,18 @@ bool AppController::separateSelected(bool keepVocals) {
     const int rate = m_project.sampleRate;
     const Clip source = *c;
     auto result = std::make_shared<SeparationResult>();
-    runTask(keepVocals ? tr("Isoliere Gesang …") : tr("Entferne Gesang …"),
+    const StemModelInfo* model = method < 2 ? findStemModel(method == 0 ? "vocals-hq" : "vocals") : nullptr;
+    const QString modelPath = model ? m_models->pathFor(*model) : QString();
+    const QString label = (keepVocals ? tr("Isoliere Gesang") : tr("Entferne Gesang")) + (model ? tr(" mit KI …") : QStringLiteral(" …"));
+    const QStringList needed = model ? QStringList{qstr(model->id)} : QStringList{};
+    ensureModels(needed, [=, this] {
+    runTask(label,
             [=](const std::function<void(double)>& progress, const std::atomic<bool>& cancel) {
-                *result = separateVocals(input, str(vocalsPath), str(instPath), rate, progress, &cancel);
+                if (model)
+                    *result = separateStemsAi(input, {StemJob{model, str(modelPath), str(vocalsPath)}}, str(instPath), false,
+                                              progress, &cancel);
+                else
+                    *result = separateVocals(input, str(vocalsPath), str(instPath), rate, progress, &cancel);
             },
             [=, this] {
                 if (!result->ok) {
@@ -175,6 +232,7 @@ bool AppController::separateSelected(bool keepVocals) {
                                      : tr("Gesang entfernt – die Gesangsspur liegt stumm darunter (Gesangsanteil %1 %)")
                                            .arg(std::lround(result->vocalShare * 100)));
             });
+    });
     return true;
 }
 

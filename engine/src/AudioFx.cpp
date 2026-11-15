@@ -26,6 +26,22 @@ void Biquad::design(Type type, double freq, double gainDb, double q, double rate
             na1 = -2 * cw;
             na2 = 1 - alpha / A;
             break;
+        case Type::LowPass:
+            nb0 = (1 - cw) / 2;
+            nb1 = 1 - cw;
+            nb2 = (1 - cw) / 2;
+            a0 = 1 + alpha;
+            na1 = -2 * cw;
+            na2 = 1 - alpha;
+            break;
+        case Type::HighPass:
+            nb0 = (1 + cw) / 2;
+            nb1 = -(1 + cw);
+            nb2 = (1 + cw) / 2;
+            a0 = 1 + alpha;
+            na1 = -2 * cw;
+            na2 = 1 - alpha;
+            break;
         case Type::LowShelf: {
             const double s = 2 * std::sqrt(A) * alpha;
             nb0 = A * ((A + 1) - (A - 1) * cw + s);

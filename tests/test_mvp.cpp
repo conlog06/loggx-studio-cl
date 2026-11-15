@@ -1,6 +1,7 @@
 // Tests der MVP-Funktionen der Engine: Transformation, Farbe, LUT,
 // Effekte, Blenden, Keyframes, Titel, Instrumente, Mixer und H.265.
 #include <atomic>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -9,6 +10,7 @@
 #include <vector>
 
 #include "ImageOps.h"
+#include "loggx/engine/Dj.h"
 #include "check.h"
 #include "loggx/engine/Engine.h"
 
@@ -793,6 +795,197 @@ void testEffects() {
     CHECK(bc && bc->fx.sepia == 0.5 && bc->fx.mirrorH && bc->fx.grain == 0.25 && !bc->fx.isNeutral());
 }
 
+// Spur im Speicher: Klicks im Takt, darunter ein Sinus
+std::shared_ptr<DjTrack> makeDjTrack(double bpm, double seconds, double tone, bool stems = false) {
+    auto t = std::make_shared<DjTrack>();
+    t->sampleRate = kRate;
+    t->title = "Test";
+    const std::size_t n = static_cast<std::size_t>(seconds * kRate);
+    t->mix.assign(n * 2, 0.0f);
+    const double beat = 60.0 / bpm;
+    for (std::size_t i = 0; i < n; ++i) {
+        const double s = static_cast<double>(i) / kRate;
+        const double ph = std::fmod(s, beat);
+        const float v = static_cast<float>(0.2 * std::sin(2 * kPi * tone * s) + (ph < 0.01 ? 0.5 * std::sin(2 * kPi * 3000 * s) : 0.0));
+        t->mix[i * 2] = t->mix[i * 2 + 1] = v;
+    }
+    t->bpm = bpm;
+    t->firstBeat = 0.0;
+    if (stems) {   // „Gesang“ = Sinus, „Schlagzeug“ = Klicks
+        for (auto& st : t->stems) st.assign(n * 2, 0.0f);
+        for (std::size_t i = 0; i < n; ++i) {
+            const double s = static_cast<double>(i) / kRate;
+            const float voc = static_cast<float>(0.2 * std::sin(2 * kPi * tone * s));
+            t->stems[0][i * 2] = t->stems[0][i * 2 + 1] = voc;
+            t->stems[1][i * 2] = t->stems[1][i * 2 + 1] = t->mix[i * 2] - voc;
+        }
+        t->hasStems = true;
+    }
+    computeDjWaveform(*t);
+    return t;
+}
+
+void testDj() {
+    DjMixer dj(kRate);
+    auto a = makeDjTrack(120, 30, 440, true);
+    auto b = makeDjTrack(125, 30, 330);
+    CHECK(!a->wave.empty() && a->wave.size() == static_cast<std::size_t>(30 * DjTrack::kWaveRate));
+    CHECK(camelotKey(9, true) == "8A" && camelotKey(0, false) == "8B" && camelotKey(7, false) == "9B");
+    dj.load(0, a);
+    dj.load(1, b);
+    std::vector<float> out(1024 * 2);
+    auto run = [&](double seconds) {
+        for (int i = 0; i < static_cast<int>(seconds * kRate / 1024); ++i) dj.render(out.data(), 1024);
+    };
+    // Abspielen und Tempo
+    dj.play(0);
+    run(1.0);
+    CHECK(std::abs(dj.position(0) - 1.0) < 0.03);
+    dj.setTempo(0, 10.0);
+    CHECK(std::abs(dj.currentBpm(0) - 132.0) < 1e-9);
+    const double p0 = dj.position(0);
+    run(1.0);
+    CHECK(std::abs(dj.position(0) - p0 - 1.1) < 0.03);
+    // Sync: B übernimmt Tempo und Phase von A
+    dj.seek(1, 3.37);
+    dj.sync(1);
+    CHECK(std::abs(dj.currentBpm(1) - dj.currentBpm(0)) < 1e-6);
+    auto phase = [&](int deck, double bpm) { double x = dj.position(deck) / (60.0 / bpm); return x - std::floor(x); };
+    double diff = std::abs(phase(0, 120) - phase(1, 125));
+    CHECK(std::min(diff, 1 - diff) < 0.01);
+    dj.setSyncLock(1, true);
+    dj.play(1);
+    dj.setTempo(0, 0.0);
+    run(0.1);
+    CHECK(std::abs(dj.currentBpm(1) - 120.0) < 1e-6);   // folgt dem Master
+    CHECK(dj.masterDeck() == 0);
+    // Crossfader ganz nach links: nur A (440 Hz), B (330 Hz) stumm
+    dj.setCrossfader(-1.0);
+    std::vector<float> mono;
+    for (int i = 0; i < 20; ++i) {
+        dj.render(out.data(), 1024);
+        mono.insert(mono.end(), out.begin(), out.end());
+    }
+    CHECK(power(mono, 440) > 50 * power(mono, 330));
+    // EQ: Tiefen und Mitten aus → Sinus fast weg
+    dj.setEq(0, 0, -1.0);
+    dj.setEq(0, 1, -1.0);
+    run(0.2);
+    mono.clear();
+    for (int i = 0; i < 10; ++i) {
+        dj.render(out.data(), 1024);
+        mono.insert(mono.end(), out.begin(), out.end());
+    }
+    const double eqOff = power(mono, 440);
+    dj.setEq(0, 0, 0.0);
+    dj.setEq(0, 1, 0.0);
+    run(0.2);
+    mono.clear();
+    for (int i = 0; i < 10; ++i) {
+        dj.render(out.data(), 1024);
+        mono.insert(mono.end(), out.begin(), out.end());
+    }
+    CHECK(power(mono, 440) > 20 * eqOff);
+    // Stems: Gesang aus → kein 440 Hz mehr
+    dj.setStem(0, DjStem::Vocals, false);
+    run(0.1);
+    mono.clear();
+    for (int i = 0; i < 10; ++i) {
+        dj.render(out.data(), 1024);
+        mono.insert(mono.end(), out.begin(), out.end());
+    }
+    CHECK(power(mono, 440) * 100 < power(mono, 3000) + 1e-9 || power(mono, 440) < 1e-6);
+    dj.setStem(0, DjStem::Vocals, true);
+    // Loop über 4 Schläge (2 s bei 120 BPM) hält die Position fest
+    dj.setLoop(0, 4);
+    CHECK(dj.looping(0) && dj.loopBeats(0) == 4.0);
+    const double start = dj.position(0);
+    run(5.0);
+    CHECK(dj.position(0) >= std::floor(start / 0.5) * 0.5 - 0.01 && dj.position(0) < start + 2.1);
+    dj.setLoop(0, 4);   // gleiche Länge noch einmal = aus
+    CHECK(!dj.looping(0));
+    // Hot Cues (Quantize: auf den Schlag)
+    dj.seek(0, 10.13);
+    dj.setHotCue(0, 2);
+    CHECK(std::abs(dj.hotCue(0, 2) - 10.0) < 1e-9);
+    dj.seek(0, 20.0);
+    dj.jumpHotCue(0, 2);
+    CHECK(std::abs(dj.position(0) - 10.0) < 1e-6);
+    dj.clearHotCue(0, 2);
+    CHECK(dj.hotCue(0, 2) < 0);
+    dj.beatJump(0, 4);
+    CHECK(std::abs(dj.position(0) - 12.0) < 1e-6);
+    // Cue: angehalten setzen, beim Abspielen zurückspringen
+    dj.pause(0);
+    dj.seek(0, 5.02);
+    dj.cue(0);
+    CHECK(std::abs(dj.cuePoint(0) - 5.0) < 1e-9);
+    dj.play(0);
+    run(0.5);
+    dj.cue(0);
+    CHECK(!dj.playing(0) && std::abs(dj.position(0) - 5.0) < 1e-6);
+    // Key Lock rendert weiter Ton
+    dj.play(0);
+    dj.setKeyLock(0, true);
+    dj.setTempo(0, 8.0);
+    double energy = 0;
+    for (int i = 0; i < 30; ++i) {
+        dj.render(out.data(), 1024);
+        for (float v : out) energy += v * v;
+    }
+    CHECK(energy > 1.0);
+    dj.setKeyLock(0, false);
+    // Mitschnitt und Bremse
+    std::size_t recorded = 0;
+    dj.setRecorder([&](const float*, std::size_t n) { recorded += n; });
+    dj.setFx(DjFx::Brake, 1.0, 1.0, 0);
+    dj.setFxOn(true);
+    run(1.0);
+    CHECK(!dj.playing(0) && !dj.fxOn());
+    CHECK(recorded >= static_cast<std::size_t>(kRate * 0.9));
+    // Echo auf den Master verändert das Signal
+    dj.setFx(DjFx::Echo, 0.5, 0.8, 2);
+    dj.setFxOn(true);
+    run(0.5);
+    CHECK(dj.fxOn());
+    dj.setFxOn(false);
+}
+
+// KI-Trennung nur, wenn ein Modell bereitliegt (CI lädt es herunter):
+// LOGGX_TEST_MODEL_DIR mit kuielab_a_vocals.onnx, optional song.mp3.
+void testAi(const fs::path& dir) {
+    CHECK(stemModels().size() >= 4 && findStemModel("vocals-hq") && findStemModel("bass"));
+    const char* env = std::getenv("LOGGX_TEST_MODEL_DIR");
+    if (!aiSeparationAvailable() || !env) {
+        std::printf("KI-Test übersprungen (%s)\n", aiSeparationAvailable() ? "kein Modell" : "ohne ONNX Runtime gebaut");
+        return;
+    }
+    const StemModelInfo& model = *findStemModel("vocals");
+    const std::string modelPath = (fs::path(env) / model.file).string();
+    // Synthetisch: läuft durch, Länge stimmt, keine NaN
+    std::vector<float> mix(44100 * 4 * 2);
+    for (std::size_t i = 0; i < mix.size() / 2; ++i)
+        mix[i * 2] = mix[i * 2 + 1] = static_cast<float>(0.3 * std::sin(2 * kPi * 220.0 * i / 44100.0));
+    std::vector<float> stem;
+    std::string error;
+    int calls = 0;
+    CHECK(runStemModel(model, modelPath, mix, stem, false, [&](double) { ++calls; }, nullptr, &error));
+    CHECK(stem.size() == mix.size() && calls > 0);
+    bool finite = true;
+    for (float v : stem) finite = finite && std::isfinite(v);
+    CHECK(finite);
+    // Echter Song: Gesang hat einen deutlichen, aber nicht vollen Anteil
+    const fs::path song = fs::path(env) / "song.mp3";
+    if (fs::exists(song)) {
+        const SeparationResult r = separateStemsAi(song.string(), {StemJob{&model, modelPath, (dir / "ki_gesang.wav").string()}},
+                                                   (dir / "ki_inst.wav").string());
+        std::printf("KI-Trennung: Gesangsanteil %.0f %%\n", r.vocalShare * 100);
+        CHECK(r.ok && r.vocalShare > 0.05 && r.vocalShare < 0.8);
+        MediaAsset a;
+        CHECK(probeMedia((dir / "ki_gesang.wav").string(), a) && a.hasAudio);
+    }
+}
+
 int main() {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     const fs::path dir = fs::temp_directory_path() / ("loggx_mvp_" + std::to_string(stamp));
@@ -806,6 +999,8 @@ int main() {
     testBeatsAndLive(dir);
     testVocalsAndKey(dir);
     testEffects();
+    testDj();
+    testAi(dir);
     std::error_code ec;
     fs::remove_all(dir, ec);
     return finish("test_mvp");

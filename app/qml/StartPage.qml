@@ -9,6 +9,7 @@ Rectangle {
     id: root
     signal openRequested()
     signal guard(var action)
+    signal openDj()
     gradient: Gradient {
         GradientStop { position: 0; color: "#141824" }
         GradientStop { position: 0.55; color: Theme.bg }
@@ -181,6 +182,34 @@ Rectangle {
                     tint: Theme.music
                     templates: root.musicTemplates
                     onCreate: function (t) { root.newMusic(t) }
+                }
+
+                // DJ-Modus
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 76
+                    radius: 14
+                    color: djHover.hovered ? Theme.hover : Theme.panel
+                    border.color: djHover.hovered ? Theme.alpha("#ff8a3d", 0.6) : Theme.border
+                    HoverHandler { id: djHover }
+                    TapHandler { onTapped: root.openDj() }
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 16
+                        spacing: 14
+                        Rectangle {
+                            width: 46; height: 46; radius: 12
+                            color: Theme.alpha("#ff8a3d", 0.16)
+                            Icon { anchors.centerIn: parent; width: 24; height: 24; name: "disc"; color: "#ff8a3d" }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Label { text: qsTr("DJ"); font.pixelSize: 18; font.bold: true }
+                            Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.dim; text: qsTr("Zwei Decks, Sync, Hot Cues, Loops, EQ, Effekte und KI-Stems – Mix live aufnehmen.") }
+                        }
+                        Button { text: qsTr("Öffnen"); icon.name: "chevron-right"; onClicked: root.openDj() }
+                    }
                 }
 
                 RowLayout {

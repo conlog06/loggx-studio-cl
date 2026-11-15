@@ -1,0 +1,138 @@
+// DJ: zwei Decks mit Mixer – Tempo, Sync, Key Lock, Hot Cues, Loops,
+// 3-Band-EQ, Filter, Stems (Gesang/Instrumental/Bass/Schlagzeug), Effekte.
+// Alle Einstellungen sind thread-sicher; render() läuft im Audio-Thread.
+#pragma once
+
+#include <array>
+#include <atomic>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+namespace loggx {
+
+enum class DjStem { Vocals = 0, Drums = 1, Bass = 2, Inst = 3 };
+
+struct DjTrack {
+    std::string path, title, artist;
+    int sampleRate = 48000;
+    std::vector<float> mix;                    // Stereo, verschachtelt
+    std::array<std::vector<float>, 4> stems;   // optional, siehe DjStem
+    bool hasStems = false;
+    double bpm = 0.0;                          // 0 = unbekannt
+    double firstBeat = 0.0;                    // Sekunden
+    int key = -1;
+    bool minor = false;
+    // Wellenform: je Spalte (1/150 s) Pegel gesamt, Tiefen, Mitten, Höhen (0..255)
+    static constexpr int kWaveRate = 150;
+    std::vector<std::array<std::uint8_t, 4>> wave;
+
+    std::size_t frames() const { return mix.size() / 2; }
+    double duration() const { return static_cast<double>(frames()) / sampleRate; }
+    double beatLength() const { return bpm > 0 ? 60.0 / bpm : 0.0; }
+};
+
+// Datei laden (dekodieren, Tempo/Tonart erkennen, Wellenform berechnen).
+// stemFiles: optional vier WAV-Dateien in der Reihenfolge von DjStem.
+std::shared_ptr<DjTrack> loadDjTrack(const std::string& path, int sampleRate, std::string* error = nullptr,
+                                     const std::array<std::string, 4>* stemFiles = nullptr,
+                                     const std::atomic<bool>* cancel = nullptr);
+void computeDjWaveform(DjTrack& track);
+
+// Camelot-Schreibweise der Tonart (z. B. „8A“ für a-Moll)
+std::string camelotKey(int tonic, bool minor);
+
+enum class DjFx { Echo = 0, Reverb = 1, Brake = 2 };
+
+class DjMixer {
+public:
+    explicit DjMixer(int sampleRate = 48000);
+    ~DjMixer();
+    int sampleRate() const { return m_rate; }
+
+    // ---- Deck (0 oder 1)
+    void load(int deck, std::shared_ptr<const DjTrack> track);
+    std::shared_ptr<const DjTrack> track(int deck) const;
+    void play(int deck);
+    void pause(int deck);
+    void togglePlay(int deck);
+    bool playing(int deck) const;
+    // CDJ-Verhalten: angehalten → Cue an die Position setzen; läuft →
+    // zurück zum Cue und anhalten.
+    void cue(int deck);
+    double cuePoint(int deck) const;
+    void seek(int deck, double seconds);
+    double position(int deck) const;            // Sekunden
+    void setTempo(int deck, double percent);     // −50 … +50
+    double tempo(int deck) const;
+    double currentBpm(int deck) const;
+    void setKeyLock(int deck, bool on);
+    bool keyLock(int deck) const;
+    void sync(int deck);                         // Tempo + Phase an das andere Deck
+    void setSyncLock(int deck, bool on);         // folgt dem anderen Deck dauerhaft
+    bool syncLock(int deck) const;
+    int masterDeck() const;
+    void setQuantize(bool on);
+    bool quantize() const;
+
+    void setHotCue(int deck, int index);         // index 0..7
+    void jumpHotCue(int deck, int index);        // leer → setzen
+    void clearHotCue(int deck, int index);
+    double hotCue(int deck, int index) const;    // −1 = leer
+
+    void setLoop(int deck, double beats);        // ab Position (Quantize: ab Schlag)
+    void exitLoop(int deck);
+    bool looping(int deck) const;
+    double loopBeats(int deck) const;
+    void beatJump(int deck, double beats);
+
+    void setStem(int deck, DjStem stem, bool on);
+    bool stem(int deck, DjStem stem) const;
+
+    // EQ und Filter: −1 … +1 (−1 = ausgeschaltet/Kill, 0 = neutral, +1 = +6 dB)
+    void setEq(int deck, int band, double value); // 0 Tiefen, 1 Mitten, 2 Höhen
+    double eq(int deck, int band) const;
+    void setFilter(int deck, double value);      // <0 Tiefpass, >0 Hochpass
+    double filter(int deck) const;
+    void setTrim(int deck, double gain);         // 0 … 2
+    void setFader(int deck, double value);       // 0 … 1
+    double fader(int deck) const;
+    double level(int deck) const;                // Pegel (Spitze, 0..1)
+
+    // ---- Mixer
+    void setCrossfader(double value);            // −1 = nur A, +1 = nur B
+    double crossfader() const;
+    void setMasterVolume(double value);          // 0 … 1,5
+    double masterLevel() const;
+
+    // ---- Effekt (eine FX-Einheit wie am Mixer)
+    void setFx(DjFx type, double beats, double wet, int target);   // target 0 = A, 1 = B, 2 = Master
+    void setFxOn(bool on);
+    bool fxOn() const;
+
+    // Mitschnitt: bekommt jeden fertigen Master-Block
+    void setRecorder(std::function<void(const float*, std::size_t)> recorder);
+
+    // Audio-Thread: Stereo, verschachtelt
+    void render(float* out, std::size_t frames);
+
+private:
+    struct Deck;
+    void applySync(Deck& d, const Deck& other);
+    double snapToBeat(const Deck& d, double seconds) const;
+    mutable std::mutex m_mutex;
+    std::array<std::unique_ptr<Deck>, 2> m_decks;
+    int m_rate;
+    int m_master = 0;
+    bool m_quantize = true;
+    double m_cross = 0.0, m_masterVol = 1.0, m_masterLevel = 0.0;
+    struct Fx;
+    std::unique_ptr<Fx> m_fx;
+    std::function<void(const float*, std::size_t)> m_recorder;
+    std::vector<float> m_bufA, m_bufB;
+};
+
+}  // namespace loggx

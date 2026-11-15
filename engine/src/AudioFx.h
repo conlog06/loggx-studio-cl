@@ -14,7 +14,7 @@ struct Biquad {
     double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
     double z1[2] = {0, 0}, z2[2] = {0, 0};
 
-    enum class Type { LowShelf, Peak, HighShelf };
+    enum class Type { LowShelf, Peak, HighShelf, LowPass, HighPass };
     void design(Type type, double freq, double gainDb, double q, double rate);
     float process(float x, int ch) {
         const double y = b0 * x + z1[ch];

@@ -346,6 +346,13 @@ Rectangle {
                 Layout.fillWidth: true
                 title: qsTr("Stimme (Vocal Remover)")
                 visible: root.hasClip && root.clip.isMedia && root.clip.hasAudio
+                ComboBox {
+                    Layout.fillWidth: true
+                    model: app.aiAvailable ? [qsTr("KI – beste Qualität"), qsTr("KI – schnell"), qsTr("Ohne KI – sofort")]
+                                           : [qsTr("Ohne KI – sofort")]
+                    currentIndex: app.aiAvailable ? app.separationMethod : 0
+                    onActivated: function (i) { if (app.aiAvailable) app.separationMethod = i }
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 6
@@ -354,7 +361,7 @@ Rectangle {
                         text: qsTr("Stimme entfernen")
                         icon.name: "mic"
                         enabled: !app.working
-                        onClicked: app.separateSelected(false)
+                        onClicked: app.separateSelected(false, -1)
                         ToolTip.text: qsTr("Karaoke: Instrumental hörbar, Gesang auf einer stummen Spur darunter")
                         ToolTip.visible: hovered
                         ToolTip.delay: 400
@@ -364,7 +371,7 @@ Rectangle {
                         text: qsTr("Stimme isolieren")
                         icon.name: "wave"
                         enabled: !app.working
-                        onClicked: app.separateSelected(true)
+                        onClicked: app.separateSelected(true, -1)
                         ToolTip.text: qsTr("A cappella: nur Gesang hörbar, Instrumental stumm darunter")
                         ToolTip.visible: hovered
                         ToolTip.delay: 400
@@ -375,7 +382,9 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     color: Theme.faint
                     font.pixelSize: Theme.smallFont
-                    text: qsTr("Trennt ohne KI, was mittig im Stereobild liegt und tonal klingt. Funktioniert bei den meisten Songs; Mono-Aufnahmen gehen so nicht. Ergebnis: zwei WAV-Dateien auf neuen Spuren, das Original wird stumm.")
+                    text: app.aiAvailable && app.separationMethod < 2
+                          ? qsTr("Ein neuronales Netz (MDX-Net) trennt Gesang und Instrumental – auch bei Mono. Beim ersten Mal wird das Modell geladen (%1 MB). Ergebnis: zwei WAV-Dateien auf neuen Spuren, das Original wird stumm.").arg(app.separationMethod === 0 ? 67 : 30)
+                          : qsTr("Trennt ohne KI, was mittig im Stereobild liegt und tonal klingt. Mono-Aufnahmen gehen so nicht. Ergebnis: zwei WAV-Dateien auf neuen Spuren, das Original wird stumm.")
                 }
             }
 

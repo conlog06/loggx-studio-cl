@@ -1,3 +1,4 @@
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QPalette>
@@ -8,6 +9,8 @@
 #include <QTimer>
 
 #include "AppController.h"
+#include "DjController.h"
+#include "DjWaveItem.h"
 #include "IconItem.h"
 #include "Items.h"
 
@@ -50,14 +53,18 @@ int main(int argc, char** argv) {
     qmlRegisterType<PianoRollItem>("LoggX", 1, 0, "PianoRoll");
     qmlRegisterType<ScopeItem>("LoggX", 1, 0, "Scope");
     qmlRegisterType<IconItem>("LoggX", 1, 0, "Icon");
+    qmlRegisterType<DjWaveItem>("LoggX", 1, 0, "DjWave");
+    qmlRegisterUncreatableType<DjController>("LoggX", 1, 0, "DjController", QStringLiteral("nur als dj"));
 
     AppController controller;
+    DjController dj(&controller);
 
     // Aufruf: "LoggX Studio" [projekt.loggx] [--music] [--page N] [--tab N]
     //         [--select CLIP] [--seek SEK] [--license] [--screenshot bild.png]
     // --screenshot speichert ein Bild des Fensters und beendet sich (für
     // automatische Prüfungen der Oberfläche).
     QString screenshot;
+    int screenshotDelay = 1500;
     bool showLicense = false;
     QUrl mainQml(QStringLiteral("qrc:/qml/Main.qml"));
     bool pageGiven = false;
@@ -67,12 +74,20 @@ int main(int argc, char** argv) {
     for (int i = 1; i < args.size(); ++i) {
         if (args[i] == QLatin1String("--screenshot") && i + 1 < args.size())
             screenshot = args[++i];
+        else if (args[i] == QLatin1String("--screenshot-delay") && i + 1 < args.size())
+            screenshotDelay = args[++i].toInt();
         else if (args[i] == QLatin1String("--page") && i + 1 < args.size())
-            startPage = qBound(0, args[++i].toInt(), 4), pageGiven = true;
+            startPage = qBound(0, args[++i].toInt(), 6), pageGiven = true;
         else if (args[i] == QLatin1String("--music"))
             controller.newMusicProject();
         else if (args[i] == QLatin1String("--main") && i + 1 < args.size())   // Entwicklung: andere Oberfläche laden
             mainQml = QUrl::fromLocalFile(args[++i]);
+        else if (args[i] == QLatin1String("--dj-import") && i + 1 < args.size())   // Entwicklung/Bildschirmfotos
+            dj.importFiles({QUrl::fromLocalFile(args[++i])});
+        else if (args[i] == QLatin1String("--dj-deck") && i + 2 < args.size()) {
+            const int deck = args[++i].toInt();
+            dj.loadTrack(deck, QFileInfo(args[++i]).absoluteFilePath());
+        }
         else if (args[i] == QLatin1String("--license"))
             showLicense = true;
         else if (args[i] == QLatin1String("--tab") && i + 1 < args.size())
@@ -91,6 +106,7 @@ int main(int argc, char** argv) {
     QQmlApplicationEngine engine;
     engine.addImportPath(QStringLiteral("qrc:/qml"));
     engine.rootContext()->setContextProperty(QStringLiteral("app"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("dj"), &dj);
     engine.rootContext()->setContextProperty(QStringLiteral("startPage"), startPage);
     engine.rootContext()->setContextProperty(QStringLiteral("startTab"), startTab);
     engine.rootContext()->setContextProperty(QStringLiteral("showLicense"), showLicense);
@@ -99,7 +115,7 @@ int main(int argc, char** argv) {
 
     if (!screenshot.isEmpty()) {
         auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().constFirst());
-        QTimer::singleShot(1500, window, [window, screenshot] {
+        QTimer::singleShot(screenshotDelay, window, [window, screenshot] {
             const bool ok = window && window->grabWindow().save(screenshot);
             QGuiApplication::exit(ok ? 0 : 1);
         });

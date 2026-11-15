@@ -17,6 +17,10 @@
 
 #include "AppController.h"
 #include "MicRecorder.h"
+#include "ModelManager.h"
+#include "DjController.h"
+#include <QCryptographicHash>
+#include <cstdlib>
 #include "check.h"
 
 using namespace loggx;
@@ -542,6 +546,20 @@ int main(int argc, char** argv) {
         CHECK(inst && inst->start == a.project().findClip(clipId.toStdString())->start);
         a.undo();
         CHECK(a.project().tracks.size() == tracksBefore);
+        // Mit KI (wenn Modell vorhanden): gleiche Struktur
+        if (const char* models = std::getenv("LOGGX_TEST_MODEL_DIR"); models && a.aiAvailable()) {
+            const StemModelInfo* fast = findStemModel("vocals");
+            QDir().mkpath(a.models()->folder());
+            QFile::copy(QString::fromLocal8Bit(models) + "/" + QString::fromStdString(fast->file), a.models()->pathFor(*fast));
+            CHECK(a.models()->isReady(*fast));
+            a.setSelectedClipId(clipId);
+            CHECK(a.separateSelected(true, 1));
+            CHECK(waitFor([&] { return !a.working(); }, 120000));
+            CHECK(a.project().tracks.size() == tracksBefore + 2);
+            const Track* vt = nullptr;
+            CHECK(a.project().findClip(a.selectedClipId().toStdString(), &vt) && vt->name == "Gesang" && !vt->muted);
+            std::printf("KI im Programm: %s\n", a.status().toUtf8().constData());
+        }
         a.discardRecovery();
     }
     {
@@ -559,6 +577,75 @@ int main(int argc, char** argv) {
         CHECK(m.transposeSong(2) >= 1);
         CHECK(m.project().findClip(m.selectedClipId().toStdString())->pitch == 2.0);
         m.discardRecovery();
+    }
+    // ------------------------------------------- KI-Modelle herunterladen
+    {
+        const QString src = dir.filePath("modelle-quelle");
+        QDir().mkpath(src);
+        QFile f(src + "/fake.onnx");
+        CHECK(f.open(QIODevice::WriteOnly));
+        const QByteArray data(300000, 'x');
+        f.write(data);
+        f.close();
+        StemModelInfo fake;
+        fake.id = "fake";
+        fake.file = "fake.onnx";
+        fake.bytes = data.size();
+        fake.sha256 = QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex().toStdString();
+        ModelManager mm;
+        mm.setBaseUrl(QUrl::fromLocalFile(src));
+        mm.setFolder(dir.filePath("modelle"));
+        CHECK(!mm.isReady(fake));
+        bool done = false, ok = false;
+        mm.download(fake, [&](bool success, const QString&) { done = true; ok = success; });
+        CHECK(waitFor([&] { return done; }, 10000) && ok && mm.isReady(fake));
+        // Falsche Prüfsumme wird abgelehnt und nichts bleibt liegen
+        StemModelInfo bad = fake;
+        bad.file = "fake.onnx";
+        bad.sha256 = std::string(64, '0');
+        QFile::remove(mm.pathFor(bad));
+        done = ok = false;
+        QString err;
+        mm.download(bad, [&](bool success, const QString& e) { done = true; ok = success; err = e; });
+        CHECK(waitFor([&] { return done; }, 10000) && !ok && !err.isEmpty() && !QFile::exists(mm.pathFor(bad)));
+    }
+
+    // ------------------------------------------------------------- DJ
+    {
+        AppController host;
+        DjController dj(&host);
+        const QString song = dir.filePath("stereo.wav");   // aus dem Test oben (6 s, 120 BPM)
+        dj.importFiles({QUrl::fromLocalFile(song), QUrl::fromLocalFile(song)});
+        CHECK(dj.library().size() == 1);
+        CHECK(waitFor([&] { return dj.library().first().toMap().value("analyzed").toBool(); }, 30000));
+        const QVariantMap entry = dj.library().first().toMap();
+        CHECK(std::abs(entry.value("bpm").toDouble() - 120.0) < 2.0);
+        dj.loadTrack(0, song);
+        CHECK(waitFor([&] { return dj.deckA().value("loaded").toBool(); }, 30000));
+        CHECK(dj.deckA().value("title").toString() == QStringLiteral("stereo"));
+        CHECK(dj.library().first().toMap().value("onDeck").toInt() == 1);
+        dj.setTempo(0, 5.0);
+        CHECK(std::abs(dj.deckA().value("bpmNow").toDouble() - entry.value("bpm").toDouble() * 1.05) < 1e-6);
+        dj.setTempoRange(0, 8.0);
+        dj.setTempo(0, 20.0);   // begrenzt auf ±8 %
+        CHECK(std::abs(dj.deckA().value("tempo").toDouble() - 8.0) < 1e-9);
+        dj.seek(0, 2.1);
+        dj.hotCue(0, 0);         // setzen (auf den Schlag)
+        CHECK(std::abs(dj.deckA().value("hot").toList().at(0).toDouble() - 2.0) < 0.05);
+        dj.setLoop(0, 4);
+        CHECK(dj.deckA().value("looping").toBool());
+        dj.setSearch("gibtsnicht");
+        CHECK(dj.library().isEmpty());
+        dj.setSearch("");
+        dj.setSortColumn(-2);
+        CHECK(dj.library().size() == 1);
+        CHECK(dj.startRecording() && dj.recording());
+        const QString mix = dj.stopRecording();
+        CHECK(!mix.isEmpty() && QFile::exists(mix));
+        QFile::remove(mix);
+        dj.removeTrack(song);
+        CHECK(dj.library().isEmpty());
+        host.discardRecovery();
     }
     return finish("test_app");
 }

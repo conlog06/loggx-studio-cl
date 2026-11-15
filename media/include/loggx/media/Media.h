@@ -16,6 +16,12 @@ namespace loggx {
 // MediaAsset außer id.
 bool probeMedia(const std::string& path, MediaAsset& out, std::string* error = nullptr);
 
+// Titel/Interpret usw. aus den Metadaten (ID3, Vorbis-Kommentare, MP4-Tags).
+struct MediaTags {
+    std::string title, artist, album, genre;
+};
+bool readTags(const std::string& path, MediaTags& out);
+
 // Liefert das Bild zu einem beliebigen Zeitpunkt. Sequenzielles Abspielen
 // dekodiert nur vorwärts; Sprünge lösen einen Seek auf das Keyframe davor aus.
 class VideoReader {

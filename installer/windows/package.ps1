@@ -47,6 +47,16 @@ foreach ($f in @("LICENSE.LGPLv3", "LICENSE.GPL3", "LICENSE.GPL3-EXCEPT")) {
     if (Test-Path $src) { Copy-Item $src (Join-Path $licenses "Qt-$f.txt") }
 }
 
+if ($env:ONNXRUNTIME_DIR) {
+    foreach ($f in @("LICENSE", "ThirdPartyNotices.txt")) {
+        $src = Join-Path $env:ONNXRUNTIME_DIR $f
+        if (Test-Path $src) { Copy-Item $src (Join-Path $licenses "onnxruntime-$f.txt") }
+    }
+}
+foreach ($f in @("third_party\pocketfft\LICENSE.md")) {
+    if (Test-Path $f) { Copy-Item $f (Join-Path $licenses "pocketfft.txt") }
+}
+
 # 4. Portables ZIP
 $zip = Join-Path $dist "LoggX-Studio-$version-Windows-portable.zip"
 Compress-Archive -Path $app -DestinationPath $zip

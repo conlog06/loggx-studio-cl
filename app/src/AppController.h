@@ -93,6 +93,8 @@ class AppController : public QObject {
     Q_PROPERTY(bool working READ working NOTIFY workChanged)
     Q_PROPERTY(double workProgress READ workProgress NOTIFY workChanged)
     Q_PROPERTY(QString workLabel READ workLabel NOTIFY workChanged)
+    Q_PROPERTY(bool aiAvailable READ aiAvailable CONSTANT)
+    Q_PROPERTY(int separationMethod READ separationMethod WRITE setSeparationMethod NOTIFY workChanged)
     Q_PROPERTY(double previewMs READ previewMs NOTIFY statsChanged)
     Q_PROPERTY(QVariantMap systemInfo READ systemInfo CONSTANT)
 
@@ -241,14 +243,21 @@ public:
     Q_INVOKABLE void stopMicRecording();
 
     // ---- Tonart, Tempo, Stimme (ausgewählter Audio-/Video-Clip)
-    bool working() const { return m_task != nullptr; }
+    bool working() const { return m_task != nullptr || m_downloading; }
     double workProgress() const { return m_workProgress; }
     QString workLabel() const { return m_workLabel; }
     Q_INVOKABLE bool analyzeSelected();                 // Tempo + Tonart der Quelle
     Q_INVOKABLE void setClipKey(int tonic);             // per Tonhöhe (Halbtöne)
     Q_INVOKABLE void setClipBpm(double bpm);            // per Tempo (Time-Stretch)
     Q_INVOKABLE void matchClipTempo();                  // auf Projekt-Tempo
-    Q_INVOKABLE bool separateSelected(bool keepVocals); // false: Stimme entfernen
+    // method: 0 = KI beste Qualität, 1 = KI schnell, 2 = ohne KI
+    Q_INVOKABLE bool separateSelected(bool keepVocals, int method = -1);
+    bool aiAvailable() const;
+    int separationMethod() const { return m_separationMethod; }
+    void setSeparationMethod(int method);
+    class ModelManager* models() const { return m_models; }
+    // Fehlende KI-Modelle laden (mit Fortschritt), danach then() aufrufen.
+    void ensureModels(const QStringList& ids, std::function<void()> then);
     Q_INVOKABLE void cancelWork();
     Q_INVOKABLE QStringList keyNames(bool minor) const;
     // ---- ganzer Song
@@ -440,6 +449,9 @@ private:
 
     // Hintergrundarbeit
     TaskWorker* m_task = nullptr;
+    class ModelManager* m_models = nullptr;
+    bool m_downloading = false;
+    int m_separationMethod = 0;
     double m_workProgress = 0.0;
     QString m_workLabel;
     void runTask(const QString& label, TaskWorker::Job job, std::function<void()> finished);

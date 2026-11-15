@@ -1,4 +1,4 @@
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Multimedia)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Multimedia Network)
 set(CMAKE_AUTOMOC ON)
 
 qt_add_executable(loggx-studio
@@ -12,6 +12,9 @@ qt_add_executable(loggx-studio
   src/AppControllerMusic.cpp
   src/AppControllerTools.cpp
   src/AppControllerAudioTools.cpp
+  src/ModelManager.cpp src/ModelManager.h
+  src/DjController.cpp src/DjController.h
+  src/DjWaveItem.cpp src/DjWaveItem.h
   src/MicRecorder.cpp src/MicRecorder.h
   src/MidiInput.cpp src/MidiInput.h
 )
@@ -38,6 +41,9 @@ qt_add_resources(loggx-studio "qml"
     qml/ProjectSettingsDialog.qml
     qml/FileDropArea.qml
     qml/PreviewBar.qml
+    qml/DjPage.qml
+    qml/DjDeck.qml
+    qml/Knob.qml
     qml/LoggXStyle/Button.qml
     qml/LoggXStyle/CheckBox.qml
     qml/LoggXStyle/ComboBox.qml
@@ -107,7 +113,7 @@ target_compile_definitions(loggx_rtmidi INTERFACE LOGGX_LICENSE_PUBKEY="${LOGGX_
 
 target_link_libraries(loggx-studio PRIVATE loggx_rtmidi
   loggx_engine
-  Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
+  Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia Qt6::Network)
 
 set_target_properties(loggx-studio PROPERTIES
   WIN32_EXECUTABLE ON
@@ -128,10 +134,12 @@ if(LOGGX_BUILD_TESTS)
     src/AppControllerMusic.cpp
     src/AppControllerTools.cpp
     src/AppControllerAudioTools.cpp
+    src/ModelManager.cpp src/ModelManager.h
+    src/DjController.cpp src/DjController.h
     src/MicRecorder.cpp src/MicRecorder.h
     src/MidiInput.cpp src/MidiInput.h)
   target_include_directories(test_app PRIVATE src ../tests)
-  target_link_libraries(test_app PRIVATE loggx_engine loggx_rtmidi Qt6::Core Qt6::Gui Qt6::Multimedia)
+  target_link_libraries(test_app PRIVATE loggx_engine loggx_rtmidi Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Network)
   add_test(NAME app COMMAND test_app)
 endif()
 

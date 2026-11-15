@@ -23,12 +23,14 @@ ApplicationWindow {
     readonly property var workspaces: app.musicMode
         ? [{ page: 3, text: qsTr("Musik"), icon: "piano" },
            { page: 0, text: qsTr("Samples"), icon: "wave" },
-           { page: 4, text: qsTr("Export"), icon: "export" }]
+           { page: 4, text: qsTr("Export"), icon: "export" },
+           { page: 6, text: qsTr("DJ"), icon: "disc" }]
         : [{ page: 0, text: qsTr("Medien"), icon: "folder" },
            { page: 1, text: qsTr("Schnitt"), icon: "scissors" },
            { page: 2, text: qsTr("Farbe"), icon: "palette" },
            { page: 3, text: qsTr("Musik"), icon: "piano" },
-           { page: 4, text: qsTr("Export"), icon: "export" }]
+           { page: 4, text: qsTr("Export"), icon: "export" },
+           { page: 6, text: qsTr("DJ"), icon: "disc" }]
 
     Connections {
         target: app
@@ -85,7 +87,7 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Paste]; enabled: !app.showStart && app.canPaste; onActivated: app.pasteAtPlayhead() }
     Shortcut { sequence: "Ctrl+D"; enabled: !app.showStart; onActivated: app.duplicateSelected() }
     Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.open() }
-    Shortcut { sequence: "Space"; enabled: !app.showStart; onActivated: app.recording ? app.stopRecording() : app.togglePlay() }
+    Shortcut { sequence: "Space"; enabled: !app.showStart && window.page !== 6; onActivated: app.recording ? app.stopRecording() : app.togglePlay() }
     Shortcut { sequences: ["S", "Ctrl+B"]; enabled: !window.playingKeys && !app.musicMode; onActivated: app.splitAtPlayhead() }
     Shortcut { sequence: "Ctrl+B"; enabled: app.musicMode; onActivated: app.splitAtPlayhead() }
     Shortcut { sequence: "R"; enabled: !app.showStart && window.page === 3; onActivated: app.recording ? app.stopRecording() : app.startRecording() }
@@ -323,7 +325,9 @@ ApplicationWindow {
         StartPage {
             onOpenRequested: guarded(function () { openDialog.open() })
             onGuard: function (action) { window.guarded(action) }
+            onOpenDj: { app.showStart = false; window.page = 6 }
         }
+        DjPage { active: !app.showStart && window.page === 6 }
     }
 
     // ------------------------------------------------------------ Fußzeile

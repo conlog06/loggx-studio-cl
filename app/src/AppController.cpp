@@ -1,5 +1,6 @@
 #include "AppController.h"
 #include "MicRecorder.h"
+#include "ModelManager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -56,6 +57,7 @@ AppController::AppController(QObject* parent)
     });
     m_midi = std::make_unique<MidiInput>();
     connect(this, &AppController::midiMessage, this, &AppController::handleMidi, Qt::QueuedConnection);
+    m_models = new ModelManager(this);
     loadLicense();
     m_preview.start();
     m_cache.start();
@@ -82,6 +84,7 @@ AppController::~AppController() {
         m_exportWorker->cancel();
         m_exportWorker->wait();
     }
+    if (m_models) m_models->cancel();
     if (m_task) {
         m_task->disconnect();
         m_task->cancel();

@@ -31,7 +31,7 @@ QStringList IconItem::names() {
             "save", "undo", "redo", "text", "export", "import", "sliders", "palette", "piano",
             "magnet", "keyboard", "settings", "shield", "close", "check", "image", "wave",
             "layers", "transition", "metronome", "key", "chevron-down", "chevron-right",
-            "fit", "home", "clock", "sparkles", "file", "beat-cut", "mic", "copy"};
+            "fit", "home", "clock", "sparkles", "file", "beat-cut", "mic", "copy", "disc", "loop"};
 }
 
 namespace {
@@ -186,6 +186,18 @@ void build(const QString& n, QPainterPath& stroke, QPainterPath& fill) {
         line(18, 6, 6, 18);
     } else if (n == "check") {
         poly(stroke, {{5, 12.5}, {10, 17.5}, {19.5, 7}}, false);
+    } else if (n == "disc") {
+        stroke.addEllipse(QPointF(12, 12), 9, 9);
+        stroke.addEllipse(QPointF(12, 12), 2.5, 2.5);
+        stroke.moveTo(12, 5.5);
+        stroke.arcTo(QRectF(5.5, 5.5, 13, 13), 90, 60);
+    } else if (n == "loop") {
+        stroke.moveTo(17, 7);
+        stroke.lineTo(7, 7);
+        stroke.cubicTo(3, 7, 3, 17, 7, 17);
+        stroke.lineTo(17, 17);
+        stroke.cubicTo(21, 17, 21, 7, 17, 7);
+        poly(stroke, {{14.5, 4.5}, {17, 7}, {14.5, 9.5}}, false);
     } else if (n == "mic") {
         stroke.addRoundedRect(9, 3, 6, 11, 3, 3);
         stroke.moveTo(5.5, 11);

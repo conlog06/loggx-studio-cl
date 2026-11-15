@@ -47,6 +47,27 @@ bool openDecoder(AVFormatContext* fmt, int streamIndex, AVCodecContext** out, st
 
 // ------------------------------------------------------------------ probe
 
+bool readTags(const std::string& path, MediaTags& out) {
+    AVFormatContext* fmt = nullptr;
+    if (avformat_open_input(&fmt, path.c_str(), nullptr, nullptr) < 0) return false;
+    auto get = [&](const char* key) -> std::string {
+        if (const AVDictionaryEntry* e = av_dict_get(fmt->metadata, key, nullptr, 0))
+            if (e->value && *e->value) return e->value;
+        for (unsigned i = 0; i < fmt->nb_streams; ++i)   // Ogg/Opus: Tags am Datenstrom
+            if (const AVDictionaryEntry* e = av_dict_get(fmt->streams[i]->metadata, key, nullptr, 0))
+                if (e->value && *e->value) return e->value;
+        return {};
+    };
+    {
+        out.title = get("title");
+        out.artist = get("artist");
+        out.album = get("album");
+        out.genre = get("genre");
+    }
+    avformat_close_input(&fmt);
+    return true;
+}
+
 bool probeMedia(const std::string& path, MediaAsset& out, std::string* error) {
     ff::quietLogs();
     AVFormatContext* fmt = nullptr;

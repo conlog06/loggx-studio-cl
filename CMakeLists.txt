@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(LoggXStudio VERSION 0.5.0 LANGUAGES C CXX)
+project(LoggXStudio VERSION 0.6.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -96,7 +96,7 @@ target_link_libraries(loggx_media PUBLIC loggx_core PRIVATE loggx_ffmpeg)
 add_library(loggx_engine STATIC
   engine/src/Compositor.cpp engine/src/AudioMixer.cpp engine/src/Render.cpp
   engine/src/ImageOps.cpp engine/src/Synth.cpp engine/src/AudioFx.cpp engine/src/Beat.cpp
-  engine/src/Parallel.cpp engine/src/Spectral.cpp)
+  engine/src/Parallel.cpp engine/src/Spectral.cpp engine/src/AiSeparation.cpp engine/src/Dj.cpp)
 target_include_directories(loggx_engine PUBLIC engine/include)
 target_link_libraries(loggx_engine PUBLIC loggx_core loggx_media)
 if(LOGGX_HAVE_RUBBERBAND)
@@ -105,6 +105,26 @@ if(LOGGX_HAVE_RUBBERBAND)
   message(STATUS "LoggX: Pitch-Shift/Time-Stretch aktiv (Rubber Band)")
 else()
   message(STATUS "LoggX: Rubber Band nicht gefunden - ohne Pitch-Shift/Time-Stretch")
+endif()
+
+# KI-Stemtrennung (optional): ONNX Runtime, z. B. das vorgebaute Paket von
+# github.com/microsoft/onnxruntime/releases – Ordner mit include/ und lib/.
+set(LOGGX_ONNXRUNTIME_DIR "$ENV{ONNXRUNTIME_DIR}" CACHE PATH "Ordner der ONNX Runtime (include/, lib/)")
+find_path(LOGGX_ORT_INCLUDE onnxruntime_cxx_api.h
+  HINTS "${LOGGX_ONNXRUNTIME_DIR}/include" PATH_SUFFIXES onnxruntime onnxruntime/core/session)
+find_library(LOGGX_ORT_LIB NAMES onnxruntime HINTS "${LOGGX_ONNXRUNTIME_DIR}/lib")
+if(LOGGX_ORT_INCLUDE AND LOGGX_ORT_LIB)
+  target_include_directories(loggx_engine PRIVATE ${LOGGX_ORT_INCLUDE})
+  target_link_libraries(loggx_engine PUBLIC ${LOGGX_ORT_LIB})
+  target_compile_definitions(loggx_engine PRIVATE LOGGX_HAVE_ONNX)
+  get_filename_component(LOGGX_ORT_LIBDIR "${LOGGX_ORT_LIB}" DIRECTORY)
+  set(LOGGX_HAVE_ONNX ON)
+  # Windows: DLLs der ONNX Runtime neben jede Programmdatei kopieren
+  file(GLOB LOGGX_ORT_DLLS "${LOGGX_ORT_LIBDIR}/*.dll")
+  message(STATUS "LoggX: KI-Stemtrennung aktiv (ONNX Runtime: ${LOGGX_ORT_LIB})")
+else()
+  set(LOGGX_HAVE_ONNX OFF)
+  message(STATUS "LoggX: ONNX Runtime nicht gefunden - Stimmentrennung nur ohne KI")
 endif()
 
 add_executable(loggx-license tools/loggx_license.cpp)
@@ -134,4 +154,14 @@ if(LOGGX_BUILD_TESTS)
   target_link_libraries(test_mvp PRIVATE loggx_engine)
   target_include_directories(test_mvp PRIVATE engine/src)
   add_test(NAME mvp COMMAND test_mvp)
+endif()
+
+# ONNX-Runtime-DLLs (Windows) neben die Programme, die die Engine nutzen
+if(WIN32 AND LOGGX_HAVE_ONNX AND LOGGX_ORT_DLLS)
+  foreach(t loggx-render test_core test_render test_mvp loggx-studio test_app)
+    if(TARGET ${t})
+      add_custom_command(TARGET ${t} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LOGGX_ORT_DLLS} $<TARGET_FILE_DIR:${t}>)
+    endif()
+  endforeach()
 endif()
