@@ -28,4 +28,7 @@ QtObject {
     readonly property int controlHeight: 30
     readonly property int fontSize: 13
     readonly property int smallFont: 11
+
+    // Farbe mit Deckkraft (Qt.alpha gibt es erst ab Qt 6.5)
+    function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
 }

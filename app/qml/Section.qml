@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import LoggXStyle
 
 // Aufklappbarer Abschnitt im Inspector.
 ColumnLayout {
@@ -14,13 +15,13 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.topMargin: 6
         Layout.preferredHeight: 24
-        color: header.containsMouse ? "#262a33" : "transparent"
+        color: header.containsMouse ? Theme.hover : "transparent"
         radius: 4
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 2
-            Label { text: root.open ? "▾" : "▸"; color: "#8a91a0"; Layout.preferredWidth: 12 }
-            Label { text: root.title; color: "#8a91a0"; font.pixelSize: 11; font.bold: true; font.capitalization: Font.AllUppercase }
+            Label { text: root.open ? "▾" : "▸"; color: Theme.dim; Layout.preferredWidth: 12 }
+            Label { text: root.title; color: Theme.dim; font.pixelSize: 11; font.bold: true; font.capitalization: Font.AllUppercase }
             Item { Layout.fillWidth: true }
         }
         MouseArea {

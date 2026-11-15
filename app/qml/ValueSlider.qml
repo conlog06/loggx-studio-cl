@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import LoggXStyle
 
 // Regler für eine Eigenschaft des ausgewählten Clips. Ziehen ergibt einen
 // einzigen Undo-Schritt; Doppelklick auf die Beschriftung setzt zurück.
@@ -34,7 +35,7 @@ RowLayout {
     Label {
         text: root.label
         Layout.preferredWidth: 84
-        color: root.keyed ? "#ffd54f" : "#b3b9c6"
+        color: root.keyed ? Theme.warn : Theme.dim
         elide: Text.ElideRight
         MouseArea {
             anchors.fill: parent
@@ -65,7 +66,7 @@ RowLayout {
         padding: 0
         text: root.keyHere ? "◆" : "◇"
         font.pixelSize: 13
-        tint: root.keyed ? "#ffd54f" : "#6a707d"
+        tint: root.keyed ? Theme.warn : "#6a707d"
         onClicked: app.toggleKeyframe(root.prop)
         ToolTip.text: root.keyHere ? qsTr("Keyframe hier entfernen") : qsTr("Keyframe am Abspielkopf setzen")
         ToolTip.visible: hovered

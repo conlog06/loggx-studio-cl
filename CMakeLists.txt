@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(LoggXStudio VERSION 0.2.0 LANGUAGES CXX)
+project(LoggXStudio VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -67,9 +67,27 @@ else()
 endif()
 
 # ----------------------------------------------------------- Bibliotheken
-add_library(loggx_core STATIC core/src/Project.cpp core/src/Midi.cpp)
+# Monocypher (Ed25519-Signaturen für Lizenzschlüssel), BSD-2/CC0
+add_library(monocypher STATIC third_party/monocypher/monocypher.c third_party/monocypher/monocypher-ed25519.c)
+target_include_directories(monocypher PUBLIC third_party/monocypher)
+set_target_properties(monocypher PROPERTIES C_STANDARD 99 POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  target_compile_options(monocypher PRIVATE /W0)
+else()
+  target_compile_options(monocypher PRIVATE -w)
+endif()
+
+add_library(loggx_core STATIC core/src/Project.cpp core/src/Midi.cpp core/src/License.cpp)
 target_include_directories(loggx_core PUBLIC core/include)
-target_link_libraries(loggx_core PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(loggx_core PRIVATE nlohmann_json::nlohmann_json monocypher)
+
+# Öffentlicher Lizenzschlüssel (siehe license/README.md). Fehlt er, läuft
+# die App als Entwicklerversion.
+set(LOGGX_LICENSE_PUBKEY "")
+if(EXISTS ${CMAKE_SOURCE_DIR}/license/public_key.txt)
+  file(READ ${CMAKE_SOURCE_DIR}/license/public_key.txt LOGGX_LICENSE_PUBKEY)
+  string(STRIP "${LOGGX_LICENSE_PUBKEY}" LOGGX_LICENSE_PUBKEY)
+endif()
 
 add_library(loggx_media STATIC media/src/Readers.cpp media/src/Exporter.cpp)
 target_include_directories(loggx_media PUBLIC media/include)
@@ -87,6 +105,9 @@ if(LOGGX_HAVE_RUBBERBAND)
 else()
   message(STATUS "LoggX: Rubber Band nicht gefunden - ohne Pitch-Shift/Time-Stretch")
 endif()
+
+add_executable(loggx-license tools/loggx_license.cpp)
+target_link_libraries(loggx-license PRIVATE loggx_core)
 
 add_executable(loggx-render tools/loggx_render.cpp)
 target_link_libraries(loggx-render PRIVATE loggx_engine)

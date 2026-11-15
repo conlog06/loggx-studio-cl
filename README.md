@@ -2,11 +2,18 @@
 
 Videoschnitt und Musikbearbeitung in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls).
 
-Dieses Repository enthält die **MVP-Vorschau 0.2**: Schnitt, Farbe, Titel und eine eingebaute Musikproduktion mit Instrumenten und Mixer. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.3**: Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+
+![Startbildschirm](docs/start.png)
 
 ![Arbeitsbereich Schnitt](docs/schnitt.png)
 
 ## Funktionen
+
+**Start und Projekte**
+- Startbildschirm mit Vorlagen: Videoprojekt (Full HD, 4K, Hochkant 9:16, Quadrat, 24/60 fps) oder **Musikprojekt** (Beat 120, Dance 128, Hip-Hop 90, Ballade 72 BPM), zuletzt geöffnete Projekte
+- **Musikprojekte** zeigen nur Musik, Samples und Export – ganz ohne Video
+- Neues dunkles Design (eigener Qt-Quick-Stil mit Vektor-Symbolen), farbige Spuren, Takt-Lineal
 
 **Video**
 - Import von Video, Audio und Bildern (alles, was FFmpeg liest)
@@ -16,36 +23,51 @@ Dieses Repository enthält die **MVP-Vorschau 0.2**: Schnitt, Farbe, Titel und e
 - **Masken** (Rechteck, Ellipse, weiche Kante, umkehrbar)
 - **Effekte:** Weichzeichner, Greenscreen (Chroma Key mit Farbsaum-Entfernung), Vignette
 - **Titel** mit Schriftgröße, Farbe, Ausrichtung, Hintergrundbalken und Schatten
+- **Übergänge** zwischen Clips: Überblenden, über Schwarz, über Weiß, Wischen, Schieben – Bild und Ton werden überblendet
+- **Schnitt auf Beat:** Clip auf jeden Schlag, jeden 2. Schlag, jeden Takt oder alle 2 Takte zerschneiden
 - **Farbkorrektur** (Belichtung, Kontrast, Sättigung, Temperatur, Tönung, Schatten/Mitten/Lichter), **3D-LUTs** (.cube) mit Stärke, **Scopes** (Waveform, RGB-Parade, Histogramm)
 
 **Musik**
 - **Instrumentspuren** mit MIDI-Clips und **Piano-Roll** (Noten setzen, verschieben, Länge, Anschlag, Raster, Transponieren)
 - Sieben eingebaute Instrumente: Klavier, E-Piano, Synthesizer, Bass, Fläche, Streicher, Schlagzeug (General-MIDI-Belegung)
-- Tempo (BPM) und Takt, MIDI-Clips rasten am Takt ein
+- Tempo (BPM) und Takt, MIDI-Clips rasten am Takt ein; **Takt-Raster** in der Timeline (Clips rasten auf Schläge ein)
+- **Tempo-Erkennung** aus einem Musik-Clip (BPM und erster Schlag, das Raster richtet sich danach aus)
+- **Live spielen:** Computertastatur (A W S E D F T G Z H U J K, −/+ = Oktave), Klaviatur per Maus oder **MIDI-Keyboard** (RtMidi)
+- **Aufnahme** (R) in einen MIDI-Clip, wahlweise auf Sechzehntel quantisiert – ein Undo-Schritt
+- **MIDI-Dateien** importieren und exportieren (Standard-MIDI, Typ 1, mit Tempo)
 - Audio: Lautstärke, **Tonhöhe ±12 Halbtöne ohne Tempoänderung**, **Tempo 0,25×–4× ohne Tonhöhenänderung**
 - **Mixer** mit Pegelanzeige, Fader, Panorama, Stumm/Solo, 3-Band-EQ, Kompressor, Echo und Hall pro Spur; Master mit Limiter (−1 dBFS)
 
 **Projekt und Export**
-- Export als H.264 oder **H.265** + AAC (MP4/MOV/MKV) bis **4K**, vier Qualitätsstufen, Vorlagen für YouTube, Instagram/TikTok und Archiv; Hardware-Encoder, wenn vorhanden
+- Export als H.264 oder **H.265** + AAC (MP4/MOV/MKV) bis **8K**, vier Qualitätsstufen, Vorlagen für YouTube, Instagram/TikTok und Archiv; Hardware-Encoder, wenn vorhanden
+- **Nur Audio:** WAV/FLAC (16 oder 24 Bit), MP3 320 kbit/s, AAC/M4A, Ogg Vorbis, Opus – mit oder ohne Ausklang
+- **Stems:** jede Spur als eigene WAV/FLAC-Datei
+- **Lizenzen und Admin:** Free / Pro / Admin mit signierten Schlüsseln (Ed25519, offline prüfbar); Admin-Bereich mit Free-Simulation, Vorschau in voller Auflösung, Renderzeit und Systeminfos – siehe [license/README.md](license/README.md)
 - Projektdateien `.loggx` (JSON, Version 2; Dateien des Prototyps lassen sich weiter öffnen), Undo/Redo ohne Grenze
 - **Automatisches Sichern** jede Minute, Wiederherstellung nach einem Absturz
 - Kommandozeile: `loggx-render projekt.loggx ausgabe.mp4 [--size 1280x720] [--codec h265] [--quality 2]`
 
-| Farbe | Musik | Mixer |
-| --- | --- | --- |
-| ![Farbe](docs/farbe.png) | ![Musik](docs/musik.png) | ![Mixer](docs/mixer.png) |
+| Musik | Mixer |
+| --- | --- |
+| ![Musik](docs/musik.png) | ![Mixer](docs/mixer.png) |
+| **Farbe** | **Export** |
+| ![Farbe](docs/farbe.png) | ![Export](docs/export.png) |
+| **Lizenz & Admin** | |
+| ![Admin](docs/admin.png) | |
 
 ## Was noch fehlt (laut Konzept)
 
 | Phase | Inhalt |
 | --- | --- |
-| MVP (Rest) | GPU-Rendering (Metal / DirectX 12), Übergänge zwischen Clips, Admin-Zugang und Lizenzsystem (braucht einen Server), MIDI-Keyboard-Eingabe, Beat-Erkennung |
-| 1.0 | 8K, ProRes, AV1, HDR, Masken-Tracking, KI-Freistellung, VST3/AU/CLAP, Aufnahme, Beat-Sync, Web-Admin-Dashboard |
+| MVP (Rest) | GPU-Rendering (Metal / DirectX 12) – bis dahin rechnet alles auf der CPU; Online-Konten und Lizenzprüfung über einen Server |
+| 1.0 | ProRes, AV1, HDR, Masken-Tracking, KI-Freistellung, VST3/AU/CLAP, Audio-Aufnahme (Mikrofon), Web-Admin-Dashboard |
 | Ausbau | Stem-Separation, Auto-Reframe, Mastering-Assistent, Marktplatz, Multicam, RAW |
 
 Bekannte Grenzen:
 
-- Bilder werden auf der CPU berechnet (alle Kerne). Die Vorschau wird deshalb auf höchstens 960×540 verkleinert; 4K-Material und viele Effekte können ruckeln, ein 4K-Export dauert.
+- Bilder werden auf der CPU berechnet (alle Kerne). Die Vorschau wird deshalb auf höchstens 960×540 verkleinert (Admins können 1080p einschalten), beim Abspielen in schnellerer Qualität; 4K-Material und viele Effekte können ruckeln. Ein 8K-Export ist langsam und braucht rund 4 GB Arbeitsspeicher.
+- Die Tempo-Erkennung erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück).
+- Ohne öffentlichen Schlüssel in `license/public_key.txt` baut man eine Entwicklerversion: alle Funktionen frei, Admin-Bereich sichtbar.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.
 - Hall und Echo setzen nach einem Sprung in der Timeline neu an (kein Nachklang von der vorherigen Stelle).
 - Drehungs-Metadaten (Hochkant-Videos vom Handy) werden noch nicht ausgewertet.
@@ -64,12 +86,12 @@ Wird ein Tag wie `v0.1.0` gepusht, legt die CI die Dateien zusätzlich als (Vor-
 
 ## Bauen
 
-Benötigt: CMake ≥ 3.21, C++20-Compiler, Qt ≥ 6.4 (Quick, Quick Controls, Multimedia), FFmpeg ≥ 6, optional Rubber Band ≥ 3 (für Pitch/Tempo).
+Benötigt: CMake ≥ 3.21, C- und C++20-Compiler, Qt ≥ 6.4 (Quick, Quick Controls, Multimedia), FFmpeg ≥ 6, optional Rubber Band ≥ 3 (für Pitch/Tempo) und RtMidi (für MIDI-Keyboards). Monocypher (Lizenzsignaturen) liegt in `third_party/`.
 
 ### macOS
 
 ```sh
-brew install cmake ninja pkg-config qt ffmpeg rubberband nlohmann-json
+brew install cmake ninja pkg-config qt ffmpeg rubberband nlohmann-json rtmidi
 cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
 cmake --build build
 open "build/app/LoggX Studio.app"
@@ -80,7 +102,7 @@ open "build/app/LoggX Studio.app"
 Visual Studio 2022 (C++), Qt 6 (Online-Installer, mit „Qt Multimedia“) und vcpkg:
 
 ```powershell
-vcpkg install "ffmpeg[core,avcodec,avformat,swscale,swresample]:x64-windows" rubberband:x64-windows nlohmann-json:x64-windows
+vcpkg install "ffmpeg[core,avcodec,avformat,swscale,swresample,mp3lame,opus,vorbis]:x64-windows" rubberband:x64-windows nlohmann-json:x64-windows rtmidi:x64-windows
 cmake -S . -B build -A x64 -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_PREFIX_PATH=C:\Qt\6.7.3\msvc2019_64
 cmake --build build --config Release
 C:\Qt\6.7.3\msvc2019_64\bin\windeployqt.exe --qmldir app\qml "build\app\Release\LoggX Studio.exe"
@@ -108,7 +130,10 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
 | Aktion | Taste |
 | --- | --- |
 | Abspielen / Pause | Leertaste |
-| Am Abspielkopf teilen | S oder Strg+B |
+| Startbildschirm | Strg+Pos1 |
+| Aufnahme starten / stoppen (Musik) | R |
+| Noten spielen (wenn „Mit Tastatur spielen“ an ist) | A W S E D F T G Z H U J K O L, −/+ = Oktave |
+| Am Abspielkopf teilen | S oder Strg+B (in Musikprojekten nur Strg+B) |
 | Clip löschen / mit Lücke schließen | Entf / Umschalt+Entf |
 | Ein Bild zurück / vor | ← / → |
 | Titel einfügen | T |

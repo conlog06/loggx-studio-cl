@@ -38,8 +38,15 @@ const char* kindId(ClipKind k) {
 }  // namespace
 
 AppController::AppController(QObject* parent)
-    : QObject(parent), m_project(Project::createDefault()), m_mixerDevice(&m_mixer) {
+    : QObject(parent), m_project(Project::createDefault()), m_mixerDevice(&m_mixer), m_liveDevice(&m_live) {
     connect(&m_preview, &PreviewWorker::frameReady, this, &AppController::frameReady);
+    connect(&m_preview, &PreviewWorker::renderTime, this, [this](double ms) {
+        m_previewMs = m_previewMs <= 0 ? ms : m_previewMs * 0.8 + ms * 0.2;
+        emit statsChanged();
+    });
+    m_midi = std::make_unique<MidiInput>();
+    connect(this, &AppController::midiMessage, this, &AppController::handleMidi, Qt::QueuedConnection);
+    loadLicense();
     m_preview.start();
     m_cache.start();
     m_timer.setInterval(15);
@@ -59,6 +66,8 @@ AppController::AppController(QObject* parent)
 
 AppController::~AppController() {
     stopAudio();
+    if (m_midi) m_midi->close();
+    if (m_liveSink) m_liveSink->stop();
     if (m_exportWorker) {
         m_exportWorker->cancel();
         m_exportWorker->wait();
@@ -68,18 +77,6 @@ AppController::~AppController() {
 }
 
 // ------------------------------------------------------------ Zustand
-
-template <typename Fn>
-bool AppController::apply(Fn&& fn) {
-    Project before = m_project;
-    if (!fn(m_project)) return false;
-    if (m_interactive)
-        m_liveChanged = true;
-    else
-        m_undo.push(std::move(before));
-    publish();
-    return true;
-}
 
 void AppController::publish() {
     m_shared = std::make_shared<const Project>(m_project);
@@ -165,11 +162,14 @@ void AppController::newProject() {
     resetState();
     m_project = Project::createDefault();
     m_filePath.clear();
+    m_beatGrid = false;
+    emit gridChanged();
     publish();
     setDirty(false);
     removeAutosave();
     emit fileChanged();
-    setStatus(tr("Neues Projekt"));
+    setShowStart(false);
+    setStatus(tr("Neues Videoprojekt"));
 }
 
 bool AppController::openProject(const QUrl& url) { return openProjectFile(url.toLocalFile()); }
@@ -193,6 +193,10 @@ bool AppController::openProjectFile(const QString& path) {
         if (!QFileInfo::exists(qstr(a.path))) ++missing;
     setStatus(missing > 0 ? tr("Geöffnet – %1 Mediendatei(en) nicht gefunden").arg(missing)
                           : tr("Projekt geöffnet"));
+    m_beatGrid = musicMode();
+    emit gridChanged();
+    addRecent(path);
+    setShowStart(false);
     return true;
 }
 
@@ -205,6 +209,7 @@ bool AppController::saveProject() {
     }
     setDirty(false);
     removeAutosave();
+    addRecent(m_filePath);
     setStatus(tr("Gespeichert"));
     return true;
 }
@@ -749,6 +754,9 @@ QVariantMap AppController::clip() const {
     for (int i = 0; i < static_cast<int>(m_project.tracks.size()); ++i)
         if (&m_project.tracks[static_cast<std::size_t>(i)] == track) m[QStringLiteral("trackIndex")] = i;
     m[QStringLiteral("hasKeys")] = c->hasKeys();
+    m[QStringLiteral("hasPrevious")] = m_project.previousAdjacent(*track, *c) != nullptr;
+    m[QStringLiteral("transition")] = static_cast<int>(c->transition);
+    m[QStringLiteral("transitionDuration")] = c->transitionDuration / 1e6;
     m[QStringLiteral("noteCount")] = static_cast<int>(c->notes.size());
     return m;
 }
@@ -785,6 +793,8 @@ void AppController::setClipProperty(const QString& name, double value) {
         }
         if (key == "pitch") c->pitch = std::clamp(value, -12.0, 12.0);
         else if (key == "speed") return p.setClipSpeed(id, value);
+        else if (key == "transition") c->transition = static_cast<TransitionType>(std::clamp(static_cast<int>(value), 0, kTransitionCount - 1));
+        else if (key == "transitionDuration") c->transitionDuration = static_cast<TimeUs>(std::clamp(value, 0.04, 5.0) * 1e6);
         else if (key == "fadeIn") c->fadeIn = static_cast<TimeUs>(std::clamp(value, 0.0, c->duration / 1e6) * 1e6);
         else if (key == "fadeOut") c->fadeOut = static_cast<TimeUs>(std::clamp(value, 0.0, c->duration / 1e6) * 1e6);
         else if (key == "maskShape") c->mask.shape = static_cast<MaskShape>(std::clamp(static_cast<int>(value), 0, 2));
@@ -914,7 +924,9 @@ void AppController::jumpToKeyframe(int direction) {
 
 // --------------------------------------------------------- Wiedergabe
 
-void AppController::requestFrame() { m_preview.request(m_shared, m_position); }
+void AppController::requestFrame() {
+    m_preview.request(m_shared, m_position, m_playing, m_previewFullRes ? 1080 : 540);
+}
 
 void AppController::setPosition(TimeUs t) {
     t = std::max<TimeUs>(0, t);
@@ -985,8 +997,9 @@ void AppController::pollLevels() {
 }
 
 void AppController::play() {
-    if (m_playing || m_project.duration() <= 0) return;
-    if (m_position >= m_project.duration()) setPosition(0);
+    // Bei einer Aufnahme darf auch ein leeres Projekt laufen.
+    if (m_playing || (m_project.duration() <= 0 && !m_recording)) return;
+    if (!m_recording && m_position >= m_project.duration()) setPosition(0);
     m_playing = true;
     m_playStart = m_position;
     // Erst das Audiogerät öffnen (kann dauern), dann die Uhr starten –
@@ -1016,7 +1029,7 @@ void AppController::togglePlay() {
 void AppController::tick() {
     const TimeUs t = m_playStart + m_clock.nsecsElapsed() / 1000;
     const TimeUs end = m_project.duration();
-    if (t >= end) {
+    if (t >= end && !m_recording) {
         setPosition(end);
         pause();
         return;
@@ -1064,21 +1077,27 @@ void AppController::exportVideo(const QUrl& url, int width, int height, int code
     QString path = url.toLocalFile();
     if (path.isEmpty()) return;
     if (QFileInfo(path).suffix().isEmpty()) path += QStringLiteral(".mp4");
-    if (m_project.duration() <= 0) {
-        setStatus(tr("Das Projekt enthält keine Clips"));
+    if (!isPro() && (std::min(width, height) > 1080 || codec == 1)) {
+        setStatus(tr("4K und H.265 sind in der Pro-Edition enthalten"));
         return;
     }
-    pause();
-
     ExportSettings settings;
     settings.path = str(path);
     settings.width = std::max(16, width) & ~1;
     settings.height = std::max(16, height) & ~1;
     settings.codec = codec == 1 ? ExportSettings::Codec::H265 : ExportSettings::Codec::H264;
     settings.quality = std::clamp(quality, 0, 3);
+    startExport(settings, ExportWorker::Video);
+}
 
+void AppController::startExport(ExportSettings settings, int mode, const QString& stemsExt) {
+    if (m_project.duration() <= 0) {
+        setStatus(tr("Das Projekt enthält keine Clips"));
+        return;
+    }
+    pause();
     m_exportProgress = 0.0;
-    m_exportWorker = new ExportWorker(m_project, settings, this);
+    m_exportWorker = new ExportWorker(m_project, settings, this, static_cast<ExportWorker::Mode>(mode), stemsExt);
     connect(m_exportWorker, &ExportWorker::progress, this, [this](double p) {
         m_exportProgress = p;
         emit exportChanged();

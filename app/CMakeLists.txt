@@ -9,6 +9,8 @@ qt_add_executable(loggx-studio
   src/MediaCache.cpp src/MediaCache.h
   src/TitleRenderer.cpp src/TitleRenderer.h
   src/IconItem.cpp src/IconItem.h
+  src/AppControllerMusic.cpp
+  src/MidiInput.cpp src/MidiInput.h
 )
 
 qt_add_resources(loggx-studio "qml"
@@ -24,6 +26,11 @@ qt_add_resources(loggx-studio "qml"
     qml/MusicPage.qml
     qml/MixerStrip.qml
     qml/Section.qml
+    qml/StartPage.qml
+    qml/LicenseDialog.qml
+    qml/IconButton.qml
+    qml/Divider.qml
+    qml/LiveKeyboard.qml
     qml/LoggXStyle/Button.qml
     qml/LoggXStyle/CheckBox.qml
     qml/LoggXStyle/ComboBox.qml
@@ -57,7 +64,36 @@ if(WIN32)
   target_sources(loggx-studio PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/loggx.rc)
 endif()
 
-target_link_libraries(loggx-studio PRIVATE
+# MIDI-Keyboards (optional): RtMidi über pkg-config oder direkt gesucht
+add_library(loggx_rtmidi INTERFACE)
+set(LOGGX_HAVE_RTMIDI OFF)
+if(PkgConfig_FOUND)
+  pkg_check_modules(LOGGX_RTMIDI IMPORTED_TARGET rtmidi)
+endif()
+if(TARGET PkgConfig::LOGGX_RTMIDI)
+  target_link_libraries(loggx_rtmidi INTERFACE PkgConfig::LOGGX_RTMIDI)
+  set(LOGGX_HAVE_RTMIDI ON)
+else()
+  find_path(LOGGX_RTMIDI_INCLUDE RtMidi.h PATH_SUFFIXES rtmidi)
+  find_library(LOGGX_RTMIDI_LIB NAMES rtmidi)
+  if(LOGGX_RTMIDI_INCLUDE AND LOGGX_RTMIDI_LIB)
+    target_include_directories(loggx_rtmidi INTERFACE ${LOGGX_RTMIDI_INCLUDE})
+    target_link_libraries(loggx_rtmidi INTERFACE ${LOGGX_RTMIDI_LIB})
+    if(WIN32)
+      target_link_libraries(loggx_rtmidi INTERFACE winmm)
+    endif()
+    set(LOGGX_HAVE_RTMIDI ON)
+  endif()
+endif()
+if(LOGGX_HAVE_RTMIDI)
+  target_compile_definitions(loggx_rtmidi INTERFACE LOGGX_WITH_RTMIDI)
+  message(STATUS "LoggX: MIDI-Keyboards aktiv (RtMidi)")
+else()
+  message(STATUS "LoggX: RtMidi nicht gefunden - ohne MIDI-Keyboards")
+endif()
+target_compile_definitions(loggx_rtmidi INTERFACE LOGGX_LICENSE_PUBKEY="${LOGGX_LICENSE_PUBKEY}")
+
+target_link_libraries(loggx-studio PRIVATE loggx_rtmidi
   loggx_engine
   Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
 
@@ -76,9 +112,11 @@ if(LOGGX_BUILD_TESTS)
     src/AppController.cpp src/AppController.h
     src/Workers.cpp src/Workers.h
     src/MediaCache.cpp src/MediaCache.h
-    src/TitleRenderer.cpp src/TitleRenderer.h)
+    src/TitleRenderer.cpp src/TitleRenderer.h
+    src/AppControllerMusic.cpp
+    src/MidiInput.cpp src/MidiInput.h)
   target_include_directories(test_app PRIVATE src ../tests)
-  target_link_libraries(test_app PRIVATE loggx_engine Qt6::Core Qt6::Gui Qt6::Multimedia)
+  target_link_libraries(test_app PRIVATE loggx_engine loggx_rtmidi Qt6::Core Qt6::Gui Qt6::Multimedia)
   add_test(NAME app COMMAND test_app)
 endif()
 

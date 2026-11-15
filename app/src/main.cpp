@@ -53,11 +53,13 @@ int main(int argc, char** argv) {
 
     AppController controller;
 
-    // Aufruf: "LoggX Studio" [projekt.loggx] [--page N] [--select CLIP] [--seek SEK]
-    //         [--screenshot bild.png]
+    // Aufruf: "LoggX Studio" [projekt.loggx] [--music] [--page N] [--tab N]
+    //         [--select CLIP] [--seek SEK] [--license] [--screenshot bild.png]
     // --screenshot speichert ein Bild des Fensters und beendet sich (für
     // automatische Prüfungen der Oberfläche).
     QString screenshot;
+    bool showLicense = false;
+    bool pageGiven = false;
     int startPage = 1;   // 0 Medien, 1 Schnitt, 2 Farbe, 3 Musik, 4 Export
     int startTab = 0;    // Musik: 0 Noten, 1 Mixer
     const QStringList args = QGuiApplication::arguments();
@@ -65,7 +67,11 @@ int main(int argc, char** argv) {
         if (args[i] == QLatin1String("--screenshot") && i + 1 < args.size())
             screenshot = args[++i];
         else if (args[i] == QLatin1String("--page") && i + 1 < args.size())
-            startPage = qBound(0, args[++i].toInt(), 4);
+            startPage = qBound(0, args[++i].toInt(), 4), pageGiven = true;
+        else if (args[i] == QLatin1String("--music"))
+            controller.newMusicProject();
+        else if (args[i] == QLatin1String("--license"))
+            showLicense = true;
         else if (args[i] == QLatin1String("--tab") && i + 1 < args.size())
             startTab = qBound(0, args[++i].toInt(), 1);
         else if (args[i] == QLatin1String("--select") && i + 1 < args.size())
@@ -76,11 +82,15 @@ int main(int argc, char** argv) {
             controller.openProjectFile(args[i]);
     }
 
+    if (pageGiven) controller.setShowStart(false);
+    if (controller.musicMode() && !pageGiven) startPage = 3;
+
     QQmlApplicationEngine engine;
     engine.addImportPath(QStringLiteral("qrc:/qml"));
     engine.rootContext()->setContextProperty(QStringLiteral("app"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("startPage"), startPage);
     engine.rootContext()->setContextProperty(QStringLiteral("startTab"), startTab);
+    engine.rootContext()->setContextProperty(QStringLiteral("showLicense"), showLicense);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty()) return 1;
 

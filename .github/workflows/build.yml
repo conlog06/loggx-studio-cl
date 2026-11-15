@@ -17,7 +17,7 @@ jobs:
             qt6-base-dev qt6-declarative-dev qt6-multimedia-dev libgl1-mesa-dev \
             qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
             qml6-module-qtquick-dialogs qml6-module-qtquick-window qml6-module-qtquick-templates \
-            qml6-module-qtqml-workerscript qml6-module-qt-labs-folderlistmodel
+            qml6-module-qtqml-workerscript qml6-module-qt-labs-folderlistmodel librtmidi-dev
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
       - run: cmake --build build
       - name: Tests
@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Abhängigkeiten
-        run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json
+        run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json rtmidi
       - run: cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
@@ -103,19 +103,19 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-ffmpeg-rubberband-x64-windows-v2
+          key: vcpkg-ffmpeg-rubberband-rtmidi-x64-windows-v3
       - name: FFmpeg und Rubber Band
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample]:x64-windows" "rubberband:x64-windows" "nlohmann-json:x64-windows"
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample,mp3lame,opus,vorbis]:x64-windows" "rubberband:x64-windows" "nlohmann-json:x64-windows" "rtmidi:x64-windows"
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: vcpkg-Cache sichern
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-ffmpeg-rubberband-x64-windows-v2
+          key: vcpkg-ffmpeg-rubberband-rtmidi-x64-windows-v3
       - name: Konfigurieren
         shell: pwsh
         run: cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows

@@ -2,6 +2,7 @@
 #include <filesystem>
 
 #include "check.h"
+#include "loggx/core/License.h"
 #include "loggx/core/Midi.h"
 #include "loggx/core/Project.h"
 #include "loggx/core/UndoStack.h"
@@ -372,6 +373,45 @@ void testMidiFiles() {
     std::filesystem::remove(path);
 }
 
+void testLicense() {
+    std::array<std::uint8_t, 32> seed{};
+    for (std::size_t i = 0; i < seed.size(); ++i) seed[i] = static_cast<std::uint8_t>(i * 7 + 1);
+    SecretKey secret;
+    PublicKey pub;
+    makeKeyPair(seed, secret, pub);
+    License l;
+    l.id = "abc";
+    l.name = "Constantin Loggen";
+    l.email = "test@example.de";
+    l.edition = Edition::Admin;
+    l.issued = "2026-11-15";
+    l.expires = "2027-12-31";
+    const std::string key = signLicense(l, secret);
+    CHECK(key.rfind("LGX1-", 0) == 0);
+
+    License out;
+    std::string error;
+    CHECK(verifyLicense(key, pub, out, &error, "2026-12-01"));
+    CHECK(out.name == "Constantin Loggen" && out.edition == Edition::Admin && out.expires == "2027-12-31");
+    // Leerzeichen/Zeilenumbrüche beim Einfügen stören nicht.
+    CHECK(verifyLicense(key.substr(0, 20) + "\n " + key.substr(20), pub, out));
+    // Abgelaufen
+    CHECK(!verifyLicense(key, pub, out, &error, "2028-01-01"));
+    // Verändert: ein Zeichen der Nutzdaten anders -> Signatur passt nicht
+    std::string tampered = key;
+    tampered[10] = tampered[10] == 'A' ? 'B' : 'A';
+    CHECK(!verifyLicense(tampered, pub, out, &error));
+    // Falscher öffentlicher Schlüssel
+    PublicKey other = pub;
+    other[0] ^= 1;
+    CHECK(!verifyLicense(key, other, out, &error));
+    CHECK(!verifyLicense("irgendwas", pub, out, &error));
+    // Hex
+    PublicKey back;
+    CHECK(fromHex(toHex(pub.data(), pub.size()), back.data(), back.size()) && back == pub);
+    CHECK(!fromHex("zz", back.data(), back.size()));
+}
+
 void testUndo() {
     UndoStack<int> stack;
     int value = 1;
@@ -400,6 +440,7 @@ int main() {
     testTitlesAndMidi();
     testMusicTransitionsBeats();
     testMidiFiles();
+    testLicense();
     testUndo();
     return finish("test_core");
 }

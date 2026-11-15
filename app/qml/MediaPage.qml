@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import LoggXStyle
 
 // Arbeitsbereich "Medien": alle importierten Dateien und das Projektformat.
 Item {
@@ -24,7 +25,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: "#1b1e24"
+                color: Theme.panel
                 radius: 6
 
                 ListView {
@@ -42,7 +43,7 @@ Item {
                         width: list.width
                         height: 56
                         radius: 5
-                        color: "#22252d"
+                        color: Theme.panel2
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: 12
@@ -50,7 +51,7 @@ Item {
                             spacing: 12
                             Rectangle {
                                 width: 4; height: 34; radius: 2
-                                color: row.modelData.hasVideo ? "#3d6fd6" : "#2c9a6c"
+                                color: row.modelData.hasVideo ? Theme.video : Theme.audio
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -60,7 +61,7 @@ Item {
                                     Layout.fillWidth: true
                                     elide: Text.ElideMiddle
                                     font.pixelSize: 11
-                                    color: row.modelData.missing ? "#ff4d5e" : "#8a91a0"
+                                    color: row.modelData.missing ? Theme.danger : Theme.dim
                                     text: (row.modelData.missing ? qsTr("Datei nicht gefunden") : row.modelData.info)
                                           + " · " + row.modelData.path
                                 }
@@ -73,7 +74,7 @@ Item {
                     Label {
                         anchors.centerIn: parent
                         visible: list.count === 0
-                        color: "#8a91a0"
+                        color: Theme.dim
                         horizontalAlignment: Text.AlignHCenter
                         text: qsTr("Noch keine Medien.\nVideos, Musik oder Bilder importieren oder ins Fenster ziehen.")
                     }
@@ -93,7 +94,7 @@ Item {
         Rectangle {
             Layout.preferredWidth: 300
             Layout.fillHeight: true
-            color: "#1b1e24"
+            color: Theme.panel
             radius: 6
 
             ColumnLayout {
@@ -101,7 +102,7 @@ Item {
                 anchors.margins: 16
                 spacing: 10
                 Label { text: qsTr("Projektformat"); font.bold: true }
-                Label { text: app.formatInfo; color: "#8a91a0" }
+                Label { text: app.formatInfo; color: Theme.dim }
 
                 Label { text: qsTr("Auflösung"); Layout.topMargin: 8 }
                 ComboBox {
@@ -143,7 +144,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.topMargin: 8
                     wrapMode: Text.WordWrap
-                    color: "#8a91a0"
+                    color: Theme.dim
                     font.pixelSize: 11
                     text: qsTr("Der Prototyp rechnet Bilder auf der CPU. Für flüssige Vorschau wird sie auf höchstens 960×540 verkleinert; der Export nutzt die volle Auflösung.")
                 }

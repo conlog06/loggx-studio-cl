@@ -16,7 +16,9 @@
 #include <QVariantMap>
 
 #include "MediaCache.h"
+#include "MidiInput.h"
 #include "Workers.h"
+#include "loggx/core/License.h"
 #include "loggx/core/Project.h"
 #include "loggx/core/UndoStack.h"
 #include "loggx/engine/Engine.h"
@@ -51,6 +53,32 @@ class AppController : public QObject {
     Q_PROPERTY(QStringList instrumentNames READ instrumentNames CONSTANT)
     Q_PROPERTY(bool recoveryAvailable READ recoveryAvailable NOTIFY recoveryChanged)
     Q_PROPERTY(QString recoveryInfo READ recoveryInfo NOTIFY recoveryChanged)
+    // Projektmodus und Startbildschirm
+    Q_PROPERTY(bool musicMode READ musicMode NOTIFY projectChanged)
+    Q_PROPERTY(bool showStart READ showStart WRITE setShowStart NOTIFY startChanged)
+    Q_PROPERTY(QVariantList recentProjects READ recentProjects NOTIFY recentChanged)
+    // Beat-Raster
+    Q_PROPERTY(bool beatGrid READ beatGrid WRITE setBeatGrid NOTIFY gridChanged)
+    Q_PROPERTY(QStringList transitionNames READ transitionNames CONSTANT)
+    // Live spielen und Aufnahme
+    Q_PROPERTY(bool recording READ recording NOTIFY recordingChanged)
+    Q_PROPERTY(int keyboardOctave READ keyboardOctave WRITE setKeyboardOctave NOTIFY liveChanged)
+    Q_PROPERTY(QStringList midiInputs READ midiInputs NOTIFY liveChanged)
+    Q_PROPERTY(int midiInput READ midiInput NOTIFY liveChanged)
+    Q_PROPERTY(bool midiAvailable READ midiAvailable CONSTANT)
+    Q_PROPERTY(bool quantizeRecording READ quantizeRecording WRITE setQuantizeRecording NOTIFY liveChanged)
+    Q_PROPERTY(QVariantList heldNotes READ heldNotes NOTIFY liveChanged)
+    // Lizenz und Admin
+    Q_PROPERTY(QString edition READ edition NOTIFY licenseChanged)
+    Q_PROPERTY(QString editionName READ editionName NOTIFY licenseChanged)
+    Q_PROPERTY(QString licenseHolder READ licenseHolder NOTIFY licenseChanged)
+    Q_PROPERTY(bool licensingActive READ licensingActive CONSTANT)
+    Q_PROPERTY(bool isPro READ isPro NOTIFY licenseChanged)
+    Q_PROPERTY(bool isAdmin READ isAdmin NOTIFY licenseChanged)
+    Q_PROPERTY(bool simulateFree READ simulateFree WRITE setSimulateFree NOTIFY licenseChanged)
+    Q_PROPERTY(bool previewFullRes READ previewFullRes WRITE setPreviewFullRes NOTIFY adminChanged)
+    Q_PROPERTY(double previewMs READ previewMs NOTIFY statsChanged)
+    Q_PROPERTY(QVariantMap systemInfo READ systemInfo CONSTANT)
 
 public:
     explicit AppController(QObject* parent = nullptr);
@@ -99,6 +127,66 @@ public:
     QStringList instrumentNames() const;
     bool recoveryAvailable() const { return !m_recoveryFile.isEmpty(); }
     QString recoveryInfo() const { return m_recoveryInfo; }
+
+    // ---- Projektmodus, Start, zuletzt geöffnet
+    bool musicMode() const { return m_project.mode == loggx::ProjectMode::Music; }
+    bool showStart() const { return m_showStart; }
+    void setShowStart(bool show);
+    QVariantList recentProjects() const;
+    Q_INVOKABLE void newMusicProject();
+    // Vorlage: Video mit Größe/fps oder Musik mit Tempo
+    Q_INVOKABLE void newFromTemplate(bool music, int width, int height, int fps, double bpm);
+    Q_INVOKABLE void forgetRecent(const QString& path);
+    Q_INVOKABLE bool openRecent(const QString& path) { return openProjectFile(path); }
+
+    // ---- Beat-Raster, Tempo, Übergänge
+    bool beatGrid() const { return m_beatGrid; }
+    void setBeatGrid(bool on);
+    QStringList transitionNames() const;
+    Q_INVOKABLE bool detectTempo();            // aus dem ausgewählten Audio-Clip
+    Q_INVOKABLE int cutOnBeats(int everyBeats);
+
+    // ---- Musik-Dateien
+    Q_INVOKABLE void exportAudio(const QUrl& url, int bits = 16, bool tail = true);
+    Q_INVOKABLE void exportStems(const QUrl& folder, const QString& extension, int bits = 16);
+    Q_INVOKABLE bool exportMidiFile(const QUrl& url);
+    Q_INVOKABLE bool importMidiFile(const QUrl& url);
+
+    // ---- Live spielen (Computer-/MIDI-Tastatur) und Aufnahme
+    Q_INVOKABLE void liveNoteOn(int pitch, double velocity = 0.8);
+    Q_INVOKABLE void liveNoteOff(int pitch);
+    Q_INVOKABLE void allNotesOff();
+    Q_INVOKABLE void startRecording();
+    Q_INVOKABLE void stopRecording();
+    Q_INVOKABLE void refreshMidiInputs();
+    Q_INVOKABLE bool openMidiInput(int index);
+    bool recording() const { return m_recording; }
+    int keyboardOctave() const { return m_octave; }
+    void setKeyboardOctave(int octave);
+    QStringList midiInputs() const { return m_midiPorts; }
+    int midiInput() const;
+    bool midiAvailable() const;
+    bool quantizeRecording() const { return m_quantize; }
+    void setQuantizeRecording(bool on);
+    QVariantList heldNotes() const;
+    loggx::InstrumentType liveInstrument() const;
+
+    // ---- Lizenz und Admin
+    QString edition() const;
+    QString editionName() const;
+    QString licenseHolder() const { return m_licenseHolder; }
+    bool licensingActive() const;
+    bool isPro() const;
+    bool isAdmin() const;
+    bool simulateFree() const { return m_simulateFree; }
+    void setSimulateFree(bool on);
+    bool previewFullRes() const { return m_previewFullRes; }
+    void setPreviewFullRes(bool on);
+    double previewMs() const { return m_previewMs; }
+    QVariantMap systemInfo() const;
+    Q_INVOKABLE bool activateLicense(const QString& key);
+    Q_INVOKABLE void removeLicense();
+    Q_INVOKABLE QString licenseError() const { return m_licenseError; }
 
     // ---- Projekt
     Q_INVOKABLE void newProject();
@@ -174,6 +262,15 @@ signals:
     void statusChanged();
     void levelsChanged();
     void recoveryChanged();
+    void startChanged();
+    void recentChanged();
+    void gridChanged();
+    void recordingChanged();
+    void liveChanged();
+    void licenseChanged();
+    void adminChanged();
+    void statsChanged();
+    void midiMessage(int status, int data1, int data2);
     void frameReady(const QImage& image);
 
 private:
@@ -192,6 +289,12 @@ private:
     void removeAutosave();
     void checkRecovery();
     int trackIndexOf(loggx::TrackKind kind, bool last) const;
+    void addRecent(const QString& path);
+    void loadLicense();
+    void ensureLiveAudio();
+    void handleMidi(int status, int data1, int data2);
+    loggx::TimeUs clockPosition() const;
+    void startExport(loggx::ExportSettings settings, int mode, const QString& stemsExt = {});
 
     loggx::Project m_project;
     std::shared_ptr<const loggx::Project> m_shared;
@@ -225,4 +328,48 @@ private:
 
     ExportWorker* m_exportWorker = nullptr;
     double m_exportProgress = 0.0;
+
+    bool m_showStart = true;
+    bool m_beatGrid = false;
+
+    // Live
+    loggx::LiveSynth m_live;
+    LiveDevice m_liveDevice;
+    QAudioSink* m_liveSink = nullptr;
+    std::unique_ptr<class MidiInput> m_midi;
+    QStringList m_midiPorts;
+    int m_octave = 5;   // C4 (MIDI 60)
+    bool m_quantize = true;
+    QList<int> m_held;
+    bool m_recording = false;
+    loggx::TimeUs m_recordStart = 0;
+    QString m_recordTrack;
+    struct RecordedNote {
+        int pitch;
+        double velocity;
+        loggx::TimeUs on, off;
+    };
+    std::vector<RecordedNote> m_recorded;
+
+    // Lizenz / Admin
+    loggx::Edition m_editionLicensed = loggx::Edition::Free;
+    QString m_licenseHolder;
+    QString m_licenseError;
+    bool m_simulateFree = false;
+    bool m_previewFullRes = false;
+    double m_previewMs = 0.0;
 };
+
+// Führt eine Änderung am Projekt aus: Undo-Schritt (außer bei laufender
+// Interaktion), dann Engine und Oberfläche benachrichtigen.
+template <typename Fn>
+bool AppController::apply(Fn&& fn) {
+    loggx::Project before = m_project;
+    if (!fn(m_project)) return false;
+    if (m_interactive)
+        m_liveChanged = true;
+    else
+        m_undo.push(std::move(before));
+    publish();
+    return true;
+}

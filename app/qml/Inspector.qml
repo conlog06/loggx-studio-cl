@@ -2,11 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import LoggXStyle
 
 // Eigenschaften des ausgewählten Clips.
 Rectangle {
     id: root
-    color: "#1b1e24"
+    color: Theme.panel
     readonly property var clip: app.clip
     readonly property bool hasClip: clip.id !== undefined
     readonly property bool isVideo: hasClip && clip.isVideo
@@ -31,7 +32,7 @@ Rectangle {
         width: parent.width - 40
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
-        color: "#8a91a0"
+        color: Theme.dim
         text: qsTr("Clip in der Timeline anklicken, um Position, Größe, Lautstärke, Blenden, Effekte und Maske einzustellen.\n\n◇ setzt Keyframes für Animationen.")
     }
 
@@ -55,7 +56,7 @@ Rectangle {
                 elide: Text.ElideMiddle
             }
             Label {
-                color: "#8a91a0"
+                color: Theme.dim
                 text: root.hasClip
                       ? qsTr("Start %1 · Länge %2").arg(app.timecode(root.clip.start)).arg(app.timecode(root.clip.duration))
                       : ""
@@ -63,7 +64,7 @@ Rectangle {
             RowLayout {
                 visible: root.hasClip && root.clip.hasKeys
                 spacing: 4
-                Label { text: qsTr("Keyframes:"); color: "#ffd54f" }
+                Label { text: qsTr("Keyframes:"); color: Theme.warn }
                 Button { text: "◀"; onClicked: app.jumpToKeyframe(-1); implicitWidth: 36 }
                 Button { text: "▶"; onClicked: app.jumpToKeyframe(1); implicitWidth: 36 }
             }
@@ -189,6 +190,33 @@ Rectangle {
                 }
             }
 
+            // ------------------------------------------------- Übergang
+            Section {
+                Layout.fillWidth: true
+                title: qsTr("Übergang vom vorherigen Clip")
+                visible: root.hasClip && root.clip.hasPrevious === true
+                ComboBox {
+                    Layout.fillWidth: true
+                    model: app.transitionNames
+                    currentIndex: root.hasClip && root.clip.transition !== undefined ? root.clip.transition : 0
+                    onActivated: function (i) { app.setClipProperty("transition", i) }
+                }
+                ValueSlider {
+                    Layout.fillWidth: true
+                    visible: root.hasClip && root.clip.transition > 0
+                    label: qsTr("Dauer"); prop: "transitionDuration"; from: 0.1; to: 3; step: 0.05
+                    value: root.hasClip && root.clip.transitionDuration !== undefined ? root.clip.transitionDuration : 0.5
+                    resetValue: 0.5; decimals: 2; suffix: " s"
+                }
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Theme.faint
+                    font.pixelSize: Theme.smallFont
+                    text: qsTr("Bild und Ton der beiden Clips werden am Schnitt ineinander übergeblendet.")
+                }
+            }
+
             // -------------------------------------------------- Blenden
             Section {
                 Layout.fillWidth: true
@@ -278,7 +306,7 @@ Rectangle {
                     spacing: 8
                     RowLayout {
                         spacing: 6
-                        Label { text: qsTr("Farbe"); Layout.preferredWidth: 84; color: "#b3b9c6" }
+                        Label { text: qsTr("Farbe"); Layout.preferredWidth: 84; color: Theme.dim }
                         Rectangle { width: 18; height: 18; radius: 3; color: root.hasClip ? root.clip.keyColor : "lime"; border.color: "#555" }
                         Button { text: qsTr("Grün"); onClicked: app.setKeyColor(Qt.rgba(0, 1, 0, 1)) }
                         Button { text: qsTr("Blau"); onClicked: app.setKeyColor(Qt.rgba(0, 0.3, 1, 1)) }
@@ -312,7 +340,7 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
-                    Label { text: qsTr("Form"); Layout.preferredWidth: 84; color: "#b3b9c6" }
+                    Label { text: qsTr("Form"); Layout.preferredWidth: 84; color: Theme.dim }
                     ComboBox {
                         Layout.fillWidth: true
                         model: [qsTr("Keine"), qsTr("Rechteck"), qsTr("Ellipse")]

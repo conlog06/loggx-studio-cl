@@ -5,8 +5,11 @@
 #include <QFile>
 
 #include <QDir>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 
@@ -49,6 +52,9 @@ int main(int argc, char** argv) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QGuiApplication qapp(argc, argv);
     QStandardPaths::setTestModeEnabled(true);   // Autosave nicht im echten Profil
+    QCoreApplication::setOrganizationName(QStringLiteral("LoggX-Test"));
+    QCoreApplication::setApplicationName(QStringLiteral("test_app"));
+    QSettings().clear();
     QDir(AppController::autosaveDir()).removeRecursively();
     QTemporaryDir dir;
     const QString source = dir.filePath("quelle.mp4");
@@ -288,5 +294,114 @@ int main(int argc, char** argv) {
     }
 
     CHECK(app.timecode(61.5) == QStringLiteral("00:01:01:15"));
+
+    // ------------------------------------- Übergänge und Schnitt auf Beat
+    {
+        AppController v;
+        v.newFromTemplate(false, 640, 360, 25, 120);
+        CHECK(!v.musicMode() && !v.showStart());
+        v.importMedia({QUrl::fromLocalFile(source)});
+        CHECK(waitFor([&] { return v.assets().size() == 1; }, 10000));
+        const QString asset = v.assets().first().toMap().value(QStringLiteral("id")).toString();
+        CHECK(v.addAssetToTimeline(asset));
+        const QString a = v.selectedClipId();
+        CHECK(v.addAssetToTimeline(asset));
+        const QString b = v.selectedClipId();
+        CHECK(a != b && v.clip().value(QStringLiteral("hasPrevious")).toBool());
+        v.setClipProperty(QStringLiteral("transition"), 1);
+        v.setClipProperty(QStringLiteral("transitionDuration"), 0.8);
+        const Clip* cb = v.project().findClip(b.toStdString());
+        CHECK(cb && cb->transition == TransitionType::Crossfade && cb->transitionDuration == 800'000);
+        CHECK(v.transitionNames().size() == kTransitionCount);
+        v.setSelectedClipId(a);
+        CHECK(v.cutOnBeats(4) == 1);          // 4 s bei 120 BPM: Schnitt nach einem Takt
+        v.setBeatGrid(true);
+        CHECK(v.beatGrid());
+
+        // Export mit Übergang
+        const QString out = dir.filePath("uebergang.mp4");
+        v.exportVideo(QUrl::fromLocalFile(out), 320, 180, 0, 0);
+        CHECK(waitFor([&] { return !v.exporting(); }, 60000));
+        MediaAsset m;
+        CHECK(probeMedia(out.toStdString(), m) && m.hasVideo && m.hasAudio);
+
+        // Free simulieren: 4K und H.265 werden gesperrt
+        CHECK(v.isAdmin() && v.isPro());
+        v.setSimulateFree(true);
+        CHECK(!v.isPro() && v.edition() == QStringLiteral("free"));
+        v.exportVideo(QUrl::fromLocalFile(dir.filePath("4k.mp4")), 3840, 2160, 0, 0);
+        CHECK(!v.exporting() && !QFile::exists(dir.filePath("4k.mp4")));
+        v.setSimulateFree(false);
+        CHECK(v.isPro());
+        CHECK(!v.systemInfo().value(QStringLiteral("ffmpeg")).toString().isEmpty());
+        v.discardRecovery();
+    }
+
+    // ---------------------------------------------------- Musikprojekt
+    {
+        AppController mu;
+        mu.newMusicProject();
+        CHECK(mu.musicMode() && mu.beatGrid() && std::abs(mu.bpm() - 120) < 1e-9);
+        int instruments = 0;
+        for (const auto& t : mu.project().tracks) instruments += t.kind == TrackKind::Instrument;
+        CHECK(instruments >= 3);
+
+        // Live spielen und aufnehmen (ohne Audiogerät läuft nur die Uhr)
+        mu.startRecording();
+        CHECK(mu.recording());
+        waitFor([] { return false; }, 150);
+        mu.liveNoteOn(60, 0.9);
+        mu.liveNoteOn(64, 0.7);
+        CHECK(mu.heldNotes().size() == 2);
+        waitFor([] { return false; }, 300);
+        mu.liveNoteOff(60);
+        mu.liveNoteOff(64);
+        CHECK(mu.heldNotes().isEmpty());
+        mu.stopRecording();
+        CHECK(!mu.recording() && !mu.playing());
+        const Clip* rec = mu.project().findClip(mu.selectedClipId().toStdString());
+        CHECK(rec && rec->kind == ClipKind::Midi && rec->notes.size() == 2);
+        CHECK(rec && rec->start == 0 && rec->duration == 4 * mu.project().beatDuration());   // ein Takt
+        mu.undo();
+        CHECK(mu.project().findClip(rec ? rec->id : std::string()) == nullptr);
+        mu.redo();
+
+        // Audio-Export (FLAC 24 Bit), Stems und MIDI
+        const QString flac = dir.filePath("song.flac");
+        mu.exportAudio(QUrl::fromLocalFile(flac), 24, true);
+        CHECK(waitFor([&] { return !mu.exporting(); }, 60000));
+        MediaAsset fa;
+        CHECK(probeMedia(flac.toStdString(), fa) && fa.hasAudio && !fa.hasVideo);
+        QDir stems(dir.filePath("stems"));
+        CHECK(QDir().mkpath(stems.path()));
+        mu.exportStems(QUrl::fromLocalFile(stems.path()), QStringLiteral("wav"), 16);
+        CHECK(waitFor([&] { return !mu.exporting(); }, 60000));
+        QStringList wavs;
+        QDirIterator it(stems.path(), {QStringLiteral("*.wav")}, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) wavs << it.next();
+        CHECK(wavs.size() >= 1);
+        const QString mid = dir.filePath("song.mid");
+        CHECK(mu.exportMidiFile(QUrl::fromLocalFile(mid)));
+        AppController back;
+        back.newMusicProject();
+        CHECK(back.importMidiFile(QUrl::fromLocalFile(mid)));
+        int notes = 0;
+        for (const auto& t : back.project().tracks)
+            for (const auto& c : t.clips) notes += static_cast<int>(c.notes.size());
+        CHECK(notes == 2);
+
+        // Zuletzt geöffnet
+        const QString saved = dir.filePath("song.loggx");
+        CHECK(mu.saveProjectAs(QUrl::fromLocalFile(saved)));
+        const QVariantList recent = mu.recentProjects();
+        CHECK(!recent.isEmpty() && recent.first().toMap().value(QStringLiteral("path")).toString() == QFileInfo(saved).absoluteFilePath());
+        AppController reopen;
+        CHECK(reopen.openRecent(saved) && reopen.musicMode() && !reopen.showStart());
+        reopen.forgetRecent(QFileInfo(saved).absoluteFilePath());
+        for (const QVariant& r : reopen.recentProjects())
+            CHECK(r.toMap().value(QStringLiteral("path")).toString() != QFileInfo(saved).absoluteFilePath());
+        back.discardRecovery();
+        mu.discardRecovery();
+    }
     return finish("test_app");
 }

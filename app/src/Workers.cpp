@@ -2,6 +2,8 @@
 
 #include "TitleRenderer.h"
 
+#include <QElapsedTimer>
+
 #include <algorithm>
 #include <cstring>
 
@@ -20,11 +22,13 @@ PreviewWorker::~PreviewWorker() {
     wait();
 }
 
-void PreviewWorker::request(std::shared_ptr<const Project> project, TimeUs time) {
+void PreviewWorker::request(std::shared_ptr<const Project> project, TimeUs time, bool fast, int maxHeight) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_project = std::move(project);
         m_time = time;
+        m_fast = fast;
+        m_maxHeight = maxHeight;
         m_pending = true;
     }
     m_wake.notify_one();
@@ -39,12 +43,16 @@ void PreviewWorker::run() {
     for (;;) {
         std::shared_ptr<const Project> project;
         TimeUs time;
+        bool fast;
+        int maxHeight;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_wake.wait(lock, [this] { return m_pending || m_quit; });
             if (m_quit) return;
             project = m_project;
             time = m_time;
+            fast = m_fast;
+            maxHeight = m_maxHeight;
             m_pending = false;
         }
         if (!project) continue;
@@ -53,8 +61,11 @@ void PreviewWorker::run() {
             compositor.setProject(current);
         }
 
-        // Vorschau höchstens 960x540, mit geraden Kantenlängen.
-        const double scale = std::min({960.0 / project->width, 540.0 / project->height, 1.0});
+        // Vorschau begrenzen (bei Wiedergabe halbe Größe), gerade Kantenlängen.
+        const double limit = fast ? maxHeight / 2.0 : maxHeight;
+        const double scale = std::min({limit * 16.0 / 9.0 / project->width, limit / project->height, 1.0});
+        QElapsedTimer timer;
+        timer.start();
         const int w = std::max(2, static_cast<int>(project->width * scale) & ~1);
         const int h = std::max(2, static_cast<int>(project->height * scale) & ~1);
         compositor.render(time, w, h, pixels);
@@ -63,21 +74,38 @@ void PreviewWorker::run() {
         for (int y = 0; y < h; ++y)
             std::memcpy(image.scanLine(y), pixels.data() + static_cast<std::size_t>(y) * w * 4,
                         static_cast<std::size_t>(w) * 4);
+        emit renderTime(timer.nsecsElapsed() / 1e6);
         emit frameReady(image);
     }
 }
 
 // ----------------------------------------------------------- ExportWorker
 
-ExportWorker::ExportWorker(Project project, ExportSettings settings, QObject* parent)
-    : QThread(parent), m_project(std::move(project)), m_settings(std::move(settings)) {}
+ExportWorker::ExportWorker(Project project, ExportSettings settings, QObject* parent, Mode mode,
+                           QString stemsExtension)
+    : QThread(parent),
+      m_project(std::move(project)),
+      m_settings(std::move(settings)),
+      m_mode(mode),
+      m_stemsExt(std::move(stemsExtension)) {}
 
 void ExportWorker::run() {
-    const RenderResult result = renderProject(
-        m_project, m_settings, [this](double p) { emit progress(p); }, &m_cancel,
-        qtTitleRasterizer());
+    auto progressFn = [this](double p) { emit progress(p); };
+    RenderResult result;
+    std::vector<std::string> files;
+    if (m_mode == Audio)
+        result = renderAudio(m_project, m_settings, progressFn, &m_cancel);
+    else if (m_mode == Stems)
+        result = renderStems(m_project, m_settings.path, m_stemsExt.toStdString(), m_settings.audioBits, &files,
+                             progressFn, &m_cancel);
+    else
+        result = renderProject(m_project, m_settings, progressFn, &m_cancel, qtTitleRasterizer());
     QString message;
-    if (result.ok)
+    if (result.ok && m_mode == Stems)
+        message = tr("%1 Stems exportiert").arg(files.size());
+    else if (result.ok && m_mode == Audio)
+        message = tr("Audio-Export fertig");
+    else if (result.ok)
         message = tr("Export fertig (%1 Bilder, Encoder %2)")
                       .arg(result.frames)
                       .arg(QString::fromStdString(result.videoEncoder));
@@ -113,5 +141,18 @@ qint64 MixerDevice::readData(char* data, qint64 maxSize) {
     if (frames <= 0) return 0;
     const std::int64_t position = m_position.fetch_add(frames);
     m_mixer->render(position, reinterpret_cast<float*>(data), static_cast<std::size_t>(frames));
+    return frames * frameBytes;
+}
+
+// ------------------------------------------------------------- LiveDevice
+
+LiveDevice::LiveDevice(LiveSynth* synth, QObject* parent) : QIODevice(parent), m_synth(synth) {}
+
+qint64 LiveDevice::readData(char* data, qint64 maxSize) {
+    const qint64 frameBytes = 2 * static_cast<qint64>(sizeof(float));
+    // Kleine Blöcke: geringe Verzögerung zwischen Taste und Ton.
+    const qint64 frames = std::min<qint64>(maxSize / frameBytes, 512);
+    if (frames <= 0) return 0;
+    m_synth->render(reinterpret_cast<float*>(data), static_cast<std::size_t>(frames));
     return frames * frameBytes;
 }

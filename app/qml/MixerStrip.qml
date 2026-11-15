@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import LoggXStyle
 
 // Kanalzug im Mixer: Pegel, Fader, Panorama, Stumm/Solo und Effekte.
 Rectangle {
@@ -33,11 +34,11 @@ Rectangle {
             Label {
                 text: knob.text
                 font.pixelSize: 10
-                color: "#8a91a0"
+                color: Theme.dim
                 Layout.fillWidth: true
                 MouseArea { anchors.fill: parent; onDoubleClicked: root.set(knob.name, knob.resetValue) }
             }
-            Label { text: (knob.value * knob.factor).toFixed(0) + knob.unit; font.pixelSize: 10; color: "#b3b9c6" }
+            Label { text: (knob.value * knob.factor).toFixed(0) + knob.unit; font.pixelSize: 10; color: Theme.dim }
         }
         Slider {
             Layout.fillWidth: true
@@ -66,7 +67,7 @@ Rectangle {
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
             font.pixelSize: 10
-            color: root.master ? "#4f8cff" : root.track.kind === "instrument" ? "#d9822b" : root.track.kind === "audio" ? "#2c9a6c" : "#3d6fd6"
+            color: root.master ? Theme.accent : root.track.kind === "instrument" ? "#d9822b" : root.track.kind === "audio" ? Theme.audio : Theme.video
             text: root.master ? qsTr("Summe + Limiter")
                   : root.track.kind === "instrument" ? app.instrumentNames[root.track.instrument]
                   : root.track.kind === "audio" ? qsTr("Audio") : qsTr("Ton der Videospur")
@@ -96,7 +97,7 @@ Rectangle {
             Rectangle {
                 Layout.fillHeight: true
                 Layout.preferredWidth: 10
-                color: "#0c0d10"
+                color: "#0a0b0e"
                 radius: 2
                 Rectangle {
                     anchors.bottom: parent.bottom
@@ -104,9 +105,9 @@ Rectangle {
                     height: parent.height * Math.min(1, root.level)
                     radius: 2
                     gradient: Gradient {
-                        GradientStop { position: 0.0; color: root.level > 0.98 ? "#ff4d5e" : "#e8c547" }
+                        GradientStop { position: 0.0; color: root.level > 0.98 ? Theme.danger : "#e8c547" }
                         GradientStop { position: 0.35; color: "#4fc36b" }
-                        GradientStop { position: 1.0; color: "#2c9a6c" }
+                        GradientStop { position: 1.0; color: Theme.audio }
                     }
                 }
             }
@@ -143,7 +144,7 @@ Rectangle {
                 checkable: true
                 checked: root.track.muted === true
                 onClicked: root.set("muted", checked ? 1 : 0)
-                palette.button: checked ? "#a8323e" : "#2a2e38"
+                palette.button: checked ? "#a8323e" : Theme.hover
                 ToolTip.text: qsTr("Stumm"); ToolTip.visible: hovered; ToolTip.delay: 500
             }
             Button {
@@ -152,7 +153,7 @@ Rectangle {
                 checkable: true
                 checked: root.track.solo === true
                 onClicked: root.set("solo", checked ? 1 : 0)
-                palette.button: checked ? "#b08a1e" : "#2a2e38"
+                palette.button: checked ? "#b08a1e" : Theme.hover
                 ToolTip.text: qsTr("Solo"); ToolTip.visible: hovered; ToolTip.delay: 500
             }
         }
@@ -161,7 +162,7 @@ Rectangle {
             visible: root.master
             horizontalAlignment: Text.AlignHCenter
             font.pixelSize: 10
-            color: (app.levels.reduction || 0) < -0.5 ? "#e8c547" : "#5d6370"
+            color: (app.levels.reduction || 0) < -0.5 ? "#e8c547" : Theme.faint
             text: qsTr("Limiter %1 dB").arg((app.levels.reduction || 0).toFixed(1))
         }
     }

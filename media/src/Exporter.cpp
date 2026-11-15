@@ -78,6 +78,17 @@ std::vector<AVSampleFormat> supportedSampleFormats(const AVCodecContext* ctx, co
 
 }  // namespace
 
+std::string ffmpegVersion() { return av_version_info(); }
+
+std::vector<std::string> availableEncoders() {
+    std::vector<std::string> out;
+    for (const char* n : {"libx264", "libx265", "h264_videotoolbox", "hevc_videotoolbox", "h264_nvenc", "hevc_nvenc",
+                          "h264_qsv", "hevc_qsv", "h264_amf", "hevc_amf", "h264_mf", "hevc_mf", "aac", "libmp3lame",
+                          "mp3_mf", "flac", "libvorbis", "libopus"})
+        if (avcodec_find_encoder_by_name(n)) out.push_back(n);
+    return out;
+}
+
 struct Exporter::Impl {
     ExportSettings s;
     AVFormatContext* fmt = nullptr;
@@ -141,7 +152,15 @@ struct Exporter::Impl {
         AVDictionary* opts = nullptr;
         if (std::strcmp(name, "libx264") == 0 || std::strcmp(name, "libx265") == 0)
             av_dict_set(&opts, "preset", "medium", 0);
-        if (std::strcmp(name, "libx265") == 0) av_dict_set(&opts, "x265-params", "log-level=error", 0);
+        // Über 4K (z. B. 8K) braucht der Lookahead sonst viele Gigabyte Speicher.
+        const bool huge = static_cast<long long>(s.width) * s.height > 3840LL * 2160;
+        if (std::strcmp(name, "libx264") == 0 && huge) {
+            av_dict_set(&opts, "rc-lookahead", "8", 0);
+            av_dict_set(&opts, "x264-params", "sync-lookahead=0", 0);
+            c->thread_count = 4;
+        }
+        if (std::strcmp(name, "libx265") == 0)
+            av_dict_set(&opts, "x265-params", huge ? "log-level=error:rc-lookahead=8:frame-threads=2:lookahead-slices=4" : "log-level=error", 0);
         const int rc = avcodec_open2(c, codec, &opts);
         av_dict_free(&opts);
         if (rc < 0) {

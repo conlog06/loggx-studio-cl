@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import LoggX 1.0
+import LoggXStyle
 
 // Arbeitsbereich "Schnitt": Medienliste, Vorschau, Inspector, Timeline.
 Item {
@@ -12,20 +13,20 @@ Item {
     SplitView {
         anchors.fill: parent
         orientation: Qt.Vertical
-        handle: Rectangle { implicitHeight: 5; color: SplitHandle.hovered || SplitHandle.pressed ? "#4f8cff" : "#101216" }
+        handle: Rectangle { implicitHeight: 5; color: SplitHandle.hovered || SplitHandle.pressed ? Theme.accent : Theme.bg }
 
         // ------------------------------------------------ obere Hälfte
         SplitView {
             SplitView.fillHeight: true
             SplitView.minimumHeight: 260
             orientation: Qt.Horizontal
-            handle: Rectangle { implicitWidth: 5; color: SplitHandle.hovered || SplitHandle.pressed ? "#4f8cff" : "#101216" }
+            handle: Rectangle { implicitWidth: 5; color: SplitHandle.hovered || SplitHandle.pressed ? Theme.accent : Theme.bg }
 
             // Medienliste
             Rectangle {
                 SplitView.preferredWidth: 270
                 SplitView.minimumWidth: 200
-                color: "#1b1e24"
+                color: Theme.panel
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -34,7 +35,7 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         Label { text: qsTr("Medien"); font.bold: true; Layout.fillWidth: true }
-                        Button { text: qsTr("Importieren"); onClicked: editRoot.importRequested() }
+                        Button { text: qsTr("Importieren"); icon.name: "import"; flat: true; onClicked: editRoot.importRequested() }
                     }
                     ListView {
                         id: mediaList
@@ -54,11 +55,11 @@ Item {
                             Rectangle {
                                 anchors.fill: parent
                                 radius: 5
-                                color: mouse.containsMouse ? "#2a2e38" : "#22252d"
+                                color: mouse.containsMouse ? Theme.hover : Theme.panel2
                                 Rectangle {
                                     width: 3; height: parent.height - 12; radius: 2
                                     x: 6; anchors.verticalCenter: parent.verticalCenter
-                                    color: row.modelData.hasVideo ? "#3d6fd6" : "#2c9a6c"
+                                    color: row.modelData.hasVideo ? Theme.video : Theme.audio
                                 }
                                 Column {
                                     anchors.verticalCenter: parent.verticalCenter
@@ -70,7 +71,7 @@ Item {
                                         width: parent.width
                                         elide: Text.ElideRight
                                         font.pixelSize: 11
-                                        color: row.modelData.missing ? "#ff4d5e" : "#8a91a0"
+                                        color: row.modelData.missing ? Theme.danger : Theme.dim
                                         text: row.modelData.missing ? qsTr("Datei nicht gefunden") : row.modelData.info
                                     }
                                 }
@@ -94,7 +95,7 @@ Item {
                                 property string assetId: row.modelData.id
                                 width: 170; height: 28; radius: 5
                                 visible: mouse.drag.active
-                                color: row.modelData.hasVideo ? "#3d6fd6" : "#2c9a6c"
+                                color: row.modelData.hasVideo ? Theme.video : Theme.audio
                                 opacity: 0.85
                                 Drag.active: mouse.drag.active
                                 Drag.keys: ["loggx/asset"]
@@ -120,7 +121,7 @@ Item {
                             width: parent.width - 20
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.WordWrap
-                            color: "#8a91a0"
+                            color: Theme.dim
                             text: qsTr("Videos, Musik oder Bilder importieren oder hierher ziehen.\n\nDoppelklick oder Ziehen legt eine Datei in die Timeline.")
                         }
                     }
@@ -139,7 +140,7 @@ Item {
             Rectangle {
                 SplitView.fillWidth: true
                 SplitView.minimumWidth: 360
-                color: "#0c0d10"
+                color: "#0a0b0e"
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: 0
@@ -152,7 +153,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 48
-                        color: "#16181d"
+                        color: Theme.bg
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: 12
@@ -165,23 +166,24 @@ Item {
                                 Layout.preferredWidth: 120
                             }
                             Item { Layout.fillWidth: true }
-                            Button { text: "⏮"; onClicked: app.seek(0); ToolTip.text: qsTr("Zum Anfang (Pos1)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
-                            Button { text: "◀"; onClicked: app.stepFrames(-1); ToolTip.text: qsTr("Ein Bild zurück (←)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
+                            IconButton { iconName: "skip-back"; tip: qsTr("Zum Anfang (Pos1)"); onClicked: app.seek(0) }
+                            IconButton { iconName: "chevron-left"; tip: qsTr("Ein Bild zurück (←)"); onClicked: app.stepFrames(-1) }
                             Button {
+                                icon.name: app.playing ? "pause" : "play"
                                 text: app.playing ? qsTr("Pause") : qsTr("Abspielen")
                                 highlighted: true
-                                implicitWidth: 104
+                                implicitWidth: 112
                                 onClicked: app.togglePlay()
                                 ToolTip.text: qsTr("Leertaste"); ToolTip.visible: hovered; ToolTip.delay: 600
                             }
-                            Button { text: "▶"; onClicked: app.stepFrames(1); ToolTip.text: qsTr("Ein Bild vor (→)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
-                            Button { text: "⏭"; onClicked: app.seek(app.duration); ToolTip.text: qsTr("Zum Ende (Ende)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
+                            IconButton { iconName: "chevron-right"; tip: qsTr("Ein Bild vor (→)"); onClicked: app.stepFrames(1) }
+                            IconButton { iconName: "skip-forward"; tip: qsTr("Zum Ende (Ende)"); onClicked: app.seek(app.duration) }
                             Item { Layout.fillWidth: true }
                             Label {
                                 text: app.timecode(app.duration)
                                 font.family: "monospace"
                                 font.pixelSize: 15
-                                color: "#8a91a0"
+                                color: Theme.dim
                                 horizontalAlignment: Text.AlignRight
                                 Layout.preferredWidth: 120
                             }
@@ -201,7 +203,7 @@ Item {
         Rectangle {
             SplitView.preferredHeight: 330
             SplitView.minimumHeight: 160
-            color: "#16181d"
+            color: Theme.bg
 
             ColumnLayout {
                 anchors.fill: parent
@@ -209,22 +211,22 @@ Item {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 40
-                    color: "#1f2229"
+                    Layout.preferredHeight: 44
+                    color: Theme.panel
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 10
                         anchors.rightMargin: 10
                         spacing: 6
-                        Button { text: qsTr("Teilen"); onClicked: app.splitAtPlayhead(); ToolTip.text: qsTr("Am Abspielkopf teilen (S)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
-                        Button { text: qsTr("Löschen"); enabled: app.selectedClipId !== ""; onClicked: app.deleteSelected(false); ToolTip.text: qsTr("Clip löschen (Entf)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
-                        Button { text: qsTr("Löschen + Lücke schließen"); enabled: app.selectedClipId !== ""; onClicked: app.deleteSelected(true); ToolTip.text: qsTr("Umschalt+Entf"); ToolTip.visible: hovered; ToolTip.delay: 600 }
-                        Rectangle { width: 1; height: 20; color: "#2d313b"; Layout.leftMargin: 4; Layout.rightMargin: 4 }
-                        Button { text: qsTr("+ Titel"); onClicked: app.addTitle(); ToolTip.text: qsTr("Titel am Abspielkopf einfügen (T)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
-                        Button { text: qsTr("+ MIDI-Clip"); onClicked: app.addMidiClip(); ToolTip.text: qsTr("Leeren MIDI-Clip (4 Takte) auf der Instrumentspur anlegen"); ToolTip.visible: hovered; ToolTip.delay: 600 }
-                        Rectangle { width: 1; height: 20; color: "#2d313b"; Layout.leftMargin: 4; Layout.rightMargin: 4 }
-                        Button {
-                            text: qsTr("+ Spur")
+                        IconButton { iconName: "scissors"; tip: qsTr("Am Abspielkopf teilen (S)"); onClicked: app.splitAtPlayhead() }
+                        IconButton { iconName: "trash"; tip: qsTr("Clip löschen (Entf)"); enabled: app.selectedClipId !== ""; onClicked: app.deleteSelected(false) }
+                        Button { text: qsTr("Lücke schließen"); flat: true; icon.name: "trash"; enabled: app.selectedClipId !== ""; onClicked: app.deleteSelected(true); ToolTip.text: qsTr("Löschen und nachfolgende Clips aufrücken (Umschalt+Entf)"); ToolTip.visible: hovered; ToolTip.delay: 600 }
+                        Divider { Layout.leftMargin: 4; Layout.rightMargin: 4 }
+                        IconButton { iconName: "text"; tip: qsTr("Titel am Abspielkopf einfügen (T)"); onClicked: app.addTitle() }
+                        IconButton { iconName: "piano"; tip: qsTr("Leeren MIDI-Clip (4 Takte) auf der Instrumentspur anlegen"); onClicked: app.addMidiClip() }
+                        IconButton {
+                            iconName: "layers"
+                            tip: qsTr("Spur hinzufügen")
                             onClicked: trackMenu.open()
                             Menu {
                                 id: trackMenu
@@ -234,8 +236,41 @@ Item {
                                 MenuItem { text: qsTr("Instrumentspur"); onTriggered: app.addInstrumentTrack() }
                             }
                         }
+                        Divider { Layout.leftMargin: 4; Layout.rightMargin: 4 }
+                        // Beat-Werkzeuge
+                        IconButton {
+                            iconName: "magnet"
+                            checkable: true
+                            checked: app.beatGrid
+                            onToggled: app.beatGrid = checked
+                            tip: qsTr("Takt-Raster: Lineal in Takten, Clips rasten auf Schläge ein")
+                        }
+                        IconButton {
+                            iconName: "sparkles"
+                            enabled: app.clip.id !== undefined && app.clip.hasAudio === true && !app.clip.isMidi
+                            onClicked: app.detectTempo()
+                            tip: qsTr("Tempo aus dem ausgewählten Musik-Clip erkennen")
+                        }
+                        Button {
+                            text: qsTr("Schnitt auf Beat")
+                            icon.name: "beat-cut"
+                            flat: true
+                            enabled: app.selectedClipId !== ""
+                            onClicked: beatMenu.open()
+                            ToolTip.text: qsTr("Ausgewählten Clip im Takt der Musik zerschneiden (%1 BPM)").arg(Math.round(app.bpm))
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 600
+                            Menu {
+                                id: beatMenu
+                                y: parent.height
+                                MenuItem { text: qsTr("Auf jeden Schlag"); onTriggered: app.cutOnBeats(1) }
+                                MenuItem { text: qsTr("Jeden 2. Schlag"); onTriggered: app.cutOnBeats(2) }
+                                MenuItem { text: qsTr("Auf jeden Takt"); onTriggered: app.cutOnBeats(4) }
+                                MenuItem { text: qsTr("Alle 2 Takte"); onTriggered: app.cutOnBeats(8) }
+                            }
+                        }
                         Item { Layout.fillWidth: true }
-                        Label { text: qsTr("Zoom"); color: "#8a91a0" }
+                        Icon { width: 16; height: 16; name: "minus"; color: Theme.dim }
                         Slider {
                             Layout.preferredWidth: 160
                             // Logarithmisch, damit feines und grobes Zoomen gleich gut geht.
@@ -243,7 +278,8 @@ Item {
                             value: Math.log(timeline.pixelsPerSecond)
                             onMoved: timeline.pixelsPerSecond = Math.exp(value)
                         }
-                        Button { text: qsTr("Alles zeigen"); onClicked: timeline.zoomToFit() }
+                        Icon { width: 16; height: 16; name: "plus"; color: Theme.dim }
+                        IconButton { iconName: "fit"; tip: qsTr("Ganze Timeline zeigen"); onClicked: timeline.zoomToFit() }
                     }
                 }
 

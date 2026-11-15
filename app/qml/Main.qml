@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import LoggX 1.0
+import LoggXStyle
 
 ApplicationWindow {
     id: window
@@ -11,33 +12,33 @@ ApplicationWindow {
     minimumWidth: 1100
     minimumHeight: 680
     visible: true
-    color: "#16181d"
+    color: Theme.bg
     title: (app.dirty ? "● " : "") + app.projectName + " – LoggX Studio"
 
-    // Dunkles Farbschema für alle Standard-Bedienelemente.
-    palette.window: "#16181d"
-    palette.windowText: "#d7dbe4"
-    palette.base: "#101216"
-    palette.alternateBase: "#1b1e24"
-    palette.text: "#d7dbe4"
-    palette.button: "#2a2e38"
-    palette.buttonText: "#d7dbe4"
-    palette.brightText: "#ffffff"
-    palette.highlight: "#4f8cff"
-    palette.highlightedText: "#ffffff"
-    palette.toolTipBase: "#2a2e38"
-    palette.toolTipText: "#d7dbe4"
-    palette.placeholderText: "#8a91a0"
-    palette.light: "#3a3f4c"
-    palette.midlight: "#323743"
-    palette.mid: "#2d313b"
-    palette.dark: "#0c0d10"
-    palette.shadow: "#000000"
-    palette.disabled.buttonText: "#6a707d"
-    palette.disabled.windowText: "#6a707d"
-    palette.disabled.text: "#6a707d"
-
     property int page: startPage
+    // Während auf der Computertastatur gespielt wird, sind Buchstaben-Kürzel aus.
+    readonly property bool playingKeys: !app.showStart && page === 3 && musicPage.keyboardActive
+
+    // Arbeitsbereiche: Videoprojekte zeigen alle, Musikprojekte nur die passenden.
+    readonly property var workspaces: app.musicMode
+        ? [{ page: 3, text: qsTr("Musik"), icon: "piano" },
+           { page: 0, text: qsTr("Samples"), icon: "wave" },
+           { page: 4, text: qsTr("Export"), icon: "export" }]
+        : [{ page: 0, text: qsTr("Medien"), icon: "folder" },
+           { page: 1, text: qsTr("Schnitt"), icon: "scissors" },
+           { page: 2, text: qsTr("Farbe"), icon: "palette" },
+           { page: 3, text: qsTr("Musik"), icon: "piano" },
+           { page: 4, text: qsTr("Export"), icon: "export" }]
+
+    Connections {
+        target: app
+        function onProjectChanged() {
+            // Nach dem Wechsel des Projekttyps einen passenden Bereich zeigen.
+            if (app.musicMode && (window.page === 1 || window.page === 2))
+                window.page = 3
+        }
+    }
+    Component.onCompleted: if (showLicense) licenseDialog.open()
     // Aktion, die nach "Verwerfen" oder erfolgreichem Speichern ausgeführt wird.
     property var pendingAction: null
     property bool closeConfirmed: false
@@ -71,20 +72,23 @@ ApplicationWindow {
     }
 
     // ---------------------------------------------------- Tastaturkürzel
-    Shortcut { sequences: [StandardKey.New]; onActivated: guarded(function () { app.newProject() }) }
+    Shortcut { sequences: [StandardKey.New]; onActivated: guarded(function () { app.showStart = true }) }
     Shortcut { sequences: [StandardKey.Open]; onActivated: guarded(function () { openDialog.open() }) }
     Shortcut { sequences: [StandardKey.Save]; onActivated: save() }
     Shortcut { sequences: [StandardKey.Undo]; onActivated: app.undo() }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Y"]; onActivated: app.redo() }
     Shortcut { sequence: "Ctrl+I"; onActivated: importDialog.open() }
-    Shortcut { sequence: "Space"; onActivated: app.togglePlay() }
-    Shortcut { sequences: ["S", "Ctrl+B"]; onActivated: app.splitAtPlayhead() }
-    Shortcut { sequences: ["Delete", "Backspace"]; onActivated: app.deleteSelected(false) }
+    Shortcut { sequence: "Space"; enabled: !app.showStart; onActivated: app.recording ? app.stopRecording() : app.togglePlay() }
+    Shortcut { sequences: ["S", "Ctrl+B"]; enabled: !window.playingKeys && !app.musicMode; onActivated: app.splitAtPlayhead() }
+    Shortcut { sequence: "Ctrl+B"; enabled: app.musicMode; onActivated: app.splitAtPlayhead() }
+    Shortcut { sequence: "R"; enabled: !app.showStart && window.page === 3; onActivated: app.recording ? app.stopRecording() : app.startRecording() }
+    Shortcut { sequence: "Ctrl+Home"; onActivated: app.showStart = true }
+    Shortcut { sequences: ["Delete", "Backspace"]; enabled: !app.showStart; onActivated: app.deleteSelected(false) }
     Shortcut { sequences: ["Shift+Delete", "Shift+Backspace"]; onActivated: app.deleteSelected(true) }
     Shortcut { sequence: "Left"; onActivated: app.stepFrames(-1) }
     Shortcut { sequence: "Right"; onActivated: app.stepFrames(1) }
     Shortcut { sequence: "Home"; onActivated: app.seek(0) }
-    Shortcut { sequence: "T"; onActivated: app.addTitle() }
+    Shortcut { sequence: "T"; enabled: !window.playingKeys && !app.musicMode; onActivated: app.addTitle() }
     Shortcut { sequence: "Ctrl+M"; onActivated: app.addMidiClip() }
     Shortcut { sequence: "End"; onActivated: app.seek(app.duration) }
 
@@ -114,7 +118,7 @@ ApplicationWindow {
         title: qsTr("Medien importieren")
         fileMode: FileDialog.OpenFiles
         nameFilters: [
-            qsTr("Medien (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.flac *.aac *.m4a *.ogg *.png *.jpg *.jpeg *.webp)"),
+            qsTr("Medien (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.flac *.aac *.m4a *.ogg *.opus *.png *.jpg *.jpeg *.webp)"),
             qsTr("Alle Dateien (*)")
         ]
         onAccepted: app.importMedia(selectedFiles)
@@ -182,53 +186,107 @@ ApplicationWindow {
         onRejected: app.discardRecovery()
     }
 
+    LicenseDialog { id: licenseDialog }
+
     // ---------------------------------------------------------- Kopfzeile
     header: Rectangle {
-        height: 46
-        color: "#1f2229"
+        height: 50
+        color: Theme.panel
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
-            spacing: 8
+            anchors.leftMargin: 12
+            anchors.rightMargin: 12
+            spacing: 4
 
-            Label {
-                text: "LoggX Studio"
-                font.pixelSize: 15
-                font.bold: true
-                color: "#4f8cff"
+            // Logo: zum Startbildschirm
+            MouseArea {
+                Layout.preferredWidth: logoRow.implicitWidth
+                Layout.fillHeight: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: app.showStart = true
+                Row {
+                    id: logoRow
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 9
+                    Rectangle {
+                        width: 28; height: 28; radius: 8
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0; color: Theme.accent }
+                            GradientStop { position: 1; color: Theme.accent2 }
+                        }
+                        Text { anchors.centerIn: parent; text: "LX"; color: "white"; font.pixelSize: 12; font.bold: true }
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "LoggX Studio"
+                        font.pixelSize: 15
+                        font.bold: true
+                    }
+                }
             }
-            Rectangle { width: 1; height: 22; color: "#2d313b"; Layout.leftMargin: 6; Layout.rightMargin: 6 }
-            Button { text: qsTr("Neu"); onClicked: guarded(function () { app.newProject() }) }
-            Button { text: qsTr("Öffnen"); onClicked: guarded(function () { openDialog.open() }) }
-            Button { text: qsTr("Speichern"); enabled: app.dirty || app.filePath === ""; onClicked: save() }
-            Rectangle { width: 1; height: 22; color: "#2d313b"; Layout.leftMargin: 6; Layout.rightMargin: 6 }
-            Button { text: qsTr("Rückgängig"); enabled: app.canUndo; onClicked: app.undo() }
-            Button { text: qsTr("Wiederholen"); enabled: app.canRedo; onClicked: app.redo() }
+            Divider { Layout.leftMargin: 10; Layout.rightMargin: 6 }
+            IconButton { iconName: "home"; tip: qsTr("Startbildschirm (Strg+Pos1)"); checked: app.showStart; onClicked: app.showStart = !app.showStart }
+            IconButton { iconName: "folder"; tip: qsTr("Projekt öffnen (Strg+O)"); onClicked: guarded(function () { openDialog.open() }) }
+            IconButton { iconName: "save"; tip: qsTr("Speichern (Strg+S)"); enabled: app.dirty || app.filePath === ""; onClicked: save() }
+            Divider { Layout.leftMargin: 6; Layout.rightMargin: 6 }
+            IconButton { iconName: "undo"; tip: qsTr("Rückgängig (Strg+Z)"); enabled: app.canUndo; onClicked: app.undo() }
+            IconButton { iconName: "redo"; tip: qsTr("Wiederholen (Strg+Y)"); enabled: app.canRedo; onClicked: app.redo() }
 
             Item { Layout.fillWidth: true }
+            // Projekttyp + Name
+            Rectangle {
+                visible: !app.showStart
+                Layout.preferredHeight: 22
+                Layout.preferredWidth: modeLabel.implicitWidth + 30
+                radius: 11
+                color: Theme.alpha(app.musicMode ? Theme.music : Theme.video, 0.16)
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 5
+                    Icon { width: 13; height: 13; anchors.verticalCenter: parent.verticalCenter; name: app.musicMode ? "music" : "film"; color: app.musicMode ? Theme.music : Theme.video }
+                    Label { id: modeLabel; text: app.musicMode ? qsTr("Musik") : qsTr("Video"); font.pixelSize: 11; color: app.musicMode ? Theme.music : Theme.video }
+                }
+            }
             TextField {
                 id: nameField
-                Layout.preferredWidth: 240
+                visible: !app.showStart
+                Layout.preferredWidth: 250
                 horizontalAlignment: Text.AlignHCenter
-                text: app.projectName
+                text: app.projectName + (app.dirty ? " •" : "")
                 selectByMouse: true
+                background: Rectangle {
+                    radius: Theme.radius
+                    color: nameField.activeFocus ? Theme.raised : nameField.hovered ? Theme.panel2 : "transparent"
+                    border.color: nameField.activeFocus ? Theme.accent : "transparent"
+                }
+                onActiveFocusChanged: if (activeFocus) text = app.projectName
                 onEditingFinished: {
                     app.projectName = text
-                    text = Qt.binding(function () { return app.projectName })
+                    text = Qt.binding(function () { return app.projectName + (app.dirty ? " •" : "") })
                     focus = false
                 }
             }
             Item { Layout.fillWidth: true }
-            Label { text: app.formatInfo; color: "#8a91a0" }
+            Label { visible: !app.showStart; text: app.musicMode ? qsTr("%1 BPM").arg(Math.round(app.bpm * 10) / 10) : app.formatInfo; color: Theme.dim; Layout.rightMargin: 8 }
+            // Edition / Lizenz / Admin
+            Button {
+                flat: true
+                icon.name: app.isAdmin && !app.simulateFree ? "shield" : "key"
+                text: app.editionName
+                onClicked: licenseDialog.open()
+                ToolTip.text: qsTr("Lizenz und Admin-Bereich")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
         }
-        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#2d313b" }
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.border }
     }
 
     // -------------------------------------------------------- Arbeitsbereiche
     StackLayout {
         anchors.fill: parent
-        currentIndex: window.page
+        currentIndex: app.showStart ? 5 : window.page
 
         MediaPage { onImportRequested: importDialog.open() }
         EditPage {
@@ -236,46 +294,71 @@ ApplicationWindow {
             onOpenPage: function (p) { window.page = p }
         }
         ColorPage {}
-        MusicPage {}
+        MusicPage { id: musicPage }
         ExportPage {}
+        StartPage {
+            onOpenRequested: guarded(function () { openDialog.open() })
+            onGuard: function (action) { window.guarded(action) }
+        }
     }
 
     // ------------------------------------------------------------ Fußzeile
     footer: Rectangle {
-        height: 44
-        color: "#1f2229"
-        Rectangle { width: parent.width; height: 1; color: "#2d313b" }
+        height: 46
+        color: Theme.panel
+        Rectangle { width: parent.width; height: 1; color: Theme.border }
         TabBar {
             id: tabs
             anchors.centerIn: parent
-            width: 560
-            currentIndex: window.page
-            onCurrentIndexChanged: window.page = currentIndex
-            background: Item {}
+            visible: !app.showStart
+            width: window.workspaces.length * 118
+            currentIndex: {
+                for (let i = 0; i < window.workspaces.length; ++i)
+                    if (window.workspaces[i].page === window.page) return i
+                return -1
+            }
             Repeater {
-                model: [qsTr("Medien"), qsTr("Schnitt"), qsTr("Farbe"), qsTr("Musik"), qsTr("Export")]
+                model: window.workspaces
                 TabButton {
-                    required property string modelData
-                    text: modelData
+                    required property var modelData
+                    text: modelData.text
+                    icon.name: modelData.icon
+                    onClicked: window.page = modelData.page
                 }
             }
         }
         Label {
             anchors.left: parent.left
             anchors.leftMargin: 14
-            anchors.right: tabs.left
+            anchors.right: tabs.visible ? tabs.left : parent.horizontalCenter
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
             elide: Text.ElideRight
             text: app.status
-            color: "#8a91a0"
+            color: Theme.dim
         }
-        Label {
+        Row {
             anchors.right: parent.right
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
-            text: qsTr("MVP-Vorschau %1").arg(Qt.application.version)
-            color: "#5d6370"
+            spacing: 10
+            Row {
+                visible: app.recording
+                spacing: 5
+                anchors.verticalCenter: parent.verticalCenter
+                Rectangle {
+                    width: 9; height: 9; radius: 4.5; color: Theme.danger
+                    anchors.verticalCenter: parent.verticalCenter
+                    SequentialAnimation on opacity { running: app.recording; loops: Animation.Infinite; NumberAnimation { to: 0.25; duration: 500 } NumberAnimation { to: 1; duration: 500 } }
+                }
+                Label { text: qsTr("Aufnahme"); color: Theme.danger }
+            }
+            Label {
+                visible: app.isAdmin && !app.simulateFree && app.previewMs > 0
+                text: qsTr("Vorschau %1 ms").arg(Math.round(app.previewMs))
+                color: Theme.faint
+            }
+            Label { text: "v" + Qt.application.version; color: Theme.faint }
         }
     }
 }

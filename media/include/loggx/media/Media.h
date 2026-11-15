@@ -71,9 +71,14 @@ struct ExportSettings {
     // .wav (PCM), .flac, .mp3, .m4a/.aac, .ogg (Vorbis), .opus
     bool video = true;
     int audioBits = 16;              // WAV/FLAC: 16 oder 24 Bit
+    bool audioTail = true;           // Audio-Export: Ausklang nach dem Projektende
     // Leer = automatisch (Software-Encoder, sonst Hardware-Encoder).
     std::string videoEncoder;
 };
+
+// Für die Systeminfo: FFmpeg-Version und verfügbare Encoder.
+std::string ffmpegVersion();
+std::vector<std::string> availableEncoders();
 
 // Schreibt eine MP4/MOV/MKV-Datei (Container nach Dateiendung) mit H.264
 // oder H.265 und AAC.

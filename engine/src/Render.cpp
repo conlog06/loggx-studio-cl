@@ -109,7 +109,7 @@ RenderResult renderAudio(const Project& project, ExportSettings settings,
     mixer.setProject(std::make_shared<const Project>(project));
     const int rate = project.sampleRate;
     const std::int64_t total = duration * rate / kSecond;
-    const std::int64_t maxTail = tail ? 5 * static_cast<std::int64_t>(rate) : 0;
+    const std::int64_t maxTail = tail && settings.audioTail ? 5 * static_cast<std::int64_t>(rate) : 0;
     constexpr std::size_t block = 4096;
     std::vector<float> buf(block * 2);
     std::int64_t pos = 0;

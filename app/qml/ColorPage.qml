@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import LoggX 1.0
+import LoggXStyle
 
 // Arbeitsbereich "Farbe": Vorschau, Scopes und Farbkorrektur des Clips.
 Item {
@@ -22,12 +23,12 @@ Item {
     SplitView {
         anchors.fill: parent
         orientation: Qt.Horizontal
-        handle: Rectangle { implicitWidth: 5; color: SplitHandle.hovered || SplitHandle.pressed ? "#4f8cff" : "#101216" }
+        handle: Rectangle { implicitWidth: 5; color: SplitHandle.hovered || SplitHandle.pressed ? Theme.accent : Theme.bg }
 
         // Vorschau
         Rectangle {
             SplitView.fillWidth: true
-            color: "#0c0d10"
+            color: "#0a0b0e"
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 0
@@ -40,7 +41,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 48
-                    color: "#16181d"
+                    color: Theme.bg
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 12
@@ -57,7 +58,7 @@ Item {
                         Label {
                             Layout.maximumWidth: 260
                             elide: Text.ElideMiddle
-                            color: "#8a91a0"
+                            color: Theme.dim
                             text: root.active ? root.clip.name : qsTr("Kein Videoclip ausgewählt")
                         }
                     }
@@ -78,7 +79,7 @@ Item {
         Rectangle {
             SplitView.preferredWidth: 380
             SplitView.minimumWidth: 320
-            color: "#1b1e24"
+            color: Theme.panel
 
             ColumnLayout {
                 anchors.fill: parent
@@ -106,7 +107,7 @@ Item {
                     visible: !root.active
                     wrapMode: Text.WordWrap
                     horizontalAlignment: Text.AlignHCenter
-                    color: "#8a91a0"
+                    color: Theme.dim
                     text: qsTr("Abspielkopf auf einen Videoclip setzen oder mit „Clip ▶“ einen auswählen.")
                 }
 
@@ -177,7 +178,7 @@ Item {
                                     Layout.fillWidth: true
                                     elide: Text.ElideMiddle
                                     text: root.active && root.clip.lutName !== "" ? root.clip.lutName : qsTr("Keine LUT")
-                                    color: root.active && root.clip.lutName !== "" ? "#d7dbe4" : "#8a91a0"
+                                    color: root.active && root.clip.lutName !== "" ? "#d7dbe4" : Theme.dim
                                 }
                                 Button { text: qsTr("Laden …"); onClicked: lutDialog.open() }
                                 Button {
@@ -203,7 +204,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.topMargin: 6
                             wrapMode: Text.WordWrap
-                            color: "#5d6370"
+                            color: Theme.faint
                             font.pixelSize: 11
                             text: qsTr("Doppelklick auf die Beschriftung eines Reglers setzt ihn zurück. Masken für lokale Korrekturen: im Arbeitsbereich „Schnitt“ eine zweite Kopie des Clips darüberlegen und maskieren.")
                         }

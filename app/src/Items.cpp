@@ -22,18 +22,20 @@ constexpr double kTrackHeight = 52.0;
 constexpr double kEdgeZone = 7.0;
 constexpr double kSnapPixels = 8.0;
 
-const QColor kBackground(0x16, 0x18, 0x1d);
-const QColor kRuler(0x1f, 0x22, 0x29);
-const QColor kRowA(0x1b, 0x1e, 0x24);
-const QColor kRowB(0x1e, 0x21, 0x28);
-const QColor kLine(0x2d, 0x31, 0x3b);
-const QColor kText(0xd7, 0xdb, 0xe4);
-const QColor kTextDim(0x8a, 0x91, 0xa0);
-const QColor kVideoClip(0x3d, 0x6f, 0xd6);
-const QColor kTitleClip(0x8e, 0x5b, 0xd6);
-const QColor kAudioClip(0x2c, 0x9a, 0x6c);
-const QColor kMidiClip(0xd9, 0x82, 0x2b);
-const QColor kPlayhead(0xff, 0x4d, 0x5e);
+// Farben wie im QML-Theme (LoggXStyle/Theme.qml)
+const QColor kBackground(0x0f, 0x11, 0x15);
+const QColor kRuler(0x15, 0x18, 0x1e);
+const QColor kRowA(0x13, 0x16, 0x1b);
+const QColor kRowB(0x17, 0x1a, 0x20);
+const QColor kLine(0x2a, 0x30, 0x3a);
+const QColor kText(0xe8, 0xeb, 0xf1);
+const QColor kTextDim(0x9a, 0xa2, 0xb1);
+const QColor kVideoClip(0x4f, 0x7d, 0xf0);
+const QColor kTitleClip(0xa0, 0x6b, 0xf0);
+const QColor kAudioClip(0x2f, 0xb3, 0x83);
+const QColor kMidiClip(0xf0, 0x92, 0x3b);
+const QColor kPlayhead(0xff, 0x5a, 0x6a);
+const QColor kAccent(0x5b, 0x8c, 0xff);
 
 QString toQ(const std::string& s) { return QString::fromStdString(s); }
 
@@ -93,6 +95,7 @@ void TimelineItem::setController(AppController* controller) {
             update();
         });
         connect(m_controller, &AppController::selectionChanged, this, [this] { update(); });
+        connect(m_controller, &AppController::gridChanged, this, [this] { update(); });
         connect(m_controller, &AppController::positionChanged, this, [this] {
             followPlayhead();
             update();
@@ -212,6 +215,10 @@ TimeUs TimelineItem::snap(TimeUs t, const QString& ignoreClip, bool* snapped) co
     };
     consider(0);
     consider(m_controller->positionUs());
+    if (m_controller->beatGrid()) {
+        const Project& project = m_controller->project();
+        consider(project.nearestBeat(t));
+    }
     for (const Track& track : m_controller->project().tracks)
         for (const Clip& c : track.clips) {
             if (toQ(c.id) == ignoreClip) continue;
@@ -505,9 +512,34 @@ void TimelineItem::paint(QPainter* p) {
         }
     p->setClipRect(QRectF(kHeaderWidth, kRulerHeight, w - kHeaderWidth, h));
     const double first = std::floor(m_scrollX / m_pps / step) * step;
-    for (double s = first; s * m_pps - m_scrollX < w; s += step) {
-        const double x = kHeaderWidth + s * m_pps - m_scrollX;
-        p->fillRect(QRectF(x, kRulerHeight, 1, h - kRulerHeight), QColor(255, 255, 255, 10));
+    const bool beats = m_controller->beatGrid();
+    // Beat-Raster: Takte kräftig, Schläge zart; zu dichte Schläge entfallen.
+    const double beatSec = project.beatDuration() / 1e6;
+    const double offsetSec = project.beatOffset / 1e6;
+    const int perBar = std::max(1, project.beatsPerBar);
+    int beatStep = 1;
+    while (beats && beatSec * beatStep * m_pps < 10.0) beatStep *= 2;
+    auto forBeats = [&](auto&& fn) {
+        if (!beats || beatSec <= 0) return;
+        long long b0 = static_cast<long long>(std::floor((m_scrollX / m_pps - offsetSec) / beatSec));
+        b0 -= ((b0 % beatStep) + beatStep) % beatStep;
+        for (long long b = std::max(0LL, b0);; b += beatStep) {
+            const double sec = offsetSec + static_cast<double>(b) * beatSec;
+            const double x = kHeaderWidth + sec * m_pps - m_scrollX;
+            if (x > w) break;
+            fn(b, x);
+        }
+    };
+    if (beats) {
+        forBeats([&](long long b, double x) {
+            const bool bar = b % perBar == 0;
+            p->fillRect(QRectF(x, kRulerHeight, 1, h - kRulerHeight), bar ? QColor(255, 255, 255, 34) : QColor(255, 255, 255, 12));
+        });
+    } else {
+        for (double s = first; s * m_pps - m_scrollX < w; s += step) {
+            const double x = kHeaderWidth + s * m_pps - m_scrollX;
+            p->fillRect(QRectF(x, kRulerHeight, 1, h - kRulerHeight), QColor(255, 255, 255, 10));
+        }
     }
 
     // Clips
@@ -532,6 +564,22 @@ void TimelineItem::paint(QPainter* p) {
             p->setBrush(Qt::NoBrush);
             p->setPen(QPen(isSelected ? QColor(Qt::white) : fill.darker(150), isSelected ? 2 : 1));
             p->drawPath(path);
+            // Übergang zum vorherigen Clip: Fliege über der Schnittkante
+            if (c.transition != TransitionType::None && c.transitionDuration > 0) {
+                const double half = std::max(5.0, c.transitionDuration / 2e6 * m_pps);
+                const QRectF tr(x0 - half, rect.top() + 2, half * 2, rect.height() - 4);
+                QPainterPath bow;
+                bow.moveTo(tr.left(), tr.top());
+                bow.lineTo(tr.right(), tr.bottom());
+                bow.lineTo(tr.right(), tr.top());
+                bow.lineTo(tr.left(), tr.bottom());
+                bow.closeSubpath();
+                p->fillRect(tr, QColor(0, 0, 0, 90));
+                p->setPen(QPen(QColor(255, 255, 255, 200), 1.2));
+                p->setBrush(QColor(255, 255, 255, 40));
+                p->drawPath(bow);
+                p->setBrush(Qt::NoBrush);
+            }
         }
     }
     p->setClipping(false);
@@ -539,7 +587,21 @@ void TimelineItem::paint(QPainter* p) {
     // Lineal
     p->fillRect(QRectF(0, 0, w, kRulerHeight), kRuler);
     p->setClipRect(QRectF(kHeaderWidth, 0, w - kHeaderWidth, kRulerHeight));
-    for (double s = first; s * m_pps - m_scrollX < w; s += step) {
+    if (beats) {
+        // Takt-Lineal: 1, 2, 3 … mit Schlag-Strichen
+        int barStep = 1;
+        while (beatSec * perBar * barStep * m_pps < 34.0) barStep *= 2;
+        forBeats([&](long long b, double x) {
+            const bool bar = b % perBar == 0;
+            p->fillRect(QRectF(x, kRulerHeight - (bar ? 10 : 4), 1, bar ? 10 : 4), bar ? kTextDim : kLine.lighter(140));
+            const long long barNo = b / perBar;
+            if (bar && barNo % barStep == 0) {
+                p->setPen(kText);
+                p->drawText(QPointF(x + 4, 14), QString::number(barNo + 1));
+            }
+        });
+        p->fillRect(QRectF(kHeaderWidth, kRulerHeight - 1, w, 1), kLine);
+    } else for (double s = first; s * m_pps - m_scrollX < w; s += step) {
         const double x = kHeaderWidth + s * m_pps - m_scrollX;
         p->fillRect(QRectF(x, kRulerHeight - 8, 1, 8), kTextDim);
         const int total = static_cast<int>(std::floor(s + 1e-6));
