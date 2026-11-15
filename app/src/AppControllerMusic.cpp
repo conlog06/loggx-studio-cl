@@ -82,13 +82,19 @@ void AppController::forgetRecent(const QString& path) {
 
 void AppController::newMusicProject() { newFromTemplate(true, 1920, 1080, 30, 120); }
 
-void AppController::newFromTemplate(bool music, int width, int height, int fps, double bpm) {
+void AppController::newFromTemplate(bool music, int width, int height, double fps, double bpm) {
     resetState();
     m_project = music ? Project::createMusic() : Project::createDefault();
     m_project.width = std::max(16, width) & ~1;
     m_project.height = std::max(16, height) & ~1;
-    m_project.fpsNum = std::clamp(fps, 1, 240);
-    m_project.fpsDen = 1;
+    fps = std::clamp(fps, 1.0, 240.0);
+    if (std::abs(fps - std::round(fps)) < 1e-6) {
+        m_project.fpsNum = static_cast<int>(std::lround(fps));
+        m_project.fpsDen = 1;
+    } else {   // NTSC-Raten: 23,976 = 24000/1001 usw.
+        m_project.fpsNum = static_cast<int>(std::lround(fps * 1.001)) * 1000;
+        m_project.fpsDen = 1001;
+    }
     m_project.bpm = std::clamp(bpm, 20.0, 300.0);
     m_filePath.clear();
     m_beatGrid = music;
@@ -409,7 +415,8 @@ void AppController::handleMidi(int status, int data1, int data2) {
 void AppController::loadLicense() {
     QSettings settings;
     m_simulateFree = settings.value(QStringLiteral("admin/simulateFree"), false).toBool();
-    m_previewFullRes = settings.value(QStringLiteral("admin/previewFullRes"), false).toBool();
+    m_previewQuality = std::clamp(settings.value(QStringLiteral("preview/quality"), 0).toInt(), 0, 3);
+    m_audioInput = std::max(0, settings.value(QStringLiteral("mic/input"), 0).toInt());
     PublicKey pub;
     if (!compiledPublicKey(pub)) {
         m_editionLicensed = Edition::Admin;   // Entwicklerversion
@@ -455,14 +462,6 @@ void AppController::setSimulateFree(bool on) {
     m_simulateFree = on;
     QSettings().setValue(QStringLiteral("admin/simulateFree"), on);
     emit licenseChanged();
-}
-
-void AppController::setPreviewFullRes(bool on) {
-    if (on == m_previewFullRes) return;
-    m_previewFullRes = on;
-    QSettings().setValue(QStringLiteral("admin/previewFullRes"), on);
-    emit adminChanged();
-    requestFrame();
 }
 
 bool AppController::activateLicense(const QString& key) {

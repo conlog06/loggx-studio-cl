@@ -224,6 +224,9 @@ struct Project {
     std::string addTitleClip(const std::string& trackId, TimeUs start,
                              const std::string& text = "Titel");
     std::string addMidiClip(const std::string& trackId, TimeUs start, TimeUs duration = 0);
+    // Kopie eines Clips (Kopieren/Einfügen, Duplizieren) an der ersten freien
+    // Stelle ab start; die Spur muss zur Art des Clips passen.
+    std::string pasteClip(const Clip& source, const std::string& trackId, TimeUs start);
     std::string splitClip(const std::string& clipId, TimeUs at);
     bool moveClip(const std::string& clipId, const std::string& targetTrackId, TimeUs newStart);
     bool trimClipStart(const std::string& clipId, TimeUs newStart);

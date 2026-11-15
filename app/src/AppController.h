@@ -76,7 +76,19 @@ class AppController : public QObject {
     Q_PROPERTY(bool isPro READ isPro NOTIFY licenseChanged)
     Q_PROPERTY(bool isAdmin READ isAdmin NOTIFY licenseChanged)
     Q_PROPERTY(bool simulateFree READ simulateFree WRITE setSimulateFree NOTIFY licenseChanged)
-    Q_PROPERTY(bool previewFullRes READ previewFullRes WRITE setPreviewFullRes NOTIFY adminChanged)
+    // Vorschau: 0 Auto (Fenstergröße, beim Abspielen angepasst), 1 Voll (Projekt),
+    // 2 Halb, 3 Viertel
+    Q_PROPERTY(int previewQuality READ previewQuality WRITE setPreviewQuality NOTIFY adminChanged)
+    Q_PROPERTY(QString previewSize READ previewSize NOTIFY statsChanged)
+    Q_PROPERTY(int projectFpsNum READ projectFpsNum NOTIFY projectChanged)
+    Q_PROPERTY(int projectFpsDen READ projectFpsDen NOTIFY projectChanged)
+    Q_PROPERTY(int beatsPerBar READ beatsPerBar WRITE setBeatsPerBar NOTIFY projectChanged)
+    Q_PROPERTY(bool canPaste READ canPaste NOTIFY clipboardChanged)
+    // Mikrofon-Aufnahme
+    Q_PROPERTY(QStringList audioInputs READ audioInputs NOTIFY micChanged)
+    Q_PROPERTY(int audioInput READ audioInput WRITE setAudioInput NOTIFY micChanged)
+    Q_PROPERTY(bool micRecording READ micRecording NOTIFY micChanged)
+    Q_PROPERTY(double micLevel READ micLevel NOTIFY micLevelChanged)
     Q_PROPERTY(double previewMs READ previewMs NOTIFY statsChanged)
     Q_PROPERTY(QVariantMap systemInfo READ systemInfo CONSTANT)
 
@@ -135,7 +147,8 @@ public:
     QVariantList recentProjects() const;
     Q_INVOKABLE void newMusicProject();
     // Vorlage: Video mit Größe/fps oder Musik mit Tempo
-    Q_INVOKABLE void newFromTemplate(bool music, int width, int height, int fps, double bpm);
+    // fps auch krumm (23.976, 29.97, 59.94 → x/1001)
+    Q_INVOKABLE void newFromTemplate(bool music, int width, int height, double fps, double bpm);
     Q_INVOKABLE void forgetRecent(const QString& path);
     Q_INVOKABLE bool openRecent(const QString& path) { return openProjectFile(path); }
 
@@ -180,8 +193,11 @@ public:
     bool isAdmin() const;
     bool simulateFree() const { return m_simulateFree; }
     void setSimulateFree(bool on);
-    bool previewFullRes() const { return m_previewFullRes; }
-    void setPreviewFullRes(bool on);
+    int previewQuality() const { return m_previewQuality; }
+    void setPreviewQuality(int quality);
+    QString previewSize() const { return m_previewSize; }
+    // Größe der Vorschaufläche in echten Pixeln (Viewer meldet sich).
+    Q_INVOKABLE void setViewerSize(int width, int height);
     double previewMs() const { return m_previewMs; }
     QVariantMap systemInfo() const;
     Q_INVOKABLE bool activateLicense(const QString& key);
@@ -193,7 +209,32 @@ public:
     Q_INVOKABLE bool openProject(const QUrl& url);
     Q_INVOKABLE bool saveProject();
     Q_INVOKABLE bool saveProjectAs(const QUrl& url);
-    Q_INVOKABLE void setProjectFormat(int width, int height, int fps);
+    Q_INVOKABLE void setProjectFormat(int width, int height, int fpsNum, int fpsDen = 1);
+    int projectFpsNum() const { return m_project.fpsNum; }
+    int projectFpsDen() const { return m_project.fpsDen; }
+    int beatsPerBar() const { return m_project.beatsPerBar; }
+    void setBeatsPerBar(int beats);
+
+    // ---- Dateien hineinziehen: Medien importieren und (trackIndex >= 0 oder
+    // -1 = passende Spur) an seconds in die Timeline legen; -2 = nur importieren.
+    // Gibt den Pfad eines mitgezogenen Projekts zurück (zum Öffnen in QML).
+    Q_INVOKABLE QString dropFiles(const QList<QUrl>& urls, int trackIndex = -1, double seconds = -1);
+
+    // ---- Kopieren, Einfügen, Duplizieren, Standbild
+    Q_INVOKABLE bool copySelected();
+    Q_INVOKABLE bool pasteAtPlayhead();
+    Q_INVOKABLE bool duplicateSelected();
+    bool canPaste() const { return m_clipboard.has_value(); }
+    Q_INVOKABLE bool exportStill(const QUrl& url);
+
+    // ---- Mikrofon
+    QStringList audioInputs() const;
+    int audioInput() const { return m_audioInput; }
+    void setAudioInput(int index);
+    bool micRecording() const { return m_mic != nullptr; }
+    double micLevel() const { return m_micLevel; }
+    Q_INVOKABLE bool startMicRecording();
+    Q_INVOKABLE void stopMicRecording();
     bool openProjectFile(const QString& path);
 
     // ---- Automatisches Sichern (alle 60 s, falls geändert)
@@ -270,6 +311,9 @@ signals:
     void licenseChanged();
     void adminChanged();
     void statsChanged();
+    void clipboardChanged();
+    void micChanged();
+    void micLevelChanged();
     void midiMessage(int status, int data1, int data2);
     void frameReady(const QImage& image);
 
@@ -356,8 +400,23 @@ private:
     QString m_licenseHolder;
     QString m_licenseError;
     bool m_simulateFree = false;
-    bool m_previewFullRes = false;
     double m_previewMs = 0.0;
+
+    // Vorschau
+    int m_previewQuality = 0;
+    int m_viewerW = 0, m_viewerH = 0;
+    double m_playScale = 1.0;
+    QString m_previewSize;
+
+    // Zwischenablage (Clip + Art der Quellspur)
+    std::optional<loggx::Clip> m_clipboard;
+    loggx::TrackKind m_clipboardKind = loggx::TrackKind::Video;
+
+    // Mikrofon
+    int m_audioInput = 0;
+    class MicRecorder* m_mic = nullptr;
+    double m_micLevel = 0.0;
+    loggx::TimeUs m_micStart = 0;
 };
 
 // Führt eine Änderung am Projekt aus: Undo-Schritt (außer bei laufender

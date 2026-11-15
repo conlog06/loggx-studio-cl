@@ -42,6 +42,15 @@ AppController::AppController(QObject* parent)
     connect(&m_preview, &PreviewWorker::frameReady, this, &AppController::frameReady);
     connect(&m_preview, &PreviewWorker::renderTime, this, [this](double ms) {
         m_previewMs = m_previewMs <= 0 ? ms : m_previewMs * 0.8 + ms * 0.2;
+        // Auto-Qualität beim Abspielen: so groß wie möglich, solange die
+        // Bilder rechtzeitig fertig werden.
+        if (m_playing && m_previewQuality == 0) {
+            const double frameMs = 1000.0 / std::max(1.0, m_project.fps());
+            if (ms > frameMs * 0.9)
+                m_playScale = std::max(0.3, m_playScale * 0.85);
+            else if (ms < frameMs * 0.45)
+                m_playScale = std::min(1.0, m_playScale * 1.08);
+        }
         emit statsChanged();
     });
     m_midi = std::make_unique<MidiInput>();
@@ -120,7 +129,7 @@ QString AppController::formatInfo() const {
     return QStringLiteral("%1×%2 · %3 fps")
         .arg(m_project.width)
         .arg(m_project.height)
-        .arg(QString::number(m_project.fps(), 'g', 4));
+        .arg(QString::number(m_project.fps(), 'f', m_project.fpsDen == 1 ? 0 : 3));
 }
 
 void AppController::setProjectName(const QString& name) {
@@ -228,15 +237,21 @@ bool AppController::saveProjectAs(const QUrl& url) {
     return true;
 }
 
-void AppController::setProjectFormat(int width, int height, int fps) {
-    if (width < 16 || height < 16 || fps < 1 || fps > 240) return;
+void AppController::setProjectFormat(int width, int height, int fpsNum, int fpsDen) {
+    if (fpsDen < 1) fpsDen = 1;
+    const double fps = static_cast<double>(fpsNum) / fpsDen;
+    if (width < 16 || height < 16 || width > 16384 || height > 16384 || fps < 1 || fps > 240) return;
+    if ((width & ~1) == m_project.width && (height & ~1) == m_project.height && fpsNum == m_project.fpsNum &&
+        fpsDen == m_project.fpsDen)
+        return;
     apply([&](Project& p) {
         p.width = width & ~1;
         p.height = height & ~1;
-        p.fpsNum = fps;
-        p.fpsDen = 1;
+        p.fpsNum = fpsNum;
+        p.fpsDen = fpsDen;
         return true;
     });
+    setStatus(tr("Projektformat: %1").arg(formatInfo()));
 }
 
 // ---------------------------------------------------- Automatisch sichern
@@ -924,9 +939,6 @@ void AppController::jumpToKeyframe(int direction) {
 
 // --------------------------------------------------------- Wiedergabe
 
-void AppController::requestFrame() {
-    m_preview.request(m_shared, m_position, m_playing, m_previewFullRes ? 1080 : 540);
-}
 
 void AppController::setPosition(TimeUs t) {
     t = std::max<TimeUs>(0, t);
@@ -998,8 +1010,9 @@ void AppController::pollLevels() {
 
 void AppController::play() {
     // Bei einer Aufnahme darf auch ein leeres Projekt laufen.
-    if (m_playing || (m_project.duration() <= 0 && !m_recording)) return;
-    if (!m_recording && m_position >= m_project.duration()) setPosition(0);
+    const bool recording = m_recording || m_mic;
+    if (m_playing || (m_project.duration() <= 0 && !recording)) return;
+    if (!recording && m_position >= m_project.duration()) setPosition(0);
     m_playing = true;
     m_playStart = m_position;
     // Erst das Audiogerät öffnen (kann dauern), dann die Uhr starten –
@@ -1017,6 +1030,7 @@ void AppController::pause() {
     m_timer.stop();
     stopAudio();
     emit playingChanged();
+    requestFrame();   // angehaltenes Bild in voller Vorschauqualität
 }
 
 void AppController::togglePlay() {
@@ -1029,7 +1043,7 @@ void AppController::togglePlay() {
 void AppController::tick() {
     const TimeUs t = m_playStart + m_clock.nsecsElapsed() / 1000;
     const TimeUs end = m_project.duration();
-    if (t >= end && !m_recording) {
+    if (t >= end && !m_recording && !m_mic) {
         setPosition(end);
         pause();
         return;

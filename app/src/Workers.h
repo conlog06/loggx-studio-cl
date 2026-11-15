@@ -21,9 +21,8 @@ public:
     explicit PreviewWorker(QObject* parent = nullptr);
     ~PreviewWorker() override;
 
-    // fast: während der Wiedergabe kleiner rechnen (flüssiger)
-    void request(std::shared_ptr<const loggx::Project> project, loggx::TimeUs time, bool fast = false,
-                 int maxHeight = 540);
+    // Bild in genau dieser Größe berechnen (Seitenverhältnis wie das Projekt).
+    void request(std::shared_ptr<const loggx::Project> project, loggx::TimeUs time, int width, int height);
 
 signals:
     void frameReady(const QImage& image);
@@ -37,8 +36,8 @@ private:
     std::condition_variable m_wake;
     std::shared_ptr<const loggx::Project> m_project;
     loggx::TimeUs m_time = 0;
-    bool m_fast = false;
-    int m_maxHeight = 540;
+    int m_width = 960;
+    int m_height = 540;
     bool m_pending = false;
     bool m_quit = false;
 };

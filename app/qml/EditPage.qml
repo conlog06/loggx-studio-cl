@@ -126,14 +126,7 @@ Item {
                         }
                     }
                 }
-                DropArea {
-                    anchors.fill: parent
-                    keys: ["text/uri-list"]
-                    onDropped: function (drop) {
-                        if (drop.hasUrls)
-                            app.importMedia(drop.urls)
-                    }
-                }
+                FileDropArea { anchors.fill: parent; importOnly: true }
             }
 
             // Vorschau
@@ -149,46 +142,9 @@ Item {
                         Layout.fillHeight: true
                         Layout.margins: 10
                         controller: app
+                        FileDropArea { anchors.fill: parent }
                     }
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 48
-                        color: Theme.bg
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
-                            spacing: 6
-                            Label {
-                                text: app.timecode(app.position)
-                                font.family: "monospace"
-                                font.pixelSize: 15
-                                Layout.preferredWidth: 120
-                            }
-                            Item { Layout.fillWidth: true }
-                            IconButton { iconName: "skip-back"; tip: qsTr("Zum Anfang (Pos1)"); onClicked: app.seek(0) }
-                            IconButton { iconName: "chevron-left"; tip: qsTr("Ein Bild zurück (←)"); onClicked: app.stepFrames(-1) }
-                            Button {
-                                icon.name: app.playing ? "pause" : "play"
-                                text: app.playing ? qsTr("Pause") : qsTr("Abspielen")
-                                highlighted: true
-                                implicitWidth: 112
-                                onClicked: app.togglePlay()
-                                ToolTip.text: qsTr("Leertaste"); ToolTip.visible: hovered; ToolTip.delay: 600
-                            }
-                            IconButton { iconName: "chevron-right"; tip: qsTr("Ein Bild vor (→)"); onClicked: app.stepFrames(1) }
-                            IconButton { iconName: "skip-forward"; tip: qsTr("Zum Ende (Ende)"); onClicked: app.seek(app.duration) }
-                            Item { Layout.fillWidth: true }
-                            Label {
-                                text: app.timecode(app.duration)
-                                font.family: "monospace"
-                                font.pixelSize: 15
-                                color: Theme.dim
-                                horizontalAlignment: Text.AlignRight
-                                Layout.preferredWidth: 120
-                            }
-                        }
-                    }
+                    PreviewBar { Layout.fillWidth: true }
                 }
             }
 
@@ -303,17 +259,7 @@ Item {
                         onPositionChanged: if (pressed) timeline.scrollY = position * timeline.contentHeight
                     }
 
-                    DropArea {
-                        anchors.fill: parent
-                        keys: ["loggx/asset"]
-                        onDropped: function (drop) {
-                            const index = timeline.trackIndexAt(drop.y)
-                            if (index >= 0)
-                                app.addClipAt(drop.source.assetId, index, timeline.timeAt(drop.x))
-                            else
-                                app.addAssetToTimeline(drop.source.assetId)
-                        }
-                    }
+                    FileDropArea { anchors.fill: parent; timeline: timeline }
                 }
                 ScrollBar {
                     Layout.fillWidth: true

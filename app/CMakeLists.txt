@@ -10,6 +10,8 @@ qt_add_executable(loggx-studio
   src/TitleRenderer.cpp src/TitleRenderer.h
   src/IconItem.cpp src/IconItem.h
   src/AppControllerMusic.cpp
+  src/AppControllerTools.cpp
+  src/MicRecorder.cpp src/MicRecorder.h
   src/MidiInput.cpp src/MidiInput.h
 )
 
@@ -31,6 +33,10 @@ qt_add_resources(loggx-studio "qml"
     qml/IconButton.qml
     qml/Divider.qml
     qml/LiveKeyboard.qml
+    qml/ProjectFormatForm.qml
+    qml/ProjectSettingsDialog.qml
+    qml/FileDropArea.qml
+    qml/PreviewBar.qml
     qml/LoggXStyle/Button.qml
     qml/LoggXStyle/CheckBox.qml
     qml/LoggXStyle/ComboBox.qml
@@ -119,6 +125,8 @@ if(LOGGX_BUILD_TESTS)
     src/MediaCache.cpp src/MediaCache.h
     src/TitleRenderer.cpp src/TitleRenderer.h
     src/AppControllerMusic.cpp
+    src/AppControllerTools.cpp
+    src/MicRecorder.cpp src/MicRecorder.h
     src/MidiInput.cpp src/MidiInput.h)
   target_include_directories(test_app PRIVATE src ../tests)
   target_link_libraries(test_app PRIVATE loggx_engine loggx_rtmidi Qt6::Core Qt6::Gui Qt6::Multimedia)

@@ -20,7 +20,12 @@ public:
 signals:
     void controllerChanged();
 
+protected:
+    void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
+    void itemChange(ItemChange change, const ItemChangeData& value) override;
+
 private:
+    void reportSize();
     QPointer<AppController> m_controller;
     QImage m_image;
 };

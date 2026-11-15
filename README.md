@@ -2,7 +2,7 @@
 
 Videoschnitt und Musikbearbeitung in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls).
 
-Dieses Repository enthält die **MVP-Vorschau 0.3**: Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.4**: Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -14,6 +14,8 @@ Dieses Repository enthält die **MVP-Vorschau 0.3**: Startbildschirm, neues Desi
 - Startbildschirm mit Vorlagen: Videoprojekt (Full HD, 4K, Hochkant 9:16, Quadrat, 24/60 fps) oder **Musikprojekt** (Beat 120, Dance 128, Hip-Hop 90, Ballade 72 BPM), zuletzt geöffnete Projekte
 - **Musikprojekte** zeigen nur Musik, Samples und Export – ganz ohne Video
 - Neues dunkles Design (eigener Qt-Quick-Stil mit Vektor-Symbolen), farbige Spuren, Takt-Lineal
+- **Dateien hineinziehen** aus Explorer/Finder: auf die Timeline (an die Stelle unter der Maus), auf die Vorschau (am Abspielkopf), in die Medienliste (nur importieren); `.loggx` öffnet das Projekt, `.mid` importiert Noten
+- **Projekteinstellungen** (Zahnrad oben rechts, Strg+,): Auflösung bis 8K oder eigene Größe, Bildrate 23,976 / 24 / 25 / 29,97 / 30 / 48 / 50 / 59,94 / 60 / 100 / 120 fps, Tempo und Taktart – für jedes Projekt jederzeit änderbar
 
 **Video**
 - Import von Video, Audio und Bildern (alles, was FFmpeg liest)
@@ -22,6 +24,8 @@ Dieses Repository enthält die **MVP-Vorschau 0.3**: Startbildschirm, neues Desi
 - **Keyframes** für Position, Größe, Drehung, Deckkraft, Lautstärke und Weichzeichner (◇ im Inspector)
 - **Masken** (Rechteck, Ellipse, weiche Kante, umkehrbar)
 - **Effekte:** Weichzeichner, Greenscreen (Chroma Key mit Farbsaum-Entfernung), Vignette
+- **Vorschau** in Fenstergröße (Auto), Voll, Halb oder Viertel; beim Abspielen passt Auto die Größe an, damit es flüssig bleibt
+- **Kopieren/Einfügen/Duplizieren** von Clips (Strg+C / Strg+V / Strg+D), **Standbild** in voller Auflösung als PNG/JPEG
 - **Titel** mit Schriftgröße, Farbe, Ausrichtung, Hintergrundbalken und Schatten
 - **Übergänge** zwischen Clips: Überblenden, über Schwarz, über Weiß, Wischen, Schieben – Bild und Ton werden überblendet
 - **Schnitt auf Beat:** Clip auf jeden Schlag, jeden 2. Schlag, jeden Takt oder alle 2 Takte zerschneiden
@@ -34,6 +38,7 @@ Dieses Repository enthält die **MVP-Vorschau 0.3**: Startbildschirm, neues Desi
 - **Tempo-Erkennung** aus einem Musik-Clip (BPM und erster Schlag, das Raster richtet sich danach aus)
 - **Live spielen:** Computertastatur (A W S E D F T G Z H U J K, −/+ = Oktave), Klaviatur per Maus oder **MIDI-Keyboard** (RtMidi)
 - **Aufnahme** (R) in einen MIDI-Clip, wahlweise auf Sechzehntel quantisiert – ein Undo-Schritt
+- **Mikrofon-Aufnahme** (Gesang, Instrumente) als WAV direkt auf eine Audiospur, mit Pegelanzeige und Geräteauswahl
 - **MIDI-Dateien** importieren und exportieren (Standard-MIDI, Typ 1, mit Tempo)
 - Audio: Lautstärke, **Tonhöhe ±12 Halbtöne ohne Tempoänderung**, **Tempo 0,25×–4× ohne Tonhöhenänderung**
 - **Mixer** mit Pegelanzeige, Fader, Panorama, Stumm/Solo, 3-Band-EQ, Kompressor, Echo und Hall pro Spur; Master mit Limiter (−1 dBFS)
@@ -65,7 +70,8 @@ Dieses Repository enthält die **MVP-Vorschau 0.3**: Startbildschirm, neues Desi
 
 Bekannte Grenzen:
 
-- Bilder werden auf der CPU berechnet (alle Kerne). Die Vorschau wird deshalb auf höchstens 960×540 verkleinert (Admins können 1080p einschalten), beim Abspielen in schnellerer Qualität; 4K-Material und viele Effekte können ruckeln. Ein 8K-Export ist langsam und braucht rund 4 GB Arbeitsspeicher.
+- Bilder werden auf der CPU berechnet (alle Kerne). Beim Abspielen verkleinert „Auto“ die Vorschau bei Bedarf; 4K-Material und viele Effekte können ruckeln. Angehalten ist die Vorschau so scharf wie das Fenster.
+- Die Mikrofon-Aufnahme gleicht die Latenz des Audiogeräts noch nicht aus (bei großen Puffern liegt sie minimal zu spät). Ein 8K-Export ist langsam und braucht rund 4 GB Arbeitsspeicher.
 - Die Tempo-Erkennung erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück).
 - Ohne öffentlichen Schlüssel in `license/public_key.txt` baut man eine Entwicklerversion: alle Funktionen frei, Admin-Bereich sichtbar.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.
@@ -139,6 +145,8 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
 | Titel einfügen | T |
 | MIDI-Clip anlegen | Strg+M |
 | Rückgängig / Wiederholen | Strg+Z / Strg+Umschalt+Z |
+| Clip kopieren / einfügen / duplizieren | Strg+C / Strg+V / Strg+D |
+| Projekteinstellungen | Strg+, |
 | Medien importieren | Strg+I |
 | Timeline zoomen | Strg + Mausrad |
 

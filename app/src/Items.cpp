@@ -1,5 +1,7 @@
 #include "Items.h"
 
+#include <QQuickWindow>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -60,16 +62,41 @@ void ViewerItem::setController(AppController* controller) {
             m_image = image;
             update();
         });
+        reportSize();
     }
     emit controllerChanged();
 }
 
 void ViewerItem::paint(QPainter* painter) {
     if (m_image.isNull() || width() < 1 || height() < 1) return;
+    const double dpr = window() ? window()->effectiveDevicePixelRatio() : 1.0;
     const double scale = std::min(width() / m_image.width(), height() / m_image.height());
-    const double w = m_image.width() * scale, h = m_image.height() * scale;
-    painter->setRenderHint(QPainter::SmoothPixmapTransform);
-    painter->drawImage(QRectF((width() - w) / 2, (height() - h) / 2, w, h), m_image);
+    double w = m_image.width() * scale, h = m_image.height() * scale;
+    // Passt das Bild (fast) pixelgenau, ungeschärft und ohne Skalierung zeichnen.
+    if (std::abs(w * dpr - m_image.width()) < 3 && std::abs(h * dpr - m_image.height()) < 3) {
+        w = m_image.width() / dpr;
+        h = m_image.height() / dpr;
+    } else {
+        painter->setRenderHint(QPainter::SmoothPixmapTransform);
+    }
+    const double x = std::round((width() - w) / 2 * dpr) / dpr, y = std::round((height() - h) / 2 * dpr) / dpr;
+    painter->drawImage(QRectF(x, y, w, h), m_image);
+}
+
+void ViewerItem::reportSize() {
+    if (!m_controller || !isVisible() || width() < 16 || height() < 16) return;
+    const double dpr = window() ? window()->effectiveDevicePixelRatio() : 1.0;
+    m_controller->setViewerSize(static_cast<int>(width() * dpr), static_cast<int>(height() * dpr));
+}
+
+void ViewerItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) {
+    QQuickPaintedItem::geometryChange(newGeometry, oldGeometry);
+    reportSize();
+}
+
+void ViewerItem::itemChange(ItemChange change, const ItemChangeData& value) {
+    QQuickPaintedItem::itemChange(change, value);
+    if (change == ItemVisibleHasChanged || change == ItemSceneChange) reportSize();
 }
 
 // ---------------------------------------------------------- TimelineItem

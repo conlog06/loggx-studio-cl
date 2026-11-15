@@ -99,9 +99,18 @@ FocusScope {
                 IconButton {
                     iconName: "record"
                     tint: Theme.danger
+                    enabled: !app.micRecording
                     checked: app.recording
                     tip: app.recording ? qsTr("Aufnahme stoppen (R)") : qsTr("Aufnahme: Noten auf die Instrumentspur spielen (R)")
                     onClicked: app.recording ? app.stopRecording() : app.startRecording()
+                }
+                IconButton {
+                    iconName: "mic"
+                    tint: app.micRecording ? Theme.danger : Theme.text
+                    checked: app.micRecording
+                    enabled: !app.recording
+                    tip: app.micRecording ? qsTr("Mikrofon-Aufnahme stoppen") : qsTr("Mit dem Mikrofon aufnehmen (Gesang, Instrument) – Kopfhörer benutzen")
+                    onClicked: app.micRecording ? app.stopMicRecording() : app.startMicRecording()
                 }
                 Rectangle {
                     Layout.preferredWidth: 150
@@ -109,7 +118,7 @@ FocusScope {
                     Layout.leftMargin: 4
                     radius: Theme.radius
                     color: Theme.bg
-                    border.color: app.recording ? Theme.danger : Theme.border
+                    border.color: app.recording || app.micRecording ? Theme.danger : Theme.border
                     Column {
                         anchors.centerIn: parent
                         Label {
@@ -119,7 +128,8 @@ FocusScope {
                             text: {
                                 const beat = 60 / app.bpm
                                 const b = Math.max(0, Math.floor((app.position + 1e-6) / beat))
-                                return (Math.floor(b / 4) + 1) + "." + (b % 4 + 1) + "  ·  " + app.timecode(app.position).slice(3, 8)
+                                const bar = Math.max(1, app.beatsPerBar)
+                                return (Math.floor(b / bar) + 1) + "." + (b % bar + 1) + "  ·  " + app.timecode(app.position).slice(3, 8)
                             }
                         }
                     }
@@ -186,6 +196,7 @@ FocusScope {
                         controller: app
                         clip: true
                         Component.onCompleted: if (!app.musicMode) scrollY = contentHeight
+                        FileDropArea { anchors.fill: parent; timeline: arrangement }
                     }
 
                     RowLayout {
@@ -276,7 +287,7 @@ FocusScope {
                 // -------------------------------------- Live-Spielen
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 128
+                    Layout.preferredHeight: 158
                     color: Theme.panel
                     Rectangle { width: parent.width; height: 1; color: Theme.border }
                     RowLayout {
@@ -328,6 +339,31 @@ FocusScope {
                                     currentIndex: app.midiInput + 1
                                     onActivated: function (i) { app.openMidiInput(i - 1) }
                                     onPressedChanged: if (pressed) app.refreshMidiInputs()
+                                }
+                            }
+                            RowLayout {
+                                spacing: 6
+                                Icon { width: 16; height: 16; name: "mic"; color: app.micRecording ? Theme.danger : Theme.dim }
+                                ComboBox {
+                                    Layout.fillWidth: true
+                                    enabled: !app.micRecording
+                                    model: app.audioInputs.length > 0 ? app.audioInputs : [qsTr("Kein Mikrofon gefunden")]
+                                    currentIndex: Math.min(app.audioInput, Math.max(0, app.audioInputs.length - 1))
+                                    onActivated: function (i) { app.audioInput = i }
+                                }
+                                // Pegel
+                                Rectangle {
+                                    Layout.preferredWidth: 6
+                                    Layout.preferredHeight: 26
+                                    radius: 3
+                                    color: Theme.bg
+                                    Rectangle {
+                                        anchors.bottom: parent.bottom
+                                        width: parent.width
+                                        radius: 3
+                                        height: parent.height * Math.min(1, app.micLevel)
+                                        color: app.micLevel > 0.9 ? Theme.danger : app.micLevel > 0.6 ? Theme.warn : Theme.ok
+                                    }
                                 }
                             }
                         }

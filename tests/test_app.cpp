@@ -16,6 +16,7 @@
 #include "TitleRenderer.h"
 
 #include "AppController.h"
+#include "MicRecorder.h"
 #include "check.h"
 
 using namespace loggx;
@@ -402,6 +403,80 @@ int main(int argc, char** argv) {
             CHECK(r.toMap().value(QStringLiteral("path")).toString() != QFileInfo(saved).absoluteFilePath());
         back.discardRecovery();
         mu.discardRecovery();
+    }
+    // --------------- Vorschau, Format, Hineinziehen, Kopieren, Standbild, WAV
+    {
+        AppController t;
+        t.newFromTemplate(false, 1920, 1080, 29.97, 120);
+        CHECK(t.projectFpsNum() == 30000 && t.projectFpsDen() == 1001);
+        CHECK(t.formatInfo() == QStringLiteral("1920×1080 · 29.970 fps"));
+        t.setProjectFormat(3840, 2160, 24000, 1001);
+        CHECK(t.projectWidth() == 3840 && t.projectFpsNum() == 24000);
+        t.setProjectFormat(3840, 2160, 50, 1);
+        CHECK(std::abs(t.project().fps() - 50) < 1e-9);
+        t.setBeatsPerBar(3);
+        CHECK(t.beatsPerBar() == 3);
+
+        // Vorschau folgt der Fenstergröße (Auto) bzw. der gewählten Stufe
+        t.setPreviewQuality(0);
+        t.setViewerSize(1600, 900);
+        CHECK(t.previewSize() == QStringLiteral("1600×900"));
+        t.setViewerSize(8000, 5000);
+        CHECK(t.previewSize() == QStringLiteral("3840×2160"));   // nie größer als das Projekt
+        t.setPreviewQuality(2);
+        CHECK(t.previewSize() == QStringLiteral("1920×1080"));
+        t.setPreviewQuality(3);
+        CHECK(t.previewSize() == QStringLiteral("960×540"));
+        t.setPreviewQuality(0);
+
+        // Hineinziehen: nur importieren, in die Timeline, Projektdatei
+        CHECK(t.dropFiles({QUrl::fromLocalFile(source)}, -2).isEmpty());
+        CHECK(t.assets().size() == 1 && t.duration() == 0);
+        t.seek(1.0);
+        t.dropFiles({QUrl::fromLocalFile(source), QUrl::fromLocalFile(source)}, -1, 2.0);
+        CHECK(t.assets().size() == 1);
+        int clips = 0;
+        for (const auto& tr : t.project().tracks) clips += static_cast<int>(tr.clips.size());
+        CHECK(clips == 2);
+        CHECK(std::abs(t.duration() - 10.0) < 0.2);   // ab 2 s, zweimal 4 s hintereinander
+        const QString proj = dir.filePath("gezogen.loggx");
+        CHECK(t.saveProjectAs(QUrl::fromLocalFile(proj)));
+        CHECK(t.dropFiles({QUrl::fromLocalFile(proj)}) == proj);
+
+        // Kopieren, Einfügen, Duplizieren
+        const QString sel = t.selectedClipId();
+        CHECK(!sel.isEmpty() && t.copySelected() && t.canPaste());
+        t.seek(20.0);
+        CHECK(t.pasteAtPlayhead());
+        CHECK(t.selectedClipId() != sel && std::abs(t.clip().value(QStringLiteral("start")).toDouble() - 20.0) < 0.05);
+        CHECK(t.duplicateSelected());
+        CHECK(std::abs(t.clip().value(QStringLiteral("start")).toDouble() - 24.0) < 0.05);
+        t.undo();
+        CHECK(std::abs(t.duration() - 24.0) < 0.2);
+
+        // Standbild in Projektauflösung
+        t.setProjectFormat(640, 360, 25, 1);
+        t.seek(3.0);
+        const QString still = dir.filePath("standbild.png");
+        CHECK(t.exportStill(QUrl::fromLocalFile(still)));
+        const QImage img(still);
+        CHECK(img.width() == 640 && img.height() == 360);
+        t.discardRecovery();
+    }
+    {
+        // WAV-Datei der Mikrofon-Aufnahme
+        const QString wav = dir.filePath("mic.wav");
+        WavWriter w;
+        CHECK(w.create(wav, 48000, 2, 16, false));
+        std::vector<qint16> buf(48000 * 2);
+        for (std::size_t i = 0; i < buf.size() / 2; ++i)
+            buf[i * 2] = buf[i * 2 + 1] = static_cast<qint16>(12000 * std::sin(2 * 3.14159265 * 440 * i / 48000.0));
+        CHECK(w.write(reinterpret_cast<const char*>(buf.data()), static_cast<qint64>(buf.size() * 2)) > 0);
+        CHECK(w.takePeak() > 0.3);
+        CHECK(w.frames() == 48000);
+        w.finish();
+        MediaAsset m;
+        CHECK(probeMedia(wav.toStdString(), m) && m.hasAudio && std::llabs(m.duration - kSecond) < 30'000);
     }
     return finish("test_app");
 }

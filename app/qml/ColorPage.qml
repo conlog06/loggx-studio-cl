@@ -37,31 +37,12 @@ Item {
                     Layout.fillHeight: true
                     Layout.margins: 10
                     controller: app
+                    FileDropArea { anchors.fill: parent }
                 }
-                Rectangle {
+                PreviewBar {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 48
-                    color: Theme.bg
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 6
-                        Label { text: app.timecode(app.position); font.family: "monospace"; font.pixelSize: 15 }
-                        Item { Layout.fillWidth: true }
-                        Button { text: qsTr("◀ Clip"); onClicked: app.selectNeighbourClip(-1) }
-                        Button { text: "◀"; onClicked: app.stepFrames(-1) }
-                        Button { text: app.playing ? qsTr("Pause") : qsTr("Abspielen"); highlighted: true; implicitWidth: 104; onClicked: app.togglePlay() }
-                        Button { text: "▶"; onClicked: app.stepFrames(1) }
-                        Button { text: qsTr("Clip ▶"); onClicked: app.selectNeighbourClip(1) }
-                        Item { Layout.fillWidth: true }
-                        Label {
-                            Layout.maximumWidth: 260
-                            elide: Text.ElideMiddle
-                            color: Theme.dim
-                            text: root.active ? root.clip.name : qsTr("Kein Videoclip ausgewählt")
-                        }
-                    }
+                    clipNavigation: true
+                    rightText: root.active ? root.clip.name : qsTr("Kein Videoclip ausgewählt")
                 }
                 Slider {
                     Layout.fillWidth: true
@@ -178,7 +159,7 @@ Item {
                                     Layout.fillWidth: true
                                     elide: Text.ElideMiddle
                                     text: root.active && root.clip.lutName !== "" ? root.clip.lutName : qsTr("Keine LUT")
-                                    color: root.active && root.clip.lutName !== "" ? "#d7dbe4" : Theme.dim
+                                    color: root.active && root.clip.lutName !== "" ? Theme.text : Theme.dim
                                 }
                                 Button { text: qsTr("Laden …"); onClicked: lutDialog.open() }
                                 Button {

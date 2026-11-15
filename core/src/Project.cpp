@@ -366,6 +366,26 @@ std::string Project::addClip(const std::string& trackId, const std::string& asse
     return c.id;
 }
 
+std::string Project::pasteClip(const Clip& source, const std::string& trackId, TimeUs start) {
+    Track* track = findTrack(trackId);
+    if (!track || source.duration <= 0) return {};
+    bool fits = false;
+    switch (source.kind) {
+    case ClipKind::Title: fits = track->kind == TrackKind::Video; break;
+    case ClipKind::Midi: fits = track->kind == TrackKind::Instrument; break;
+    case ClipKind::Media:
+        if (const MediaAsset* asset = findAsset(source.assetId)) fits = trackAccepts(*track, *asset);
+        break;
+    }
+    if (!fits) return {};
+    Clip c = source;
+    c.start = firstFreeStart(*track, std::max<TimeUs>(0, start), c.duration);
+    c.id = "c" + std::to_string(nextId++);
+    track->clips.push_back(c);
+    sortClips(*track);
+    return c.id;
+}
+
 std::string Project::addTitleClip(const std::string& trackId, TimeUs start,
                                   const std::string& text) {
     Track* track = findTrack(trackId);

@@ -140,14 +140,9 @@ Dialog {
                     checked: app.simulateFree
                     onToggled: app.simulateFree = checked
                 }
-                Switch {
-                    text: qsTr("Vorschau in voller Auflösung (1080p statt 540p)")
-                    checked: app.previewFullRes
-                    onToggled: app.previewFullRes = checked
-                }
                 Label {
                     color: Theme.dim
-                    text: app.previewMs > 0 ? qsTr("Letztes Vorschaubild: %1 ms").arg(app.previewMs.toFixed(1)) : qsTr("Noch kein Vorschaubild berechnet")
+                    text: app.previewMs > 0 ? qsTr("Vorschau: %1 in %2 ms je Bild").arg(app.previewSize).arg(app.previewMs.toFixed(1)) : qsTr("Noch kein Vorschaubild berechnet")
                 }
 
                 Label { text: qsTr("System"); font.bold: true; Layout.topMargin: 6 }

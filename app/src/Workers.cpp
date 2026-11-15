@@ -22,13 +22,13 @@ PreviewWorker::~PreviewWorker() {
     wait();
 }
 
-void PreviewWorker::request(std::shared_ptr<const Project> project, TimeUs time, bool fast, int maxHeight) {
+void PreviewWorker::request(std::shared_ptr<const Project> project, TimeUs time, int width, int height) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_project = std::move(project);
         m_time = time;
-        m_fast = fast;
-        m_maxHeight = maxHeight;
+        m_width = width;
+        m_height = height;
         m_pending = true;
     }
     m_wake.notify_one();
@@ -43,16 +43,15 @@ void PreviewWorker::run() {
     for (;;) {
         std::shared_ptr<const Project> project;
         TimeUs time;
-        bool fast;
-        int maxHeight;
+        int w, h;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_wake.wait(lock, [this] { return m_pending || m_quit; });
             if (m_quit) return;
             project = m_project;
             time = m_time;
-            fast = m_fast;
-            maxHeight = m_maxHeight;
+            w = std::max(2, m_width & ~1);
+            h = std::max(2, m_height & ~1);
             m_pending = false;
         }
         if (!project) continue;
@@ -61,13 +60,8 @@ void PreviewWorker::run() {
             compositor.setProject(current);
         }
 
-        // Vorschau begrenzen (bei Wiedergabe halbe Größe), gerade Kantenlängen.
-        const double limit = fast ? maxHeight / 2.0 : maxHeight;
-        const double scale = std::min({limit * 16.0 / 9.0 / project->width, limit / project->height, 1.0});
         QElapsedTimer timer;
         timer.start();
-        const int w = std::max(2, static_cast<int>(project->width * scale) & ~1);
-        const int h = std::max(2, static_cast<int>(project->height * scale) & ~1);
         compositor.render(time, w, h, pixels);
 
         QImage image(w, h, QImage::Format_RGBA8888);

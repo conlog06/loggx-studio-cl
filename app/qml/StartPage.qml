@@ -29,7 +29,18 @@ Rectangle {
         { text: qsTr("Ballade"), sub: "72 BPM", bpm: 72 }
     ]
 
-    function newVideo(t) { root.guard(function () { app.newFromTemplate(false, t.w, t.h, t.fps, 120) }) }
+    // Bildrate für neue Videoprojekte (0 = wie Vorlage)
+    property int rateChoice: 0
+    readonly property var rates: [
+        { text: qsTr("fps wie Vorlage"), fps: 0 },
+        { text: "23,976 fps", fps: 23.976 }, { text: "24 fps", fps: 24 }, { text: "25 fps", fps: 25 },
+        { text: "29,97 fps", fps: 29.97 }, { text: "30 fps", fps: 30 }, { text: "50 fps", fps: 50 },
+        { text: "59,94 fps", fps: 59.94 }, { text: "60 fps", fps: 60 }, { text: "120 fps", fps: 120 }
+    ]
+    function newVideo(t) {
+        const fps = rates[rateChoice].fps > 0 ? rates[rateChoice].fps : t.fps
+        root.guard(function () { app.newFromTemplate(false, t.w, t.h, fps, 120) })
+    }
     function newMusic(t) { root.guard(function () { app.newFromTemplate(true, 1920, 1080, 30, t.bpm) }) }
 
     // Karte für einen Projekttyp mit Vorlagen
@@ -40,6 +51,7 @@ Rectangle {
         property string iconName
         property color tint
         property var templates: []
+        property bool showRate: false
         signal create(var template)
         Layout.fillWidth: true
         implicitHeight: cardCol.implicitHeight + 36
@@ -65,6 +77,14 @@ Rectangle {
                     Layout.fillWidth: true
                     Label { text: card.title; font.pixelSize: 18; font.bold: true }
                     Label { text: card.subtitle; color: Theme.dim; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                }
+                ComboBox {
+                    visible: card.showRate
+                    Layout.preferredWidth: 150
+                    textRole: "text"
+                    model: root.rates
+                    currentIndex: root.rateChoice
+                    onActivated: function (i) { root.rateChoice = i }
                 }
                 Button {
                     text: qsTr("Erstellen")
@@ -92,7 +112,12 @@ Rectangle {
                             x: 12
                             spacing: 2
                             Label { text: modelData.text; font.bold: true }
-                            Label { text: modelData.sub; color: Theme.dim; font.pixelSize: Theme.smallFont }
+                            Label {
+                                // Bei gewählter Bildrate die Vorlage mit dieser Rate anzeigen
+                                text: card.showRate && root.rateChoice > 0 ? modelData.sub.replace(/· [0-9]+$/, "· " + root.rates[root.rateChoice].text.replace(" fps", "")) : modelData.sub
+                                color: Theme.dim
+                                font.pixelSize: Theme.smallFont
+                            }
                         }
                         MouseArea {
                             id: chipMouse
@@ -146,6 +171,7 @@ Rectangle {
                     iconName: "film"
                     tint: Theme.video
                     templates: root.videoTemplates
+                    showRate: true
                     onCreate: function (t) { root.newVideo(t) }
                 }
                 ProjectCard {
@@ -260,6 +286,7 @@ Rectangle {
                             model: [
                                 "Leertaste", qsTr("Abspielen / Pause"),
                                 "S", qsTr("Am Abspielkopf teilen"),
+                                "Strg+C / V / D", qsTr("Clip kopieren / einfügen / duplizieren"),
                                 "R", qsTr("Aufnahme (Musik)"),
                                 "Strg+Z / Y", qsTr("Rückgängig / Wiederholen"),
                                 "Strg+Pos1", qsTr("Startbildschirm")

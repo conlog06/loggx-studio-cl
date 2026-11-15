@@ -39,6 +39,9 @@ ApplicationWindow {
         }
     }
     Component.onCompleted: if (showLicense) licenseDialog.open()
+
+    // Projektdatei wurde ins Fenster gezogen
+    function openDropped(path) { guarded(function () { app.openRecent(path) }) }
     // Aktion, die nach "Verwerfen" oder erfolgreichem Speichern ausgeführt wird.
     property var pendingAction: null
     property bool closeConfirmed: false
@@ -78,6 +81,10 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Undo]; onActivated: app.undo() }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Y"]; onActivated: app.redo() }
     Shortcut { sequence: "Ctrl+I"; onActivated: importDialog.open() }
+    Shortcut { sequences: [StandardKey.Copy]; enabled: !app.showStart; onActivated: app.copySelected() }
+    Shortcut { sequences: [StandardKey.Paste]; enabled: !app.showStart && app.canPaste; onActivated: app.pasteAtPlayhead() }
+    Shortcut { sequence: "Ctrl+D"; enabled: !app.showStart; onActivated: app.duplicateSelected() }
+    Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.open() }
     Shortcut { sequence: "Space"; enabled: !app.showStart; onActivated: app.recording ? app.stopRecording() : app.togglePlay() }
     Shortcut { sequences: ["S", "Ctrl+B"]; enabled: !window.playingKeys && !app.musicMode; onActivated: app.splitAtPlayhead() }
     Shortcut { sequence: "Ctrl+B"; enabled: app.musicMode; onActivated: app.splitAtPlayhead() }
@@ -187,6 +194,7 @@ ApplicationWindow {
     }
 
     LicenseDialog { id: licenseDialog }
+    ProjectSettingsDialog { id: settingsDialog }
 
     // ---------------------------------------------------------- Kopfzeile
     header: Rectangle {
@@ -268,7 +276,16 @@ ApplicationWindow {
                 }
             }
             Item { Layout.fillWidth: true }
-            Label { visible: !app.showStart; text: app.musicMode ? qsTr("%1 BPM").arg(Math.round(app.bpm * 10) / 10) : app.formatInfo; color: Theme.dim; Layout.rightMargin: 8 }
+            Button {
+                visible: !app.showStart
+                flat: true
+                icon.name: "settings"
+                text: app.musicMode ? qsTr("%1 BPM · %2").arg(Math.round(app.bpm * 10) / 10).arg(app.beatsPerBar >= 6 ? app.beatsPerBar + "/8" : app.beatsPerBar + "/4") : app.formatInfo
+                onClicked: settingsDialog.open()
+                ToolTip.text: qsTr("Projekteinstellungen: Auflösung, Bildrate, Tempo (Strg+,)")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
             // Edition / Lizenz / Admin
             Button {
                 flat: true
@@ -281,6 +298,13 @@ ApplicationWindow {
             }
         }
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.border }
+    }
+
+    // Dateien von außen: überall dort, wo kein eigener Ablagebereich ist.
+    FileDropArea {
+        anchors.fill: parent
+        hint: app.showStart ? qsTr("Ablegen: importieren und schneiden") : qsTr("Ablegen: am Abspielkopf einfügen")
+        onFilesDropped: if (app.showStart && app.duration > 0) app.showStart = false
     }
 
     // -------------------------------------------------------- Arbeitsbereiche
