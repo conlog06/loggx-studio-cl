@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 #ifdef LOGGX_WITH_RUBBERBAND
 #include <rubberband/RubberBandStretcher.h>
@@ -224,6 +225,33 @@ struct TransitionRamps {
     }
 };
 
+// Wie viel Material ein Clip vor seinem Anfang bzw. nach seinem Ende noch
+// hat (in Timeline-Zeit). Erzeugte Inhalte und Standbilder haben beliebig viel.
+TimeUs handleBefore(const Project& p, const Clip& c) {
+    const MediaAsset* a = c.kind == ClipKind::Media ? p.findAsset(c.assetId) : nullptr;
+    if (!a || a->duration <= 0) return INT64_MAX / 4;
+    return static_cast<TimeUs>(static_cast<double>(c.in) / c.speed);
+}
+TimeUs handleAfter(const Project& p, const Clip& c) {
+    const MediaAsset* a = c.kind == ClipKind::Media ? p.findAsset(c.assetId) : nullptr;
+    if (!a || a->duration <= 0) return INT64_MAX / 4;
+    const double used = static_cast<double>(c.in) + static_cast<double>(c.duration) * c.speed;
+    return std::max<TimeUs>(0, static_cast<TimeUs>((static_cast<double>(a->duration) - used) / c.speed));
+}
+
+// Zeitfenster einer Ton-Überblendung zwischen prev und cur: möglichst mittig
+// auf dem Schnitt, aber nur so weit, wie beide Clips Material haben. Fehlt
+// es ganz, bleibt es ein harter Schnitt (statt Stille oder Versatz).
+std::pair<TimeUs, TimeUs> crossfadeWindow(const Project& p, const Clip& prev, const Clip& cur) {
+    TimeUs d = std::min({cur.transitionDuration, prev.duration, cur.duration});
+    const TimeUs before = handleBefore(p, cur), after = handleAfter(p, prev);
+    d = std::min(d, before + after);
+    const TimeUs lo = cur.start - std::min(before, d);
+    const TimeUs hi = cur.start + std::min(after, d) - d;
+    const TimeUs ws = std::clamp(cur.start - d / 2, lo, std::max(lo, hi));
+    return {ws, d};
+}
+
 TransitionRamps rampsFor(const Project& p, const Track& track, const Clip& c) {
     TransitionRamps r;
     r.from = c.start;
@@ -231,9 +259,10 @@ TransitionRamps rampsFor(const Project& p, const Track& track, const Clip& c) {
     if (const Clip* prev = p.previousAdjacent(track, c); prev && c.transition != TransitionType::None) {
         const TimeUs d = std::min({c.transitionDuration, prev->duration, c.duration});
         if (crossfadeLike(c.transition)) {
-            r.from = c.start - d / 2;
-            r.inA = c.start - d / 2;
-            r.inB = c.start + d / 2;
+            const auto [ws, wd] = crossfadeWindow(p, *prev, c);
+            r.from = std::min(c.start, ws);
+            r.inA = ws;
+            r.inB = ws + wd;
         } else {
             r.inA = c.start;
             r.inB = c.start + d / 2;
@@ -242,9 +271,10 @@ TransitionRamps rampsFor(const Project& p, const Track& track, const Clip& c) {
     if (const Clip* next = p.nextAdjacent(track, c); next && next->transition != TransitionType::None) {
         const TimeUs d = std::min({next->transitionDuration, c.duration, next->duration});
         if (crossfadeLike(next->transition)) {
-            r.to = c.end() + d / 2;
-            r.outA = c.end() - d / 2;
-            r.outB = c.end() + d / 2;
+            const auto [ws, wd] = crossfadeWindow(p, c, *next);
+            r.to = std::max(c.end(), ws + wd);
+            r.outA = ws;
+            r.outB = ws + wd;
         } else {
             r.outA = c.end() - d / 2;
             r.outB = c.end();
