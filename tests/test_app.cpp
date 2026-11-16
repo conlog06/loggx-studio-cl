@@ -696,6 +696,19 @@ int main(int argc, char** argv) {
         dj.setRating(song, 4);
         CHECK(dj.library().first().toMap().value("rating").toInt() == 4);
         CHECK(dj.searchUrl("beatport", song).startsWith("https://www.beatport.com/search?q="));
+        // Bibliothek anpassen: Höhe, groß, Spalten, Zeilenhöhe
+        dj.setLibraryHeight(400);
+        CHECK(dj.libraryHeight() == 400);
+        dj.setLibraryMax(true);
+        CHECK(dj.libraryMax());
+        dj.setLibraryMax(false);
+        const bool hadAlbum = dj.columns().contains("album");
+        dj.toggleColumn("album");
+        CHECK(dj.columns().contains("album") != hadAlbum);
+        dj.toggleColumn("album");
+        dj.setRowSize(2);
+        CHECK(dj.rowSize() == 2);
+        dj.setRowSize(1);
         // Weitere Einstellungen
         CHECK(dj.autoGain());   // Standard an: Lautheit gemessen
         CHECK(dj.library().first().toMap().value("loudness").toDouble() < 0);

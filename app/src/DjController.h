@@ -68,6 +68,11 @@ class DjController : public QObject {
     Q_PROPERTY(bool autoStems READ autoStems WRITE setAutoStems NOTIFY settingsChanged)     // KI-Stems beim Laden
     Q_PROPERTY(bool lockPlaying READ lockPlaying WRITE setLockPlaying NOTIFY settingsChanged)
     Q_PROPERTY(int waveStyle READ waveStyle WRITE setWaveStyle NOTIFY settingsChanged)       // 0 3-Band, 1 Blau, 2 Weiß
+    // Bibliothek anpassen: Höhe (Trenner ziehen), groß (Decks kompakt), Spalten, Zeilenhöhe
+    Q_PROPERTY(double libraryHeight READ libraryHeight WRITE setLibraryHeight NOTIFY layoutChanged)
+    Q_PROPERTY(bool libraryMax READ libraryMax WRITE setLibraryMax NOTIFY layoutChanged)
+    Q_PROPERTY(QStringList columns READ columns WRITE setColumns NOTIFY layoutChanged)
+    Q_PROPERTY(int rowSize READ rowSize WRITE setRowSize NOTIFY layoutChanged)
     // Sampler: 8 Plätze (eingebaute Klänge oder eigene Dateien)
     Q_PROPERTY(QVariantList sampler READ sampler NOTIFY samplerChanged)
     Q_PROPERTY(double samplerVolume READ samplerVolume WRITE setSamplerVolume NOTIFY samplerChanged)
@@ -219,6 +224,15 @@ public:
     bool autoKeyLock() const { return m_autoKeyLock; }
     void setAutoKeyLock(bool on);
     Q_INVOKABLE void restartAudio();
+    double libraryHeight() const { return m_libraryHeight; }
+    void setLibraryHeight(double h);
+    bool libraryMax() const { return m_libraryMax; }
+    void setLibraryMax(bool on);
+    QStringList columns() const { return m_columns; }
+    void setColumns(const QStringList& columns);
+    Q_INVOKABLE void toggleColumn(const QString& id);
+    int rowSize() const { return m_rowSize; }
+    void setRowSize(int size);
     bool autoGain() const { return m_autoGain; }
     void setAutoGain(bool on);
     bool autoStems() const { return m_autoStems; }
@@ -253,6 +267,7 @@ signals:
     void openInEditor(const QString& path, double bpm);
     void deckLoaded(int deck);
     void samplerChanged();
+    void layoutChanged();
     void waveZoomChanged();
 
 private:
@@ -314,6 +329,10 @@ private:
     bool m_autoKeyLock = false;
     bool m_autoGain = true, m_autoStems = false, m_lockPlaying = true;
     int m_waveStyle = 0;
+    double m_libraryHeight = 230;
+    bool m_libraryMax = false;
+    QStringList m_columns;
+    int m_rowSize = 1;
     double m_waveZoom = 8.0;
     std::array<QString, 8> m_samplePaths;     // leer = eingebauter Klang
     std::array<bool, 8> m_samplePlaying{};

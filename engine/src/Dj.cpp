@@ -88,6 +88,15 @@ std::shared_ptr<DjTrack> loadDjTrack(const std::string& path, int sampleRate, st
         std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
         const std::size_t dot = name.find_last_of('.');
         t->title = dot == std::string::npos ? name : name.substr(0, dot);
+        // Unterstriche aus Downloads als Leerzeichen, doppelte zusammenfassen
+        std::string clean;
+        for (char c : t->title) {
+            const char x = c == '_' ? ' ' : c;
+            if (x == ' ' && (clean.empty() || clean.back() == ' ')) continue;
+            clean += x;
+        }
+        while (!clean.empty() && clean.back() == ' ') clean.pop_back();
+        if (!clean.empty()) t->title = clean;
     }
     // Analyse auf Mono (höchstens 3 Minuten aus der Mitte reichen)
     const std::size_t frames = t->frames();

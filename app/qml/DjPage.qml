@@ -116,6 +116,80 @@ Rectangle {
         bpmDialog.open()
     }
     property bool samplerOpen: false
+    // Bibliotheks-Spalten (Titel ist immer da); sichtbar laut dj.columns
+    readonly property var allColumns: [
+        { id: "artist", t: qsTr("Interpret"), c: 1, w: 180 }, { id: "album", t: qsTr("Album"), c: 9, w: 150 },
+        { id: "genre", t: qsTr("Genre"), c: 5, w: 100 }, { id: "bpm", t: "BPM", c: 2, w: 74 },
+        { id: "key", t: qsTr("Tonart"), c: 3, w: 60 }, { id: "time", t: qsTr("Zeit"), c: 4, w: 56 },
+        { id: "rating", t: qsTr("Bewertung"), c: 6, w: 80 }, { id: "plays", t: qsTr("Gespielt"), c: 8, w: 66 },
+        { id: "comment", t: qsTr("Kommentar"), c: 10, w: 160 }, { id: "added", t: qsTr("Neu"), c: 7, w: 70 }]
+    readonly property var visibleColumns: allColumns.filter(function (c) { return dj.columns.indexOf(c.id) >= 0 })
+    Menu {
+        id: columnMenu
+        Repeater {
+            model: page.allColumns
+            MenuItem {
+                required property var modelData
+                text: modelData.t
+                checkable: true
+                checked: dj.columns.indexOf(modelData.id) >= 0
+                onTriggered: dj.toggleColumn(modelData.id)
+            }
+        }
+        MenuSeparator {}
+        Menu {
+            title: qsTr("Zeilenhöhe")
+            Repeater {
+                model: [qsTr("Kompakt"), qsTr("Normal"), qsTr("Groß")]
+                MenuItem {
+                    required property string modelData
+                    required property int index
+                    text: modelData
+                    checkable: true
+                    checked: dj.rowSize === index
+                    onTriggered: dj.rowSize = index
+                }
+            }
+        }
+    }
+    Component {
+        id: textCell
+        Label {
+            leftPadding: 8
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            readonly property var t: parent ? parent.track : ({})
+            readonly property string id: parent ? parent.colId : ""
+            text: !t ? "" : id === "artist" ? t.artist : id === "album" ? t.album : id === "genre" ? t.genre
+                : id === "bpm" ? (t.bpm > 0 ? t.bpm.toFixed(2) : t.analyzed ? "–" : "…")
+                : id === "key" ? (t.key || (t.analyzed ? "–" : "…"))
+                : id === "time" ? t.durationText : id === "plays" ? (t.plays > 0 ? String(t.plays) : "")
+                : id === "comment" ? t.comment : id === "added" ? t.addedText : ""
+            font.family: id === "bpm" || id === "time" ? "monospace" : Qt.application.font.family
+            font.bold: id === "key"
+            font.pixelSize: id === "added" ? 11 : Theme.fontSize
+            color: id === "key" ? Theme.ok : id === "bpm" ? (t && t.gridEdited ? Theme.warn : Theme.text) : id === "added" ? Theme.faint : Theme.dim
+        }
+    }
+    Component {
+        id: starsCell
+        Row {
+            leftPadding: 8
+            spacing: 1
+            readonly property var t: parent ? parent.track : ({})
+            Repeater {
+                model: 5
+                Label {
+                    required property int index
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "★"
+                    font.pixelSize: 11
+                    color: index < (parent.t ? parent.t.rating : 0) ? Theme.warn : Theme.alpha(Theme.faint, 0.5)
+                    MouseArea { anchors.fill: parent; onClicked: dj.setRating(parent.parent.t.path, parent.parent.t.rating === index + 1 ? 0 : index + 1) }
+                }
+            }
+        }
+    }
     Menu {
         id: sampleMenu
         property int slot: 0
@@ -152,6 +226,7 @@ Rectangle {
     }
     Shortcut { enabled: page.active; sequences: ["Ctrl++", "Ctrl+="]; onActivated: dj.zoomWave(1) }
     Shortcut { enabled: page.active; sequence: "Ctrl+-"; onActivated: dj.zoomWave(-1) }
+    Shortcut { enabled: page.active; sequence: "Ctrl+B"; onActivated: dj.libraryMax = !dj.libraryMax }
 
     Menu {
         id: playlistMenu
@@ -326,6 +401,7 @@ Rectangle {
 
         // --------------------------------- mitlaufende Wellenformen
         DjWave {
+            visible: !dj.libraryMax
             Layout.fillWidth: true
             Layout.preferredHeight: 56
             controller: dj
@@ -334,6 +410,7 @@ Rectangle {
             accent: "#3d8bff"
         }
         DjWave {
+            visible: !dj.libraryMax
             Layout.fillWidth: true
             Layout.preferredHeight: 56
             controller: dj
@@ -344,7 +421,7 @@ Rectangle {
 
         // ------------------------------------------ Sampler
         Rectangle {
-            visible: page.samplerOpen
+            visible: page.samplerOpen && !dj.libraryMax
             Layout.fillWidth: true
             Layout.preferredHeight: 54
             radius: 8
@@ -400,8 +477,86 @@ Rectangle {
             }
         }
 
+        // ------------------- kompakte Decks (Bibliothek groß)
+        RowLayout {
+            visible: dj.libraryMax
+            Layout.fillWidth: true
+            spacing: 8
+            Repeater {
+                model: 2
+                Rectangle {
+                    id: mini
+                    required property int index
+                    readonly property var info: index === 0 ? dj.deckA : dj.deckB
+                    readonly property color accent: index === 0 ? "#3d8bff" : "#ff8a3d"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 62
+                    radius: 10
+                    color: Theme.panel
+                    border.color: info.master ? accent : Theme.border
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 8
+                        Rectangle {
+                            implicitWidth: 26; implicitHeight: 26; radius: 7
+                            color: mini.accent
+                            Label { anchors.centerIn: parent; text: mini.index + 1; font.bold: true; color: "white" }
+                        }
+                        Button {
+                            text: "CUE"
+                            implicitWidth: 52
+                            onClicked: dj.cue(mini.index)
+                        }
+                        Button {
+                            icon.name: mini.info.playing ? "pause" : "play"
+                            implicitWidth: 40
+                            highlighted: mini.info.playing === true
+                            onClicked: dj.togglePlay(mini.index)
+                        }
+                        ColumnLayout {
+                            Layout.preferredWidth: 190
+                            Layout.maximumWidth: 190
+                            spacing: 0
+                            Label { Layout.fillWidth: true; text: mini.info.loaded ? mini.info.title : qsTr("Leer"); elide: Text.ElideRight; font.bold: true }
+                            Label { Layout.fillWidth: true; text: mini.info.loaded ? (mini.info.artist || "") : ""; elide: Text.ElideRight; color: Theme.dim; font.pixelSize: 11 }
+                        }
+                        DjWave {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumWidth: 80
+                            opacity: mini.info.loaded ? 1 : 0
+                            controller: dj
+                            deck: mini.index
+                            overview: true
+                            accent: mini.accent
+                        }
+                        ColumnLayout {
+                            spacing: 0
+                            Label {
+                                Layout.alignment: Qt.AlignRight
+                                text: mini.info.loaded && mini.info.bpmNow > 0 ? mini.info.bpmNow.toFixed(2) : "--.--"
+                                font.family: "monospace"
+                                font.bold: true
+                                font.pixelSize: 16
+                            }
+                            Label {
+                                Layout.alignment: Qt.AlignRight
+                                text: (mini.info.keyNow || mini.info.key || "") + "  " + (mini.info.remainingText || "")
+                                color: Theme.dim
+                                font.family: "monospace"
+                                font.pixelSize: 11
+                            }
+                        }
+                        Button { text: "SYNC"; implicitWidth: 56; highlighted: mini.info.sync === true; onClicked: dj.sync(mini.index) }
+                    }
+                }
+            }
+        }
+
         // ----------------------------------- Decks und Mixer
         RowLayout {
+            visible: !dj.libraryMax
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 450
@@ -526,10 +681,46 @@ Rectangle {
             DjDeck { deck: 1; Layout.fillWidth: true; Layout.fillHeight: true; onAskBpm: function (path, deck, current) { page.askBpm(path, deck, current) } }
         }
 
+        // Trenner: ziehen = Bibliothek größer/kleiner, Doppelklick = groß
+        Item {
+            visible: !dj.libraryMax
+            Layout.fillWidth: true
+            Layout.preferredHeight: 8
+            Layout.topMargin: -4
+            Layout.bottomMargin: -4
+            Rectangle {
+                anchors.centerIn: parent
+                width: 60
+                height: 4
+                radius: 2
+                color: splitMouse.containsMouse || splitMouse.pressed ? Theme.accent : Theme.border
+            }
+            MouseArea {
+                id: splitMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.SizeVerCursor
+                property real startY: 0
+                property real startH: 0
+                onPressed: function (m) { startY = mapToItem(page, m.x, m.y).y; startH = libraryBox.height }
+                onPositionChanged: function (m) {
+                    if (!pressed) return
+                    const y = mapToItem(page, m.x, m.y).y
+                    dj.libraryHeight = Math.max(110, Math.min(page.height - 300, startH - (y - startY)))
+                }
+                onDoubleClicked: dj.libraryMax = true
+            }
+            ToolTip.visible: splitMouse.containsMouse && !splitMouse.pressed
+            ToolTip.delay: 700
+            ToolTip.text: qsTr("Ziehen: Bibliothek größer/kleiner · Doppelklick: Bibliothek groß")
+        }
+
         // ----------------------------------------- Bibliothek
         Rectangle {
+            id: libraryBox
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(150, page.height * 0.22)
+            Layout.fillHeight: dj.libraryMax
+            Layout.preferredHeight: dj.libraryMax ? -1 : dj.libraryHeight
             color: Theme.panel
             radius: 10
             border.color: Theme.border
@@ -622,6 +813,24 @@ Rectangle {
                         Button { text: qsTr("Ordner …"); icon.name: "folder"; flat: true; onClicked: folderDialog.open() }
                         Button { visible: dj.view === -2 && dj.trackCount > 0; text: qsTr("Als Playlist sichern"); flat: true; onClicked: { const i = dj.createPlaylist(qsTr("Set %1").arg(new Date().toLocaleDateString(Qt.locale(), "dd.MM.yyyy"))); const paths = []; for (let r = 0; r < dj.trackCount; ++r) paths.unshift(dj.pathAt(r)); dj.addToPlaylist(i, paths) } }
                         Item { Layout.fillWidth: true }
+                        Button {
+                            text: dj.libraryMax ? qsTr("Decks zeigen") : qsTr("Groß")
+                            flat: true
+                            icon.name: "fit"
+                            onClicked: dj.libraryMax = !dj.libraryMax
+                            ToolTip.text: qsTr("Bibliothek groß – Decks kompakt oben (Strg+B)")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                        }
+                        Button {
+                            flat: true
+                            icon.name: "sliders"
+                            implicitWidth: 36
+                            onClicked: columnMenu.popup()
+                            ToolTip.text: qsTr("Spalten und Zeilenhöhe")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                        }
                         TextField {
                             Layout.preferredWidth: 260
                             placeholderText: qsTr("Suchen (Titel, Interpret, Genre, Kommentar)")
@@ -634,10 +843,7 @@ Rectangle {
                         id: header
                         Layout.fillWidth: true
                         spacing: 0
-                        readonly property var columns: [
-                            { t: qsTr("Titel"), c: 0, w: 0 }, { t: qsTr("Interpret"), c: 1, w: 180 }, { t: qsTr("Genre"), c: 5, w: 100 },
-                            { t: "BPM", c: 2, w: 74 }, { t: qsTr("Tonart"), c: 3, w: 60 }, { t: qsTr("Zeit"), c: 4, w: 56 },
-                            { t: qsTr("Bewertung"), c: 6, w: 80 }, { t: qsTr("Neu"), c: 7, w: 70 }, { t: "", c: -1, w: 96 }]
+                        readonly property var columns: [{ id: "title", t: qsTr("Titel"), c: 0, w: 0 }].concat(page.visibleColumns).concat([{ id: "", t: "", c: -1, w: 96 }])
                         Repeater {
                             model: header.columns
                             Rectangle {
@@ -657,9 +863,12 @@ Rectangle {
                                 }
                                 MouseArea {
                                     anchors.fill: parent
-                                    enabled: parent.modelData.c >= 0
-                                    onClicked: {
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    onClicked: function (m) {
+                                        // Rechtsklick: Spalten ein-/ausblenden
+                                        if (m.button === Qt.RightButton) { columnMenu.popup(); return }
                                         const c = parent.modelData.c
+                                        if (c < 0) return
                                         dj.sortColumn = (Math.abs(dj.sortColumn) % 20 === c && dj.sortColumn >= 0) ? -(c === 0 ? 20 : c) : c
                                     }
                                 }
@@ -684,7 +893,7 @@ Rectangle {
                             readonly property string trackPath: modelData.path
                             readonly property bool selected: index === dj.cursor
                             width: list.width
-                            height: 27
+                            height: [22, 27, 34][dj.rowSize]
                             color: selected ? Theme.alpha(Theme.accent, 0.20) : rowMouse.containsMouse ? Theme.hover : index % 2 ? Theme.panel2 : "transparent"
                             opacity: modelData.exists ? 1 : 0.45
                             MouseArea {
@@ -714,33 +923,17 @@ Rectangle {
                                     color: row.modelData.onDeck === 1 ? "#3d8bff" : row.modelData.onDeck === 2 ? "#ff8a3d" : Theme.text
                                     font.bold: row.modelData.onDeck > 0
                                 }
-                                Label { Layout.preferredWidth: 180; leftPadding: 8; elide: Text.ElideRight; text: row.modelData.artist; color: Theme.dim }
-                                Label { Layout.preferredWidth: 100; leftPadding: 8; elide: Text.ElideRight; text: row.modelData.genre; color: Theme.dim }
-                                Label {
-                                    Layout.preferredWidth: 74
-                                    leftPadding: 8
-                                    text: row.modelData.bpm > 0 ? row.modelData.bpm.toFixed(2) : row.modelData.analyzed ? "–" : "…"
-                                    font.family: "monospace"
-                                    color: row.modelData.gridEdited ? Theme.warn : Theme.text
-                                }
-                                Label { Layout.preferredWidth: 60; leftPadding: 8; text: row.modelData.key || (row.modelData.analyzed ? "–" : "…"); color: Theme.ok; font.bold: true }
-                                Label { Layout.preferredWidth: 56; leftPadding: 8; text: row.modelData.durationText; color: Theme.dim; font.family: "monospace" }
-                                Row {
-                                    Layout.preferredWidth: 80
-                                    leftPadding: 8
-                                    spacing: 1
-                                    Repeater {
-                                        model: 5
-                                        Label {
-                                            required property int index
-                                            text: "★"
-                                            font.pixelSize: 11
-                                            color: index < row.modelData.rating ? Theme.warn : Theme.alpha(Theme.faint, 0.5)
-                                            MouseArea { anchors.fill: parent; onClicked: dj.setRating(row.modelData.path, row.modelData.rating === index + 1 ? 0 : index + 1) }
-                                        }
+                                Repeater {
+                                    model: page.visibleColumns
+                                    Loader {
+                                        required property var modelData
+                                        Layout.preferredWidth: modelData.w
+                                        Layout.fillHeight: true
+                                        readonly property var track: row.modelData
+                                        sourceComponent: modelData.id === "rating" ? starsCell : textCell
+                                        property string colId: modelData.id
                                     }
                                 }
-                                Label { Layout.preferredWidth: 70; leftPadding: 8; text: row.modelData.addedText; color: Theme.faint; font.pixelSize: 11 }
                                 RowLayout {
                                     Layout.preferredWidth: 96
                                     spacing: 2

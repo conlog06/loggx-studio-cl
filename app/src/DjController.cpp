@@ -151,6 +151,11 @@ DjController::DjController(AppController* app, QObject* parent) : QObject(parent
     m_autoStems = settings.value(QStringLiteral("dj/autoStems"), false).toBool();
     m_lockPlaying = settings.value(QStringLiteral("dj/lockPlaying"), true).toBool();
     m_waveStyle = settings.value(QStringLiteral("dj/waveStyle"), 0).toInt();
+    m_libraryHeight = settings.value(QStringLiteral("dj/libraryHeight"), 230.0).toDouble();
+    m_libraryMax = settings.value(QStringLiteral("dj/libraryMax"), false).toBool();
+    m_columns = settings.value(QStringLiteral("dj/columns"), QStringList{QStringLiteral("artist"), QStringLiteral("genre"), QStringLiteral("bpm"), QStringLiteral("key"),
+                                                                           QStringLiteral("time"), QStringLiteral("rating"), QStringLiteral("added")}).toStringList();
+    m_rowSize = settings.value(QStringLiteral("dj/rowSize"), 1).toInt();
     m_range = {m_defaultRange, m_defaultRange};
     m_mixer.setHeadphones(m_headMix, m_headVolume);
     m_waveZoom = settings.value(QStringLiteral("dj/waveZoom"), 8.0).toDouble();
@@ -201,6 +206,11 @@ void DjController::setStatus(const QString& text) {
 // ------------------------------------------------------------ Bibliothek
 
 namespace {
+// Dateiname als Titel: „Movin__To_The_Sun_-_HUGEL“ → „Movin To The Sun - HUGEL“
+QString niceName(QString name) {
+    name.replace(QLatin1Char('_'), QLatin1Char(' '));
+    return name.simplified();
+}
 constexpr double kGainTarget = -13.0;   // RMS-Ziel in dBFS für Auto-Gain
 constexpr int kAnalysisVersion = 3;   // 0.7: neue Tempo-Erkennung (3: ganzzahlig einrasten)
 }
@@ -334,6 +344,8 @@ std::vector<const DjController::Entry*> DjController::rows() const {
         case 6: return a->rating < b->rating;
         case 7: return a->added < b->added;
         case 8: return a->plays < b->plays;
+        case 9: return a->album.compare(b->album, Qt::CaseInsensitive) < 0;
+        case 10: return a->comment.compare(b->comment, Qt::CaseInsensitive) < 0;
         default: return a->title.compare(b->title, Qt::CaseInsensitive) < 0;
         }
     };
@@ -422,7 +434,7 @@ void DjController::importFiles(const QList<QUrl>& urls) {
         if (std::any_of(m_entries.begin(), m_entries.end(), [&](const Entry& e) { return e.path == abs; })) continue;
         Entry e;
         e.path = abs;
-        e.title = info.completeBaseName();
+        e.title = niceName(info.completeBaseName());
         e.added = QDateTime::currentMSecsSinceEpoch();
         m_entries.push_back(e);
         m_analyzeQueue << abs;
@@ -1504,4 +1516,50 @@ void DjController::setWaveStyle(int style) {
     QSettings().setValue(QStringLiteral("dj/waveStyle"), m_waveStyle);
     emit settingsChanged();
     emit tick();
+}
+
+// ------------------------------------------------------------ Bibliothek-Ansicht
+
+void DjController::setLibraryHeight(double h) {
+    h = std::clamp(h, 100.0, 2000.0);
+    if (std::abs(h - m_libraryHeight) < 0.5) return;
+    m_libraryHeight = h;
+    QSettings().setValue(QStringLiteral("dj/libraryHeight"), h);
+    emit layoutChanged();
+}
+
+void DjController::setLibraryMax(bool on) {
+    if (on == m_libraryMax) return;
+    m_libraryMax = on;
+    QSettings().setValue(QStringLiteral("dj/libraryMax"), on);
+    emit layoutChanged();
+}
+
+void DjController::setColumns(const QStringList& columns) {
+    if (columns == m_columns) return;
+    m_columns = columns;
+    QSettings().setValue(QStringLiteral("dj/columns"), columns);
+    emit layoutChanged();
+}
+
+void DjController::toggleColumn(const QString& id) {
+    QStringList c = m_columns;
+    if (c.contains(id)) c.removeAll(id);
+    else {
+        // feste Reihenfolge beibehalten
+        static const QStringList order = {QStringLiteral("artist"), QStringLiteral("album"), QStringLiteral("genre"), QStringLiteral("bpm"),
+                                          QStringLiteral("key"), QStringLiteral("time"), QStringLiteral("rating"), QStringLiteral("plays"),
+                                          QStringLiteral("comment"), QStringLiteral("added")};
+        c << id;
+        std::sort(c.begin(), c.end(), [&](const QString& a, const QString& b) { return order.indexOf(a) < order.indexOf(b); });
+    }
+    setColumns(c);
+}
+
+void DjController::setRowSize(int size) {
+    size = std::clamp(size, 0, 2);
+    if (size == m_rowSize) return;
+    m_rowSize = size;
+    QSettings().setValue(QStringLiteral("dj/rowSize"), size);
+    emit layoutChanged();
 }
