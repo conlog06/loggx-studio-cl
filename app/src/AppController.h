@@ -95,6 +95,13 @@ class AppController : public QObject {
     Q_PROPERTY(QString workLabel READ workLabel NOTIFY workChanged)
     Q_PROPERTY(bool aiAvailable READ aiAvailable CONSTANT)
     Q_PROPERTY(int separationMethod READ separationMethod WRITE setSeparationMethod NOTIFY workChanged)
+    // KI-Modelle: Liste mit Status, automatischer Download im Hintergrund
+    Q_PROPERTY(QVariantList aiModels READ aiModels NOTIFY modelsChanged)
+    Q_PROPERTY(bool aiAutoDownload READ aiAutoDownload WRITE setAiAutoDownload NOTIFY modelsChanged)
+    Q_PROPERTY(QString aiModelFolder READ aiModelFolder CONSTANT)
+    // Allgemein: Start, Sicherung
+    Q_PROPERTY(int startMode READ startMode WRITE setStartMode NOTIFY generalChanged)       // 0 Start, 1 letztes Projekt, 2 DJ
+    Q_PROPERTY(int autosaveMinutes READ autosaveMinutes WRITE setAutosaveMinutes NOTIFY generalChanged)   // 0 = aus
     Q_PROPERTY(double previewMs READ previewMs NOTIFY statsChanged)
     Q_PROPERTY(QVariantMap systemInfo READ systemInfo CONSTANT)
 
@@ -254,6 +261,17 @@ public:
     Q_INVOKABLE bool separateSelected(bool keepVocals, int method = -1);
     bool aiAvailable() const;
     int separationMethod() const { return m_separationMethod; }
+    QVariantList aiModels() const;
+    bool aiAutoDownload() const { return m_aiAutoDownload; }
+    void setAiAutoDownload(bool on);
+    QString aiModelFolder() const;
+    Q_INVOKABLE void downloadAllModels();
+    Q_INVOKABLE void deleteModel(const QString& id);
+    int startMode() const;
+    void setStartMode(int mode);
+    int autosaveMinutes() const { return m_autosaveMinutes; }
+    void setAutosaveMinutes(int minutes);
+    Q_INVOKABLE void clearRecent();
     void setSeparationMethod(int method);
     class ModelManager* models() const { return m_models; }
     // Fehlende KI-Modelle laden (mit Fortschritt), danach then() aufrufen.
@@ -338,6 +356,8 @@ signals:
     void statusChanged();
     void levelsChanged();
     void recoveryChanged();
+    void modelsChanged();
+    void generalChanged();
     void startChanged();
     void recentChanged();
     void gridChanged();
@@ -459,6 +479,8 @@ private:
     class ModelManager* m_models = nullptr;
     bool m_downloading = false;
     int m_separationMethod = 0;
+    bool m_aiAutoDownload = false;
+    int m_autosaveMinutes = 1;
     double m_workProgress = 0.0;
     QString m_workLabel;
     void runTask(const QString& label, TaskWorker::Job job, std::function<void()> finished);

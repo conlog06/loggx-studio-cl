@@ -696,6 +696,22 @@ int main(int argc, char** argv) {
         dj.setRating(song, 4);
         CHECK(dj.library().first().toMap().value("rating").toInt() == 4);
         CHECK(dj.searchUrl("beatport", song).startsWith("https://www.beatport.com/search?q="));
+        // Weitere Einstellungen
+        CHECK(dj.autoGain());   // Standard an: Lautheit gemessen
+        CHECK(dj.library().first().toMap().value("loudness").toDouble() < 0);
+        dj.setWaveStyle(1);
+        CHECK(dj.waveStyle() == 1);
+        dj.setWaveStyle(0);
+        dj.setLockPlaying(false);
+        CHECK(!dj.lockPlaying());
+        dj.setLockPlaying(true);
+        CHECK(host.aiModels().size() == static_cast<int>(stemModels().size()));
+        host.setStartMode(2);
+        CHECK(host.startMode() == 2);
+        host.setStartMode(0);
+        host.setAutosaveMinutes(5);
+        CHECK(host.autosaveMinutes() == 5);
+        host.setAutosaveMinutes(1);
         // Kopfhörer: Vorhören an
         dj.setPfl(0, true);
         CHECK(dj.deckA().value("pfl").toBool());

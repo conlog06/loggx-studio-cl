@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.8**: DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.9**: DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -36,7 +36,13 @@ Dieses Repository enthält die **MVP-Vorschau 0.8**: DJ als eigener Modus mit **
 - **Andere Controller**: verbinden und per **MIDI-Learn** Tasten/Regler zuordnen (Einstellungen → Controller)
 - Die MIDI-Nummern des FLX4 stammen aus der Zuordnung des freien DJ-Programms Mixxx (eigene Umsetzung, kein Mixxx-Code). Ohne echtes Gerät getestet: per Simulation der Nachrichten in den automatischen Tests. Unter Windows kann ein MIDI-Gerät nur von einem Programm gleichzeitig benutzt werden – rekordbox vorher schließen.
 
-**Einstellungen** (Zahnrad oben rechts, Strg+,): Audio (DJ-Ausgang, Kopfhörer, Puffer, Mikrofon), DJ (BPM-Bereich der Erkennung wie in rekordbox, Standard-Tempobereich, Key Lock beim Laden, Quantize), Controller, Bibliothek (rekordbox/iTunes übernehmen, Verlauf leeren), KI, Über.
+**Einstellungen** (Zahnrad oben rechts, Strg+,):
+- Allgemein: beim Start öffnen (Startbildschirm, letztes Projekt, DJ-Modus), automatische Sicherung (aus/1–10 min), Vorschauqualität, „Zuletzt geöffnet“ leeren
+- Audio: DJ-Ausgang, Kopfhörer (Kanäle 3/4 oder eigenes Gerät), Puffer, Mikrofon
+- DJ: BPM-Bereich der Erkennung wie in rekordbox, Standard-Tempobereich, Key Lock beim Laden, Quantize, **Lautheit angleichen (Auto-Gain)**, spielendes Deck sperren, **KI-Stems automatisch beim Laden**, Wellenform-Farben (3-Band, Blau, einfarbig), Zoom
+- Controller: Gerät, Tempo-Fader umkehren, MIDI-Learn
+- Bibliothek: rekordbox/iTunes übernehmen, Verlauf leeren
+- KI: Standard-Methode, **Modelle automatisch im Hintergrund laden**, Modell-Liste mit Status/Größe, alle laden, einzeln löschen, Ordner öffnen
 
 **Streaming**: Spotify, Apple Music, SoundCloud und Beatport geben ihre Streams nur an DJ-Programme mit eigenem Partnervertrag frei (so wie bei rekordbox, Serato oder djay). Ohne diese Verträge kann LXStudio sie nicht abspielen; es gibt die Suche bei diesen Diensten per Rechtsklick und den Import gekaufter Dateien bzw. der Apple-Music-Library (nur lokale Dateien).
 
@@ -106,7 +112,7 @@ Bekannte Grenzen:
 
 - Bilder werden auf der CPU berechnet (alle Kerne). Beim Abspielen verkleinert „Auto“ die Vorschau bei Bedarf; 4K-Material und viele Effekte können ruckeln. Angehalten ist die Vorschau so scharf wie das Fenster.
 - Die Mikrofon-Aufnahme gleicht die Latenz des Audiogeräts noch nicht aus (bei großen Puffern liegt sie minimal zu spät). Ein 8K-Export ist langsam und braucht rund 4 GB Arbeitsspeicher.
-- Die Tempo-Erkennung (spektraler Fluss, feine Rastersuche über den ganzen Track, Bereich wie rekordbox 70–180 BPM einstellbar) erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück). Bei halb/doppelt erkannten Tempi hilft ×2 / ÷2, bei Live-Aufnahmen TAP.
+- Die Tempo-Erkennung (spektraler Fluss, feine Rastersuche über den ganzen Track und den ganzen BPM-Bereich, Bereich wie rekordbox 70–180 BPM einstellbar) erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück). Bei halb/doppelt erkannten Tempi hilft ×2 / ÷2, bei Live-Aufnahmen TAP.
 - Die KI-Trennung rechnet auf der CPU: grob 0,3–1× Echtzeit je nach Rechner und Stufe (ein 3-Minuten-Song braucht also etwa 1–10 Minuten). GPU-Beschleunigung fehlt noch.
 - **Lizenzen der KI-Modelle:** Die Modelle werden nicht mit dem Programm verteilt, sondern bei Bedarf aus dem öffentlichen Modell-Archiv von *Ultimate Vocal Remover* geladen. Die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass) stehen unter MIT-Lizenz; für „Kim Vocal 2“ ist keine Lizenz angegeben – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
 - DJ: Kopfhörer auf einem eigenen Gerät (statt Kanälen 3/4) läuft über eine zweite Audioausgabe und kann sich bei sehr langen Sets minimal verschieben. Ob Windows die Kanäle 3/4 des FLX4 anbietet, hängt vom Treiber ab (Pioneer-Treiber installieren); die Info-Zeile unter Einstellungen → Audio zeigt, was aktiv ist – sonst Kopfhörer über „Eigenes Gerät“.

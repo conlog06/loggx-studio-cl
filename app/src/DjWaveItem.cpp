@@ -97,9 +97,18 @@ void DjWaveItem::paint(QPainter* p) {
             p->fillRect(QRectF(x, mid - hh, 1, hh * 2), col);
         };
         // Reihenfolge: Höhen (außen hell), Mitten, Bass (innen kräftig)
-        bar(std::min(255, std::max(lo, std::max(mi, hi))), kHigh);
-        bar(std::min(255, std::max(lo, mi)), kMid);
-        bar(lo, kLow);
+        const int style = m_controller->waveStyle();
+        if (style == 1) {          // Blau wie „Blue“ in rekordbox: hell = Höhen
+            bar(std::min(255, std::max(lo, std::max(mi, hi))), QColor(0x9f, 0xd4, 0xff));
+            bar(std::min(255, std::max(lo, mi)), QColor(0x2f, 0x8c, 0xff));
+            bar(lo, QColor(0x1a, 0x4f, 0xc8));
+        } else if (style == 2) {   // Einfarbig
+            bar(std::min(255, std::max(lo, std::max(mi, hi))), QColor(0xd8, 0xdc, 0xe4));
+        } else {
+            bar(std::min(255, std::max(lo, std::max(mi, hi))), kHigh);
+            bar(std::min(255, std::max(lo, mi)), kMid);
+            bar(lo, kLow);
+        }
     }
 
     // Beat-Raster (gezoomt): Schläge fein, Takte deutlich

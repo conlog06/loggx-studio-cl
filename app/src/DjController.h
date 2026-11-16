@@ -64,6 +64,10 @@ class DjController : public QObject {
     Q_PROPERTY(double headVolume READ headVolume WRITE setHeadVolume NOTIFY mixerChanged)
     Q_PROPERTY(double defaultTempoRange READ defaultTempoRange WRITE setDefaultTempoRange NOTIFY settingsChanged)
     Q_PROPERTY(bool autoKeyLock READ autoKeyLock WRITE setAutoKeyLock NOTIFY settingsChanged)
+    Q_PROPERTY(bool autoGain READ autoGain WRITE setAutoGain NOTIFY settingsChanged)        // Lautheit angleichen
+    Q_PROPERTY(bool autoStems READ autoStems WRITE setAutoStems NOTIFY settingsChanged)     // KI-Stems beim Laden
+    Q_PROPERTY(bool lockPlaying READ lockPlaying WRITE setLockPlaying NOTIFY settingsChanged)
+    Q_PROPERTY(int waveStyle READ waveStyle WRITE setWaveStyle NOTIFY settingsChanged)       // 0 3-Band, 1 Blau, 2 Weiß
     // Sampler: 8 Plätze (eingebaute Klänge oder eigene Dateien)
     Q_PROPERTY(QVariantList sampler READ sampler NOTIFY samplerChanged)
     Q_PROPERTY(double samplerVolume READ samplerVolume WRITE setSamplerVolume NOTIFY samplerChanged)
@@ -215,6 +219,14 @@ public:
     bool autoKeyLock() const { return m_autoKeyLock; }
     void setAutoKeyLock(bool on);
     Q_INVOKABLE void restartAudio();
+    bool autoGain() const { return m_autoGain; }
+    void setAutoGain(bool on);
+    bool autoStems() const { return m_autoStems; }
+    void setAutoStems(bool on);
+    bool lockPlaying() const { return m_lockPlaying; }
+    void setLockPlaying(bool on);
+    int waveStyle() const { return m_waveStyle; }
+    void setWaveStyle(int style);
 
     // Für die Wellenform-Anzeige
     std::shared_ptr<const loggx::DjTrack> track(int deck) const { return m_mixer.track(deck); }
@@ -253,6 +265,7 @@ private:
         int version = 0;          // Stand der Analyse (neue Erkennung → neu analysieren)
         bool gridEdited = false;  // von Hand oder aus rekordbox: nicht überschreiben
         int rating = 0, plays = 0;
+        double loudness = 0;      // RMS in dBFS (0 = unbekannt)
         qint64 added = 0;         // ms seit 1970
         std::array<double, 8> hot{-1, -1, -1, -1, -1, -1, -1, -1};
     };
@@ -299,6 +312,8 @@ private:
     int m_bufferMs = 30;
     double m_headMix = 0.0, m_headVolume = 1.0, m_defaultRange = 8.0;
     bool m_autoKeyLock = false;
+    bool m_autoGain = true, m_autoStems = false, m_lockPlaying = true;
+    int m_waveStyle = 0;
     double m_waveZoom = 8.0;
     std::array<QString, 8> m_samplePaths;     // leer = eingebauter Klang
     std::array<bool, 8> m_samplePlaying{};

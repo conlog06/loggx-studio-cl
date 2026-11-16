@@ -73,6 +73,7 @@ int main(int argc, char** argv) {
     bool showLicense = false;
     QUrl mainQml(QStringLiteral("qrc:/qml/Main.qml"));
     bool pageGiven = false;
+    bool fileGiven = false;
     int startPage = 1;   // 0 Medien, 1 Schnitt, 2 Farbe, 3 Musik, 4 Export, 6 DJ
     bool showSettings = false;
     int settingsTab = 0;
@@ -106,7 +107,19 @@ int main(int argc, char** argv) {
         else if (args[i] == QLatin1String("--seek") && i + 1 < args.size())
             controller.seek(args[++i].toDouble());
         else if (!args[i].startsWith(QLatin1Char('-')))
-            controller.openProjectFile(args[i]);
+            controller.openProjectFile(args[i]), fileGiven = true;
+    }
+    // Einstellung „Beim Start“: Startbildschirm, letztes Projekt oder DJ
+    if (!pageGiven && !fileGiven && !showSettings) {
+        if (controller.startMode() == 2) {
+            startPage = 6;
+        } else if (controller.startMode() == 1) {
+            const QVariantList recent = controller.recentProjects();
+            if (!recent.isEmpty()) {
+                const QString last = recent.first().toMap().value(QStringLiteral("path")).toString();
+                if (QFileInfo::exists(last) && controller.openProjectFile(last)) controller.setShowStart(false);
+            }
+        }
     }
 
     if (pageGiven) controller.setShowStart(false);

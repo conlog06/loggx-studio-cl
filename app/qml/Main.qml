@@ -324,7 +324,7 @@ ApplicationWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     text: djmidi.connected ? djmidi.device : qsTr("Kein Controller – Tastatur & Maus")
                     color: djmidi.connected ? Theme.text : Theme.dim
-                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { generalSettings.tab = 2; generalSettings.open() } }
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { generalSettings.tab = 3; generalSettings.open() } }
                 }
             }
             TextField {

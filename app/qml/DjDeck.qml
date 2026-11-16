@@ -57,7 +57,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 10
             Rectangle {
-                width: 30; height: 30; radius: 8
+                implicitWidth: 30; implicitHeight: 30; radius: 8
                 color: deckRoot.accent
                 Label { anchors.centerIn: parent; text: deckRoot.deck + 1; font.bold: true; font.pixelSize: 16; color: "white" }
             }
@@ -81,7 +81,8 @@ Rectangle {
             }
             Rectangle {
                 visible: deckRoot.loaded && info.key !== ""
-                width: keyText.implicitWidth + 14; height: 24; radius: 6
+                implicitWidth: keyText.implicitWidth + 14; implicitHeight: 24; radius: 6
+                Layout.alignment: Qt.AlignVCenter
                 color: Theme.panel2
                 border.color: Theme.border
                 Label {

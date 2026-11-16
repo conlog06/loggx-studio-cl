@@ -8,6 +8,10 @@
 #include <QStandardPaths>
 
 #include "AppController.h"
+
+#include <QFile>
+
+#include <QTimer>
 #include "ModelManager.h"
 
 #include <QSettings>
@@ -53,6 +57,11 @@ void AppController::setSeparationMethod(int method) {
 }
 
 void AppController::ensureModels(const QStringList& ids, std::function<void()> then) {
+    // Läuft schon ein Download (z. B. automatisch im Hintergrund): danach weiter
+    if (m_models->busy()) {
+        QTimer::singleShot(1000, this, [this, ids, then] { ensureModels(ids, then); });
+        return;
+    }
     for (const QString& id : ids) {
         const StemModelInfo* model = findStemModel(str(id));
         if (!model || m_models->isReady(*model)) continue;
@@ -70,6 +79,7 @@ void AppController::ensureModels(const QStringList& ids, std::function<void()> t
             disconnect(*conn);
             m_downloading = false;
             emit workChanged();
+            emit modelsChanged();
             if (!ok) {
                 setStatus(error);
                 return;
@@ -256,4 +266,74 @@ int AppController::transposeSong(int semitones) {
                                 .arg(changed)
                           : tr("Nichts zu transponieren"));
     return changed;
+}
+
+// ------------------------------------------------------------ KI-Modelle
+
+QVariantList AppController::aiModels() const {
+    QVariantList list;
+    for (const StemModelInfo& m : stemModels()) {
+        list << QVariantMap{{QStringLiteral("id"), qstr(m.id)},
+                            {QStringLiteral("name"), qstr(m.name)},
+                            {QStringLiteral("stem"), qstr(m.stem)},
+                            {QStringLiteral("mb"), static_cast<int>(m.bytes / 1000000)},
+                            {QStringLiteral("ready"), m_models->isReady(m)}};
+    }
+    return list;
+}
+
+QString AppController::aiModelFolder() const { return m_models->folder(); }
+
+void AppController::setAiAutoDownload(bool on) {
+    m_aiAutoDownload = on;
+    QSettings().setValue(QStringLiteral("ai/autoDownload"), on);
+    emit modelsChanged();
+    if (on) downloadAllModels();
+}
+
+void AppController::downloadAllModels() {
+    if (!aiAvailable()) return;
+    QStringList ids;
+    for (const StemModelInfo& m : stemModels())
+        if (!m_models->isReady(m)) ids << qstr(m.id);
+    if (ids.isEmpty()) {
+        setStatus(tr("Alle KI-Modelle sind bereit"));
+        return;
+    }
+    ensureModels(ids, [this] {
+        setStatus(tr("Alle KI-Modelle geladen – Stems und Vocal Remover laufen jetzt offline"));
+        emit modelsChanged();
+    });
+}
+
+void AppController::deleteModel(const QString& id) {
+    const StemModelInfo* model = findStemModel(str(id));
+    if (!model) return;
+    QFile::remove(m_models->pathFor(*model));
+    emit modelsChanged();
+}
+
+// ------------------------------------------------------------ Allgemein
+
+int AppController::startMode() const { return QSettings().value(QStringLiteral("general/startMode"), 0).toInt(); }
+
+void AppController::setStartMode(int mode) {
+    QSettings().setValue(QStringLiteral("general/startMode"), std::clamp(mode, 0, 2));
+    emit generalChanged();
+}
+
+void AppController::setAutosaveMinutes(int minutes) {
+    m_autosaveMinutes = std::clamp(minutes, 0, 30);
+    QSettings().setValue(QStringLiteral("general/autosaveMinutes"), m_autosaveMinutes);
+    m_autosaveTimer.stop();
+    if (m_autosaveMinutes > 0) {
+        m_autosaveTimer.setInterval(m_autosaveMinutes * 60'000);
+        m_autosaveTimer.start();
+    }
+    emit generalChanged();
+}
+
+void AppController::clearRecent() {
+    QSettings().remove(QStringLiteral("recent"));
+    emit recentChanged();
 }

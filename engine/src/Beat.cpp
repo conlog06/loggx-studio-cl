@@ -177,14 +177,33 @@ BeatInfo detectBeatsFromSamples(const float* mono, std::size_t count, int rate, 
     };
     // a) 3:2-Verwechslungen: das richtige Raster trifft im Mittel die
     //    stärksten Einsätze (ein ⅔-Raster landet zur Hälfte auf Offbeats).
+    //    Zusätzlich: Suche über den ganzen Bereich in feinen Schritten – findet
+    //    das Tempo auch, wenn die Autokorrelation einige Prozent daneben liegt
+    //    (z. B. schneller gemachte Tracks).
+    double globalBpm = bpm;
+    {
+        double top = -1;
+        const double savedBpm = bestBpm, savedPhase = bestPhase, savedFine = bestFine;
+        for (double c = minBpm; c <= maxBpm; c *= 1.0004) {
+            bestFine = -1;
+            evaluate(c);
+            if (bestFine > top) {
+                top = bestFine;
+                globalBpm = c;
+            }
+        }
+        bestBpm = savedBpm;
+        bestPhase = savedPhase;
+        bestFine = savedFine;
+    }
     {
         double top = -1, topBpm = bpm;
-        for (double factor : {1.0, 1.5, 2.0 / 3.0}) {
-            double cand = bpm * factor;
+        for (double factor : {1.0, 1.5, 2.0 / 3.0, 0.0}) {
+            double cand = factor == 0.0 ? globalBpm : bpm * factor;
             while (cand < minBpm) cand *= 2;
             while (cand > maxBpm) cand /= 2;
             fineSearch(cand);
-            if (bestFine > top * (factor == 1.0 ? 1.0 : 1.03)) {
+            if (bestFine > top) {
                 top = bestFine;
                 topBpm = bestBpm;
             }

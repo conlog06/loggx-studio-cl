@@ -59,6 +59,7 @@ Dialog {
                 spacing: 2
                 Repeater {
                     model: [
+                        { text: qsTr("Allgemein"), icon: "settings" },
                         { text: qsTr("Audio"), icon: "wave" },
                         { text: qsTr("DJ"), icon: "disc" },
                         { text: qsTr("Controller"), icon: "sliders" },
@@ -89,6 +90,52 @@ Dialog {
             Layout.fillHeight: true
             Layout.margins: 18
             currentIndex: tabs.currentIndex
+
+            // -------------------------------------------------- Allgemein
+            ScrollView {
+                clip: true
+                contentWidth: availableWidth
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 12
+                    Heading { text: qsTr("Start") }
+                    Row2 {
+                        label: qsTr("Beim Start öffnen")
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: [qsTr("Startbildschirm"), qsTr("Letztes Projekt"), qsTr("DJ-Modus")]
+                            currentIndex: app.startMode
+                            onActivated: function (i) { app.startMode = i }
+                        }
+                    }
+                    Heading { text: qsTr("Projekte") }
+                    Row2 {
+                        label: qsTr("Automatisch sichern")
+                        hint: qsTr("Sicherung für den Fall eines Absturzes – ersetzt nicht das Speichern")
+                        ComboBox {
+                            Layout.fillWidth: true
+                            readonly property var values: [0, 1, 2, 5, 10]
+                            model: [qsTr("Aus"), qsTr("Jede Minute"), qsTr("Alle 2 Minuten"), qsTr("Alle 5 Minuten"), qsTr("Alle 10 Minuten")]
+                            currentIndex: Math.max(0, values.indexOf(app.autosaveMinutes))
+                            onActivated: function (i) { app.autosaveMinutes = values[i] }
+                        }
+                    }
+                    Row2 {
+                        label: qsTr("Vorschauqualität")
+                        hint: qsTr("Auto: so scharf wie das Fenster, beim Abspielen flüssig. Der Export hat immer volle Qualität.")
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: [qsTr("Auto"), qsTr("Voll"), qsTr("Halb"), qsTr("Viertel")]
+                            currentIndex: app.previewQuality
+                            onActivated: function (i) { app.previewQuality = i }
+                        }
+                    }
+                    Row2 {
+                        label: qsTr("Zuletzt geöffnet")
+                        Button { text: qsTr("Liste leeren"); enabled: app.recentProjects.length > 0; onClicked: app.clearRecent() }
+                    }
+                }
+            }
 
             // ------------------------------------------------------ Audio
             ScrollView {
@@ -210,6 +257,41 @@ Dialog {
                         label: qsTr("Quantize")
                         hint: qsTr("Hot Cues, Loops und Sprünge rasten auf Schläge ein")
                         Switch { checked: dj.quantize; onToggled: dj.quantize = checked }
+                    }
+                    Row2 {
+                        label: qsTr("Lautheit angleichen (Auto-Gain)")
+                        hint: qsTr("Trim beim Laden so setzen, dass alle Tracks etwa gleich laut sind")
+                        Switch { checked: dj.autoGain; onToggled: dj.autoGain = checked }
+                    }
+                    Row2 {
+                        label: qsTr("Spielendes Deck sperren")
+                        hint: qsTr("Kein Track kann in ein laufendes Deck geladen werden")
+                        Switch { checked: dj.lockPlaying; onToggled: dj.lockPlaying = checked }
+                    }
+                    Row2 {
+                        label: qsTr("KI-Stems beim Laden")
+                        hint: qsTr("Stems (Gesang, Drums, Bass, Rest) automatisch vorbereiten, sobald ein Track geladen wird")
+                        Switch { enabled: dj.aiAvailable; checked: dj.autoStems; onToggled: dj.autoStems = checked }
+                    }
+                    Heading { text: qsTr("Anzeige") }
+                    Row2 {
+                        label: qsTr("Wellenform")
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: [qsTr("3-Band (Bass blau, Mitten orange, Höhen weiß)"), qsTr("Blau"), qsTr("Einfarbig")]
+                            currentIndex: dj.waveStyle
+                            onActivated: function (i) { dj.waveStyle = i }
+                        }
+                    }
+                    Row2 {
+                        label: qsTr("Wellenform-Zoom")
+                        hint: qsTr("Sichtbare Sekunden (auch Mausrad oder Strg+Plus/Minus)")
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 2; to: 32
+                            value: dj.waveZoom
+                            onMoved: dj.waveZoom = value
+                        }
                     }
                 }
             }
@@ -354,28 +436,80 @@ Dialog {
             }
 
             // ------------------------------------------------------ KI
-            ColumnLayout {
-                spacing: 12
-                Heading { text: qsTr("Stimme / Stems") }
-                Row2 {
-                    label: qsTr("Standard-Methode")
-                    hint: qsTr("Für „Gesang entfernen“ im Schnitt und in der Musik")
-                    ComboBox {
+            ScrollView {
+                clip: true
+                contentWidth: availableWidth
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 12
+                    Label {
+                        visible: !app.aiAvailable
                         Layout.fillWidth: true
-                        enabled: app.aiAvailable
-                        model: [qsTr("KI – beste Qualität"), qsTr("KI – schnell"), qsTr("Ohne KI (schnell, einfacher)")]
-                        currentIndex: app.separationMethod
-                        onActivated: function (i) { app.separationMethod = i }
+                        wrapMode: Text.WordWrap
+                        color: Theme.warn
+                        text: qsTr("Diese Version wurde ohne KI gebaut.")
+                    }
+                    Heading { text: qsTr("Stimme / Stems") }
+                    Row2 {
+                        label: qsTr("Standard-Methode")
+                        hint: qsTr("Für „Gesang entfernen“ im Schnitt und in der Musik")
+                        ComboBox {
+                            Layout.fillWidth: true
+                            enabled: app.aiAvailable
+                            model: [qsTr("KI – beste Qualität"), qsTr("KI – schnell"), qsTr("Ohne KI (schnell, einfacher)")]
+                            currentIndex: app.separationMethod
+                            onActivated: function (i) { app.separationMethod = i }
+                        }
+                    }
+                    Row2 {
+                        label: qsTr("Modelle automatisch laden")
+                        hint: qsTr("Fehlende KI-Modelle nach dem Start im Hintergrund herunterladen – dann ist alles sofort offline bereit. Aus: erst beim ersten Gebrauch.")
+                        Switch { enabled: app.aiAvailable; checked: app.aiAutoDownload; onToggled: app.aiAutoDownload = checked }
+                    }
+                    Heading { text: qsTr("Modelle") }
+                    Repeater {
+                        model: app.aiModels
+                        RowLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 10
+                            Rectangle { width: 8; height: 8; radius: 4; color: modelData.ready ? Theme.ok : Theme.faint }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                Label { text: modelData.name }
+                                Label { text: qsTr("%1 · %2 MB · %3").arg(modelData.stem).arg(modelData.mb).arg(modelData.ready ? qsTr("bereit") : qsTr("nicht geladen")); color: Theme.faint; font.pixelSize: 11 }
+                            }
+                            IconButton {
+                                visible: modelData.ready
+                                iconName: "trash"
+                                tip: qsTr("Modell löschen (Speicher freigeben)")
+                                onClicked: app.deleteModel(modelData.id)
+                            }
+                        }
+                    }
+                    RowLayout {
+                        Button {
+                            text: app.working && app.workLabel.indexOf("KI-Modell") >= 0 ? qsTr("Lädt …") : qsTr("Alle jetzt laden")
+                            icon.name: "import"
+                            enabled: app.aiAvailable && !app.working
+                            onClicked: app.downloadAllModels()
+                        }
+                        Button { text: qsTr("Ordner öffnen"); icon.name: "folder"; onClicked: Qt.openUrlExternally("file:///" + app.aiModelFolder.replace(/^\/+/, "")) }
+                    }
+                    ProgressBar {
+                        Layout.fillWidth: true
+                        visible: app.working && app.workLabel.indexOf("KI-Modell") >= 0
+                        value: app.workProgress
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.faint
+                        font.pixelSize: 11
+                        text: qsTr("Speicherort: %1\nModelle: MDX-Net (UVR-Projekt). Nach dem Laden läuft alles offline auf diesem Rechner.").arg(app.aiModelFolder)
                     }
                 }
-                Label {
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    color: Theme.faint
-                    text: app.aiAvailable ? qsTr("KI-Modelle (MDX-Net) werden beim ersten Gebrauch geladen und lokal gespeichert – danach läuft alles offline auf diesem Rechner.")
-                                          : qsTr("Diese Version wurde ohne KI gebaut.")
-                }
-                Item { Layout.fillHeight: true }
             }
 
             // ------------------------------------------------------ Über

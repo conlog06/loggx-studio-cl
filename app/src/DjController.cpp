@@ -147,6 +147,10 @@ DjController::DjController(AppController* app, QObject* parent) : QObject(parent
     m_bufferMs = settings.value(QStringLiteral("dj/bufferMs"), 30).toInt();
     m_defaultRange = settings.value(QStringLiteral("dj/tempoRange"), 8.0).toDouble();
     m_autoKeyLock = settings.value(QStringLiteral("dj/autoKeyLock"), false).toBool();
+    m_autoGain = settings.value(QStringLiteral("dj/autoGain"), true).toBool();
+    m_autoStems = settings.value(QStringLiteral("dj/autoStems"), false).toBool();
+    m_lockPlaying = settings.value(QStringLiteral("dj/lockPlaying"), true).toBool();
+    m_waveStyle = settings.value(QStringLiteral("dj/waveStyle"), 0).toInt();
     m_range = {m_defaultRange, m_defaultRange};
     m_mixer.setHeadphones(m_headMix, m_headVolume);
     m_waveZoom = settings.value(QStringLiteral("dj/waveZoom"), 8.0).toDouble();
@@ -197,6 +201,7 @@ void DjController::setStatus(const QString& text) {
 // ------------------------------------------------------------ Bibliothek
 
 namespace {
+constexpr double kGainTarget = -13.0;   // RMS-Ziel in dBFS für Auto-Gain
 constexpr int kAnalysisVersion = 3;   // 0.7: neue Tempo-Erkennung (3: ganzzahlig einrasten)
 }
 
@@ -223,6 +228,7 @@ void DjController::loadLibrary() {
         e.version = m.value(QStringLiteral("version"), 0).toInt();
         e.gridEdited = m.value(QStringLiteral("gridEdited")).toBool();
         e.rating = m.value(QStringLiteral("rating")).toInt();
+        e.loudness = m.value(QStringLiteral("loudness")).toDouble();
         e.plays = m.value(QStringLiteral("plays")).toInt();
         e.added = m.value(QStringLiteral("added")).toLongLong();
         const QVariantList hot = m.value(QStringLiteral("hot")).toList();
@@ -259,6 +265,7 @@ void DjController::saveLibrary() const {
         m[QStringLiteral("version")] = e.version;
         m[QStringLiteral("gridEdited")] = e.gridEdited;
         m[QStringLiteral("rating")] = e.rating;
+        m[QStringLiteral("loudness")] = e.loudness;
         m[QStringLiteral("plays")] = e.plays;
         m[QStringLiteral("added")] = e.added;
         QVariantList hot;
@@ -350,6 +357,7 @@ QVariantList DjController::library() const {
         m[QStringLiteral("duration")] = e->duration;
         m[QStringLiteral("durationText")] = QStringLiteral("%1:%2").arg(static_cast<int>(e->duration) / 60).arg(static_cast<int>(e->duration) % 60, 2, 10, QLatin1Char('0'));
         m[QStringLiteral("analyzed")] = e->analyzed;
+        m[QStringLiteral("loudness")] = e->loudness;
         m[QStringLiteral("gridEdited")] = e->gridEdited;
         m[QStringLiteral("rating")] = e->rating;
         m[QStringLiteral("plays")] = e->plays;
@@ -447,6 +455,7 @@ void DjController::analyzeNext() {
         BeatInfo beat;
         KeyInfo key;
         double duration = 0;
+        double loudness = 0;   // RMS in dBFS
         bool ok = false;
     };
     auto result = std::make_shared<Result>();
@@ -472,6 +481,9 @@ void DjController::analyzeNext() {
         result->beat = detectBeatsFromSamples(mono.data() + from, span, kRate, lo, hi);
         result->beat.firstBeat += static_cast<TimeUs>(static_cast<double>(from) / kRate * 1e6);
         result->key = detectKeyFromSamples(mono.data() + from, span, kRate);
+        double sum = 0;
+        for (std::size_t i = from; i < from + span; ++i) sum += static_cast<double>(mono[i]) * mono[i];
+        result->loudness = span > 0 ? 10.0 * std::log10(std::max(1e-12, sum / static_cast<double>(span))) : 0.0;
         result->ok = true;
     });
     connect(thread, &QThread::finished, this, [this, thread, path, result] {
@@ -486,6 +498,7 @@ void DjController::analyzeNext() {
                 if (!result->tags.album.empty()) e->album = qstr(result->tags.album);
                 if (!result->tags.genre.empty()) e->genre = qstr(result->tags.genre);
                 e->duration = result->duration;
+                e->loudness = result->loudness;
                 // Von Hand (oder aus rekordbox) gesetztes Raster bleibt
                 if (!e->gridEdited) {
                     e->bpm = result->beat.bpm;
@@ -675,8 +688,8 @@ void DjController::setActive(bool active) {
 
 void DjController::loadTrack(int deck, const QString& path) {
     deck &= 1;
-    if (m_mixer.playing(deck)) {
-        setStatus(tr("Deck %1 spielt gerade – erst anhalten").arg(deck + 1));
+    if (m_lockPlaying && m_mixer.playing(deck)) {
+        setStatus(tr("Deck %1 spielt gerade – erst anhalten (Einstellungen → DJ → Spielendes Deck sperren)").arg(deck + 1));
         return;
     }
     if (m_loading[static_cast<std::size_t>(deck)]) return;
@@ -736,6 +749,21 @@ void DjController::loadTrack(int deck, const QString& path) {
         m_mixer.load(deck, *track);
         for (int i = 0; i < 8; ++i) m_mixer.setHotCuePoint(deck, i, hot[static_cast<std::size_t>(i)]);
         if (m_autoKeyLock) m_mixer.setKeyLock(deck, true);
+        // Lautheit angleichen (Auto-Gain): Trim so, dass alle Tracks gleich laut sind
+        if (e->loudness >= 0 || e->loudness < -80) {
+            const std::vector<float>& mix = (*track)->mix;
+            double sum = 0;
+            const std::size_t step = std::max<std::size_t>(1, mix.size() / 2000000);
+            std::size_t n = 0;
+            for (std::size_t i = 0; i + 1 < mix.size(); i += 2 * step, ++n) {
+                const double v = 0.5 * (mix[i] + mix[i + 1]);
+                sum += v * v;
+            }
+            if (n > 0) e->loudness = 10.0 * std::log10(std::max(1e-12, sum / static_cast<double>(n)));
+        }
+        if (m_autoGain && e->loudness < 0 && e->loudness > -80)
+            m_mixer.setTrim(deck, std::clamp(std::pow(10.0, (kGainTarget - e->loudness) / 20.0), 0.35, 2.0));
+        if (m_autoStems && aiAvailable() && !hasStems(path)) QTimer::singleShot(0, this, [this, path] { prepareStems(path); });
         m_loaded[static_cast<std::size_t>(deck)] = path;
         emit decksChanged();
         emit libraryChanged();
@@ -1450,3 +1478,30 @@ void DjController::setWaveZoom(double seconds) {
 }
 
 void DjController::zoomWave(int steps) { setWaveZoom(m_waveZoom * std::pow(0.8, steps)); }
+
+// ------------------------------------------------------------ weitere DJ-Einstellungen
+
+void DjController::setAutoGain(bool on) {
+    m_autoGain = on;
+    QSettings().setValue(QStringLiteral("dj/autoGain"), on);
+    emit settingsChanged();
+}
+
+void DjController::setAutoStems(bool on) {
+    m_autoStems = on;
+    QSettings().setValue(QStringLiteral("dj/autoStems"), on);
+    emit settingsChanged();
+}
+
+void DjController::setLockPlaying(bool on) {
+    m_lockPlaying = on;
+    QSettings().setValue(QStringLiteral("dj/lockPlaying"), on);
+    emit settingsChanged();
+}
+
+void DjController::setWaveStyle(int style) {
+    m_waveStyle = std::clamp(style, 0, 2);
+    QSettings().setValue(QStringLiteral("dj/waveStyle"), m_waveStyle);
+    emit settingsChanged();
+    emit tick();
+}

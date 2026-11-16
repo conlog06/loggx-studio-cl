@@ -6,6 +6,7 @@
 #include <cmath>
 #include <optional>
 
+#include <QSettings>
 #include <QAudioFormat>
 #include <QAudioSink>
 #include <QDateTime>
@@ -66,11 +67,15 @@ AppController::AppController(QObject* parent)
     connect(&m_timer, &QTimer::timeout, this, &AppController::tick);
     m_meterTimer.setInterval(40);
     connect(&m_meterTimer, &QTimer::timeout, this, &AppController::pollLevels);
-    m_autosaveTimer.setInterval(60'000);
+    m_autosaveMinutes = QSettings().value(QStringLiteral("general/autosaveMinutes"), 1).toInt();
+    m_autosaveTimer.setInterval(std::max(1, m_autosaveMinutes) * 60'000);
     connect(&m_autosaveTimer, &QTimer::timeout, this, [this] {
         if (m_dirty) autosaveNow();
     });
-    m_autosaveTimer.start();
+    if (m_autosaveMinutes > 0) m_autosaveTimer.start();
+    // KI-Modelle auf Wunsch im Hintergrund holen (nach dem Start, ohne zu stören)
+    m_aiAutoDownload = QSettings().value(QStringLiteral("ai/autoDownload"), false).toBool();
+    if (m_aiAutoDownload) QTimer::singleShot(4000, this, [this] { downloadAllModels(); });
     checkRecovery();
     publish();
     m_dirty = false;
