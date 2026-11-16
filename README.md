@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.7**: DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.8**: DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -18,6 +18,10 @@ Dieses Repository enthält die **MVP-Vorschau 0.7**: DJ als eigener Modus mit **
 - **Beatgrid von Hand**: TAP-Tempo, ×2 / ÷2, Tempo eingeben (z. B. 143,75), Raster verschieben (±10 ms), „Schlag 1 hier“ – Handarbeit wird von keiner Analyse überschrieben
 - Mixer: Trim, 3-Band-EQ mit Kill, Filter (Tief-/Hochpass), Kanalfader, Pegel, **Crossfader**, Master, **Kopfhörer** (CUE je Kanal vor dem Fader, Mix Cue↔Master, Pegel) – über Kanäle 3/4 des Controllers oder ein eigenes Ausgabegerät
 - **Effekte**: Echo und Hall (im Takt), Bremse (Vinyl-Stopp) – auf Deck 1, 2 oder Master
+- **Sampler** mit 8 Plätzen: eingebaute Klänge (Air Horn, Sirene, Riser, Downlifter, Laser, Sub Drop, Clap, Scratch – synthetisch erzeugt, rechtefrei) oder eigene Dateien (Rechtsklick oder Datei auf den Platz ziehen), eigener Pegel
+- **Key Shift** (±12 Halbtöne, Tempo bleibt) und **Key Sync** (Tonart ans andere Deck anpassen); das Deck zeigt die klingende Tonart (z. B. 7B → 9B)
+- **Wellenform-Zoom** (Mausrad, Strg+Plus/Minus, Shift+Browse am Controller)
+- **Tastatur ohne Controller**: Deck 1 – A Cue, S Play, D Sync, Q/W Bend, 1–4 Hot Cues; Deck 2 – J Cue, K Play, L Sync, O/P Bend, 7–0 Hot Cues
 - **KI-Stems** pro Track: Gesang, Instrumente, Bass, Schlagzeug einzeln stummschalten (drei MDX-Net-Modelle, einmalig ~90 MB)
 - **Bibliothek wie in rekordbox**: Sammlung, **Verlauf** (History, als Playlist sicherbar), **Playlists** (anlegen, umbenennen, Tracks hineinziehen), Spalten Titel/Interpret/Genre/BPM/Tonart/Zeit/Bewertung/Hinzugefügt, Suche, Sortierung, Pfeiltasten + Enter/←/→ zum Laden
 - **rekordbox übernehmen** (XML-Export: Tracks, BPM/Beatgrid, Tonart, Hot Cues, Bewertung, Playlists) und **Apple Music/iTunes** (Library.xml: Tracks, Bewertung, Playlists)
@@ -26,7 +30,7 @@ Dieses Repository enthält die **MVP-Vorschau 0.7**: DJ als eigener Modus mit **
 
 **DJ-Controller**
 - **Pioneer DDJ-FLX4** wird beim Einstecken automatisch erkannt (USB, ohne Einrichtung): Play/Cue, Shift+Cue (Anfang), Sync / Shift+Sync (Sync dauerhaft), Tempo-Fader (14 Bit), Tempo-Bereich, Jog-Räder (oben berührt = Scratchen, Rand = Pitch-Bend, Shift = schnell suchen), Kanalfader, Trim, 3-Band-EQ, CFX/Filter, Crossfader, Kopfhörer-CUE und -Mix, Browse-Regler + LOAD, Loop In/Out/Reloop, 4-Beat-Loop, Cue/Loop-Call (Loop halbieren/verdoppeln bzw. Beat-Sprung), Quantize
-- Pads: Hot Cue (Shift = löschen), Beat Loop (¼–32), Beat Jump (±1–8), Sampler-Modus → Stems (Gesang, Drums, Bass, Rest), Pad FX (Echo/Hall/Bremse solange gedrückt), Key-Shift → Key Lock; Beat FX: an/aus, Auswahl, Länge, Level/Depth, Kanal
+- Pads: Hot Cue (Shift = löschen), Beat Loop (¼–32), Beat Jump (±1–8), **Sampler** (Shift = stoppen), Pad FX 1: Stems (Gesang, Drums, Bass, Rest) und Echo/Hall/Bremse solange gedrückt, **Key Shift** (1 = zurück, 2–4 = +1…+3, 5 = Key Sync, 6–8 = −1…−3); Shift+Browse = Wellenform-Zoom; Beat FX: an/aus, Auswahl, Länge, Level/Depth, Kanal
 - **LEDs** (Play, Cue blinkt wie am CDJ, Sync, CUE, Loop, Hot-Cue-Pads, Loop-Pads, Stems, Pegelanzeigen) und Keep-alive wie von rekordbox
 - **Kopfhörer am FLX4**: Einstellungen → Audio → Ausgang „DDJ-FLX4“, Kopfhörer „Kanäle 3/4“
 - **Andere Controller**: verbinden und per **MIDI-Learn** Tasten/Regler zuordnen (Einstellungen → Controller)
@@ -105,7 +109,7 @@ Bekannte Grenzen:
 - Die Tempo-Erkennung (spektraler Fluss, feine Rastersuche über den ganzen Track, Bereich wie rekordbox 70–180 BPM einstellbar) erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück). Bei halb/doppelt erkannten Tempi hilft ×2 / ÷2, bei Live-Aufnahmen TAP.
 - Die KI-Trennung rechnet auf der CPU: grob 0,3–1× Echtzeit je nach Rechner und Stufe (ein 3-Minuten-Song braucht also etwa 1–10 Minuten). GPU-Beschleunigung fehlt noch.
 - **Lizenzen der KI-Modelle:** Die Modelle werden nicht mit dem Programm verteilt, sondern bei Bedarf aus dem öffentlichen Modell-Archiv von *Ultimate Vocal Remover* geladen. Die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass) stehen unter MIT-Lizenz; für „Kim Vocal 2“ ist keine Lizenz angegeben – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
-- DJ: Kopfhörer auf einem eigenen Gerät (statt Kanälen 3/4) läuft über eine zweite Audioausgabe und kann sich bei sehr langen Sets minimal verschieben. Sampler, Key-Shift-Pads und Wellenform-Zoom per Controller fehlen noch. Ob Windows die Kanäle 3/4 des FLX4 anbietet, hängt vom Treiber ab (Pioneer-Treiber installieren); die Info-Zeile unter Einstellungen → Audio zeigt, was aktiv ist – sonst Kopfhörer über „Eigenes Gerät“.
+- DJ: Kopfhörer auf einem eigenen Gerät (statt Kanälen 3/4) läuft über eine zweite Audioausgabe und kann sich bei sehr langen Sets minimal verschieben. Ob Windows die Kanäle 3/4 des FLX4 anbietet, hängt vom Treiber ab (Pioneer-Treiber installieren); die Info-Zeile unter Einstellungen → Audio zeigt, was aktiv ist – sonst Kopfhörer über „Eigenes Gerät“.
 - Ohne öffentlichen Schlüssel in `license/public_key.txt` baut man eine Entwicklerversion: alle Funktionen frei, Admin-Bereich sichtbar.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.
 - Hall und Echo setzen nach einem Sprung in der Timeline neu an (kein Nachklang von der vorherigen Stelle).

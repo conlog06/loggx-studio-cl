@@ -64,6 +64,11 @@ class DjController : public QObject {
     Q_PROPERTY(double headVolume READ headVolume WRITE setHeadVolume NOTIFY mixerChanged)
     Q_PROPERTY(double defaultTempoRange READ defaultTempoRange WRITE setDefaultTempoRange NOTIFY settingsChanged)
     Q_PROPERTY(bool autoKeyLock READ autoKeyLock WRITE setAutoKeyLock NOTIFY settingsChanged)
+    // Sampler: 8 Plätze (eingebaute Klänge oder eigene Dateien)
+    Q_PROPERTY(QVariantList sampler READ sampler NOTIFY samplerChanged)
+    Q_PROPERTY(double samplerVolume READ samplerVolume WRITE setSamplerVolume NOTIFY samplerChanged)
+    // Sichtbare Sekunden der mitlaufenden Wellenformen (Zoom)
+    Q_PROPERTY(double waveZoom READ waveZoom WRITE setWaveZoom NOTIFY waveZoomChanged)
 
 public:
     explicit DjController(AppController* app, QObject* parent = nullptr);
@@ -144,6 +149,20 @@ public:
     Q_INVOKABLE void jogBend(int deck, double amount);
     Q_INVOKABLE void setLoopInOut(int deck, bool in);          // Loop In / Loop Out
     Q_INVOKABLE void reloop(int deck);
+    // Tonart: Key Shift (Halbtöne) und Key Sync (an das andere Deck anpassen)
+    Q_INVOKABLE void setKeyShift(int deck, int semitones);
+    Q_INVOKABLE void keySync(int deck);
+    // Sampler
+    QVariantList sampler() const;
+    Q_INVOKABLE void triggerSample(int slot);
+    Q_INVOKABLE void stopSample(int slot);
+    Q_INVOKABLE bool loadSample(int slot, const QUrl& file);
+    Q_INVOKABLE void resetSample(int slot);
+    double samplerVolume() const { return m_mixer.samplerVolume(); }
+    void setSamplerVolume(double v);
+    double waveZoom() const { return m_waveZoom; }
+    void setWaveZoom(double seconds);
+    Q_INVOKABLE void zoomWave(int steps);   // + = näher heran
 
     // ---- Mixer, Effekt, Mitschnitt
     double crossfader() const { return m_mixer.crossfader(); }
@@ -221,6 +240,8 @@ signals:
     void settingsChanged();
     void openInEditor(const QString& path, double bpm);
     void deckLoaded(int deck);
+    void samplerChanged();
+    void waveZoomChanged();
 
 private:
     struct Entry {
@@ -278,6 +299,10 @@ private:
     int m_bufferMs = 30;
     double m_headMix = 0.0, m_headVolume = 1.0, m_defaultRange = 8.0;
     bool m_autoKeyLock = false;
+    double m_waveZoom = 8.0;
+    std::array<QString, 8> m_samplePaths;     // leer = eingebauter Klang
+    std::array<bool, 8> m_samplePlaying{};
+    void initSampler();
     double m_masterVolume = 1.0;
     int m_fxType = 0;
     double m_fxBeats = 0.75, m_fxWet = 0.5;

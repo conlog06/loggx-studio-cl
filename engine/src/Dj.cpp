@@ -134,6 +134,7 @@ struct DjMixer::Deck {
     bool scratch = false;       // Jog-Rad oben berührt
     double scratchPending = 0.0, scratchVel = 0.0;   // Samples
     bool keyLock = false;
+    int keyShift = 0;            // Halbtöne (Key-Shift-Pads, Key Sync)
     bool sync = false;
     std::array<double, 8> hot{};
     bool loop = false;
@@ -233,6 +234,7 @@ void DjMixer::load(int deck, std::shared_ptr<const DjTrack> track) {
     d = Deck();
     d.tempo = keep.tempo;
     d.keyLock = keep.keyLock;
+    d.keyShift = 0;
     d.sync = keep.sync;
     for (int b = 0; b < 3; ++b) d.eq[b] = keep.eq[b];
     d.filt = keep.filt;
@@ -658,6 +660,60 @@ void DjMixer::jogBend(int deck, double amount) {
     DECK(deck).bend = std::clamp(DECK(deck).bend + amount, -0.5, 0.5);
 }
 
+void DjMixer::setKeyShift(int deck, int semitones) {
+    LOCK;
+    Deck& d = DECK(deck);
+    d.keyShift = std::clamp(semitones, -12, 12);
+}
+
+int DjMixer::keyShift(int deck) const {
+    LOCK;
+    return DECK(deck).keyShift;
+}
+
+void DjMixer::setSample(int slot, std::shared_ptr<const std::vector<float>> stereo) {
+    LOCK;
+    if (slot < 0 || slot >= kSamplerSlots) return;
+    Voice& v = m_samples[static_cast<std::size_t>(slot)];
+    v.data = std::move(stereo);
+    v.pos = 0;
+    v.playing = false;
+}
+
+bool DjMixer::hasSample(int slot) const {
+    LOCK;
+    return slot >= 0 && slot < kSamplerSlots && m_samples[static_cast<std::size_t>(slot)].data != nullptr;
+}
+
+void DjMixer::triggerSample(int slot) {
+    LOCK;
+    if (slot < 0 || slot >= kSamplerSlots) return;
+    Voice& v = m_samples[static_cast<std::size_t>(slot)];
+    if (!v.data) return;
+    v.pos = 0;   // erneut drücken = von vorn
+    v.playing = true;
+}
+
+void DjMixer::stopSample(int slot) {
+    LOCK;
+    if (slot >= 0 && slot < kSamplerSlots) m_samples[static_cast<std::size_t>(slot)].playing = false;
+}
+
+bool DjMixer::samplePlaying(int slot) const {
+    LOCK;
+    return slot >= 0 && slot < kSamplerSlots && m_samples[static_cast<std::size_t>(slot)].playing;
+}
+
+void DjMixer::setSamplerVolume(double v) {
+    LOCK;
+    m_samplerVol = std::clamp(v, 0.0, 1.5);
+}
+
+double DjMixer::samplerVolume() const {
+    LOCK;
+    return m_samplerVol;
+}
+
 // ------------------------------------------------------------ Audio
 
 void DjMixer::render(float* out, std::size_t frames, float* cue) {
@@ -694,7 +750,9 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
 
         bool useStretch = false;
 #ifdef LOGGX_WITH_RUBBERBAND
-        useStretch = d.keyLock && !d.scratch && std::abs(d.rate() - 1.0) > 1e-4 && d.brakeStep == 0.0;
+        useStretch = !d.scratch && d.brakeStep == 0.0 && ((d.keyLock && std::abs(d.rate() - 1.0) > 1e-4) || d.keyShift != 0);
+        // Tonhöhe: mit Key Lock nur die Verschiebung, sonst wie Vinyl (Tempo) plus Verschiebung
+        const double pitch = std::pow(2.0, d.keyShift / 12.0) * (d.keyLock ? 1.0 : d.rate());
         if (useStretch) {
             using RB = RubberBand::RubberBandStretcher;
             if (!d.stretcher)
@@ -706,6 +764,7 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
                 d.stretchReset = false;
             }
             d.stretcher->setTimeRatio(1.0 / d.rate());
+            d.stretcher->setPitchScale(pitch);
             d.outL.resize(frames);
             d.outR.resize(frames);
             std::size_t done = 0;
@@ -845,6 +904,17 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
     const float norm = 1.0f / std::max(ga, gb);   // Mitte nicht leiser als außen
     for (std::size_t i = 0; i < frames * 2; ++i) out[i] = (m_bufA[i] * ga + m_bufB[i] * gb) * norm;
     if (m_fx->target == 2) applyFx(out);
+    // Sampler (One-Shots) direkt in den Master
+    const float sv = static_cast<float>(m_samplerVol);
+    for (Voice& v : m_samples) {
+        if (!v.playing || !v.data) continue;
+        const std::vector<float>& d = *v.data;
+        for (std::size_t k = 0; k < frames && v.pos + 1 < d.size(); ++k, v.pos += 2) {
+            out[k * 2] += d[v.pos] * sv;
+            out[k * 2 + 1] += d[v.pos + 1] * sv;
+        }
+        if (v.pos + 1 >= d.size()) v.playing = false;
+    }
     double peak = 0;
     const float vol = static_cast<float>(m_masterVol);
     for (std::size_t i = 0; i < frames * 2; ++i) {

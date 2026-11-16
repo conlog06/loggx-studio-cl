@@ -177,7 +177,7 @@ void DjWaveItem::mouseReleaseEvent(QMouseEvent*) { m_dragging = false; }
 
 void DjWaveItem::wheelEvent(QWheelEvent* e) {
     if (m_overview) return;
-    const double f = e->angleDelta().y() > 0 ? 0.8 : 1.25;
-    setZoom(std::clamp(m_zoom * f, 2.0, 32.0));
+    if (m_controller) m_controller->zoomWave(e->angleDelta().y() > 0 ? 1 : -1);
+    else setZoom(std::clamp(m_zoom * (e->angleDelta().y() > 0 ? 0.8 : 1.25), 2.0, 32.0));
     e->accept();
 }

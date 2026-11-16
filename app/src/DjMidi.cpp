@@ -270,6 +270,11 @@ void DjMidi::runAction(const QString& a, int deck, double v, bool press, int rel
     else if (a == QLatin1String("load")) { if (press) dj.loadCursor(deck); }
     else if (a.startsWith(QLatin1String("hotcue"))) { if (press) dj.hotCue(deck, a.mid(6).toInt() - 1); }
     else if (a == QLatin1String("loop4")) { if (press) dj.setLoop(deck, 4); }
+    else if (a.startsWith(QLatin1String("sample"))) { if (press) dj.triggerSample(a.mid(6).toInt() - 1); }
+    else if (a == QLatin1String("keySync")) { if (press) dj.keySync(deck); }
+    else if (a == QLatin1String("keyUp")) { if (press) dj.setKeyShift(deck, dj.mixer().keyShift(deck) + 1); }
+    else if (a == QLatin1String("keyDown")) { if (press) dj.setKeyShift(deck, dj.mixer().keyShift(deck) - 1); }
+    else if (a == QLatin1String("zoom")) dj.zoomWave(relative > 0 ? 1 : -1);
     else if (a == QLatin1String("reloop")) { if (press) dj.reloop(deck); }
     else if (a == QLatin1String("jumpBack")) { if (press) dj.beatJump(deck, -4); }
     else if (a == QLatin1String("jumpForward")) { if (press) dj.beatJump(deck, 4); }
@@ -350,6 +355,10 @@ bool DjMidi::handleFlx4(int status, int d1, int d2) {
             dj.moveCursor(d2 >= 64 ? d2 - 128 : d2);
             return true;
         }
+        if (d1 == 0x64) {   // Shift + Browse: Wellenform zoomen
+            dj.zoomWave(d2 >= 64 ? -1 : 1);
+            return true;
+        }
         return false;
     }
     if (type == kCc && ch == 4) {   // Beat FX: Level/Depth
@@ -414,16 +423,24 @@ bool DjMidi::handleFlx4(int status, int d1, int d2) {
             else dj.hotCue(deck, d1);
         } else if (d1 >= 0x20 && d1 <= 0x27) {
             dj.beatJump(deck, kBeatJumpPads[d1 - 0x20]);
-        } else if (d1 >= 0x30 && d1 <= 0x33) {   // Sampler-Modus → Stems (Gesang, Drums, Bass, Rest)
-            dj.setStem(deck, d1 - 0x30, !mx.stem(deck, static_cast<DjStem>(d1 - 0x30)));
+        } else if (d1 >= 0x30 && d1 <= 0x37) {   // Sampler (Shift = stoppen)
+            if (shift) dj.stopSample(d1 - 0x30);
+            else dj.triggerSample(d1 - 0x30);
         } else if (d1 >= 0x40 && d1 <= 0x43) {
             dj.setStem(deck, d1 - 0x40, !mx.stem(deck, static_cast<DjStem>(d1 - 0x40)));
         } else if (d1 == 0x47) {
             dj.setFxOn(false);
         } else if (d1 >= 0x60 && d1 <= 0x67) {
             dj.setLoop(deck, kLoopPads[d1 - 0x60]);
-        } else if (d1 >= 0x70 && d1 <= 0x77) {   // Key-Shift-Pads: Key Lock an/aus
-            dj.setKeyLock(deck, !mx.keyLock(deck));
+        } else if (d1 >= 0x70 && d1 <= 0x77) {
+            // Key Shift: 1 = zurücksetzen, 2–4 = +1…+3, 5 = Key Sync, 6–8 = −1…−3
+            static const int shifts[8] = {0, 1, 2, 3, 99, -1, -2, -3};
+            const int v = shifts[d1 - 0x70];
+            if (v == 99) dj.keySync(deck);
+            else {
+                if (v != 0) dj.setKeyLock(deck, true);
+                dj.setKeyShift(deck, v);
+            }
         } else {
             return false;
         }
@@ -484,10 +501,12 @@ void DjMidi::updateLeds(bool force) {
             led(pads + 1, i, on);
             led(pads, 0x60 + i, mx.looping(deck) && std::abs(mx.loopBeats(deck) - kLoopPads[i]) < 1e-6 ? 0x7F : 0);
         }
-        for (int s = 0; s < 4; ++s) {
-            const int on = loaded && mx.stem(deck, static_cast<DjStem>(s)) ? 0x7F : 0;
-            led(pads, 0x30 + s, on);
-            led(pads, 0x40 + s, on);
+        for (int s = 0; s < 4; ++s) led(pads, 0x40 + s, loaded && mx.stem(deck, static_cast<DjStem>(s)) ? 0x7F : 0);
+        for (int s = 0; s < 8; ++s) led(pads, 0x30 + s, mx.hasSample(s) && (!mx.samplePlaying(s) || blink) ? 0x7F : 0);
+        {
+            static const int shifts[8] = {0, 1, 2, 3, 99, -1, -2, -3};
+            for (int i = 0; i < 8; ++i)
+                led(pads, 0x70 + i, shifts[i] != 99 && shifts[i] == mx.keyShift(deck) ? 0x7F : 0);
         }
         // Pegelanzeige am Kanal
         led(kCc | deck, 0x02, static_cast<int>(std::clamp(mx.level(deck), 0.0, 1.0) * 127.0));
@@ -500,7 +519,7 @@ void DjMidi::lightsOff() {
         for (int n : {0x0B, 0x0C, 0x58, 0x54, 0x10, 0x11, 0x4D}) send({static_cast<unsigned char>(kNote | deck), static_cast<unsigned char>(n), 0});
         const int pads = 0x97 + deck * 2;
         for (int i = 0; i < 8; ++i)
-            for (int base : {0x00, 0x30, 0x40, 0x60}) {
+            for (int base : {0x00, 0x30, 0x40, 0x60, 0x70}) {
                 send({static_cast<unsigned char>(pads), static_cast<unsigned char>(base + i), 0});
                 send({static_cast<unsigned char>(pads + 1), static_cast<unsigned char>(base + i), 0});
             }
@@ -521,7 +540,10 @@ QVariantList DjMidi::actions() const {
         {"eqHigh", tr("EQ Höhen")}, {"eqMid", tr("EQ Mitten")}, {"eqLow", tr("EQ Tiefen")}, {"filter", tr("Filter")},
         {"trim", tr("Trim/Gain")}, {"fader", tr("Kanal-Fader")}, {"crossfader", tr("Crossfader")},
         {"headMix", tr("Kopfhörer-Mix")}, {"master", tr("Master-Lautstärke")}, {"browse", tr("Browse-Regler")},
-        {"jog", tr("Jog-Rad")}, {"fx", tr("Effekt an/aus")}};
+        {"jog", tr("Jog-Rad")}, {"fx", tr("Effekt an/aus")}, {"keySync", tr("Key Sync")}, {"keyUp", tr("Tonart +1")},
+        {"keyDown", tr("Tonart −1")}, {"zoom", tr("Wellenform-Zoom")}, {"sample1", tr("Sampler 1")}, {"sample2", tr("Sampler 2")},
+        {"sample3", tr("Sampler 3")}, {"sample4", tr("Sampler 4")}, {"sample5", tr("Sampler 5")}, {"sample6", tr("Sampler 6")},
+        {"sample7", tr("Sampler 7")}, {"sample8", tr("Sampler 8")}};
     QVariantList out;
     for (const auto& [id, name] : list) out << QVariantMap{{QStringLiteral("id"), QString::fromLatin1(id)}, {QStringLiteral("name"), name}};
     return out;

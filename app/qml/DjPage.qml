@@ -115,6 +115,44 @@ Rectangle {
         bpmField.text = current > 0 ? current.toFixed(2) : ""
         bpmDialog.open()
     }
+    property bool samplerOpen: false
+    Menu {
+        id: sampleMenu
+        property int slot: 0
+        MenuItem { text: qsTr("Datei laden …"); icon.name: "folder"; onTriggered: sampleDialog.open() }
+        MenuItem { text: qsTr("Eingebauten Klang"); onTriggered: dj.resetSample(sampleMenu.slot) }
+        MenuItem { text: qsTr("Stoppen"); onTriggered: dj.stopSample(sampleMenu.slot) }
+    }
+    FileDialog {
+        id: sampleDialog
+        title: qsTr("Sample laden")
+        nameFilters: [qsTr("Audio (*.wav *.mp3 *.flac *.aiff *.aif *.ogg *.m4a)")]
+        onAccepted: dj.loadSample(sampleMenu.slot, selectedFile)
+    }
+
+    // Tastatur ohne Controller: Deck 1 links (A Cue, S Play, D Sync, Q/W Bend,
+    // 1–4 Hot Cues), Deck 2 rechts (J Cue, K Play, L Sync, O/P Bend, 7–0)
+    Shortcut { enabled: page.active; sequence: "S"; onActivated: dj.togglePlay(0) }
+    Shortcut { enabled: page.active; sequence: "A"; onActivated: dj.cue(0) }
+    Shortcut { enabled: page.active; sequence: "D"; onActivated: dj.sync(0) }
+    Shortcut { enabled: page.active; sequence: "Q"; autoRepeat: true; onActivated: dj.jogBend(0, -0.02) }
+    Shortcut { enabled: page.active; sequence: "W"; autoRepeat: true; onActivated: dj.jogBend(0, 0.02) }
+    Shortcut { enabled: page.active; sequence: "K"; onActivated: dj.togglePlay(1) }
+    Shortcut { enabled: page.active; sequence: "J"; onActivated: dj.cue(1) }
+    Shortcut { enabled: page.active; sequence: "L"; onActivated: dj.sync(1) }
+    Shortcut { enabled: page.active; sequence: "O"; autoRepeat: true; onActivated: dj.jogBend(1, -0.02) }
+    Shortcut { enabled: page.active; sequence: "P"; autoRepeat: true; onActivated: dj.jogBend(1, 0.02) }
+    Repeater {
+        model: 4
+        Item {
+            required property int index
+            Shortcut { enabled: page.active; sequence: String(index + 1); onActivated: dj.hotCue(0, index) }
+            Shortcut { enabled: page.active; sequence: String((index + 7) % 10); onActivated: dj.hotCue(1, index) }
+        }
+    }
+    Shortcut { enabled: page.active; sequences: ["Ctrl++", "Ctrl+="]; onActivated: dj.zoomWave(1) }
+    Shortcut { enabled: page.active; sequence: "Ctrl+-"; onActivated: dj.zoomWave(-1) }
+
     Menu {
         id: playlistMenu
         property int index: -1
@@ -222,6 +260,14 @@ Rectangle {
                 ToolTip.delay: 500
             }
             Button {
+                text: qsTr("Sampler")
+                icon.name: "layers"
+                checkable: true
+                checked: page.samplerOpen
+                highlighted: checked
+                onClicked: page.samplerOpen = checked
+            }
+            Button {
                 icon.name: "record"
                 text: dj.recording ? qsTr("REC %1:%2").arg(Math.floor(dj.recordSeconds / 60)).arg(("0" + Math.floor(dj.recordSeconds % 60)).slice(-2)) : qsTr("Mix aufnehmen")
                 highlighted: dj.recording
@@ -284,6 +330,7 @@ Rectangle {
             Layout.preferredHeight: 56
             controller: dj
             deck: 0
+            zoom: dj.waveZoom
             accent: "#3d8bff"
         }
         DjWave {
@@ -291,7 +338,66 @@ Rectangle {
             Layout.preferredHeight: 56
             controller: dj
             deck: 1
+            zoom: dj.waveZoom
             accent: "#ff8a3d"
+        }
+
+        // ------------------------------------------ Sampler
+        Rectangle {
+            visible: page.samplerOpen
+            Layout.fillWidth: true
+            Layout.preferredHeight: 54
+            radius: 8
+            color: Theme.panel
+            border.color: Theme.border
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 6
+                spacing: 5
+                Label { text: qsTr("SAMPLER"); color: Theme.faint; font.pixelSize: 10; font.bold: true }
+                Repeater {
+                    model: dj.sampler
+                    Rectangle {
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 6
+                        color: modelData.playing ? Theme.alpha(Theme.warn, 0.45) : padMouse.containsMouse ? Theme.hover : Theme.panel2
+                        border.color: modelData.custom ? Theme.accent : Theme.border
+                        Label {
+                            anchors.fill: parent
+                            anchors.margins: 4
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                            text: (index + 1) + "  " + modelData.name
+                            font.pixelSize: 11
+                        }
+                        MouseArea {
+                            id: padMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            onPressed: function (m) {
+                                if (m.button === Qt.LeftButton) {
+                                    if (modelData.playing) dj.stopSample(index)
+                                    else dj.triggerSample(index)
+                                } else {
+                                    sampleMenu.slot = index
+                                    sampleMenu.popup()
+                                }
+                            }
+                        }
+                        // Datei auf einen Platz ziehen
+                        DropArea {
+                            anchors.fill: parent
+                            onDropped: function (drop) { if (drop.hasUrls) dj.loadSample(index, drop.urls[0]) }
+                        }
+                    }
+                }
+                Knob { label: qsTr("PEGEL"); from: 0; to: 1.5; value: dj.samplerVolume; resetValue: 0.8; bipolar: false; tint: Theme.warn; onMoved: function (v) { dj.samplerVolume = v } }
+            }
         }
 
         // ----------------------------------- Decks und Mixer

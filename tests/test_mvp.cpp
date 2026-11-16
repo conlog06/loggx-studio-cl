@@ -1026,6 +1026,30 @@ void testDjCueAndJog() {
     CHECK(std::abs(dj.hotCue(0, 3) - 2.5) < 1e-12);
     dj.setHotCuePoint(0, 3, 999.0);   // hinter dem Ende: leer
     CHECK(dj.hotCue(0, 3) < 0);
+    // Key Shift: Tempo bleibt, Ton klingt weiter (Rubber Band)
+    dj.setFader(0, 1.0);
+    dj.seek(0, 1.0);
+    dj.setKeyShift(0, 3);
+    CHECK(dj.keyShift(0) == 3);
+    dj.play(0);
+    for (int i = 0; i < 20; ++i) dj.render(out.data(), 1024);
+    dj.render(out.data(), 1024);
+    CHECK(energy(out) > 1e-4);
+    CHECK(std::abs(dj.position(0) - 1.0 - 21.0 * 1024 / kRate) < 0.1);
+    dj.setKeyShift(0, 40);
+    CHECK(dj.keyShift(0) == 12);
+    dj.pause(0);
+    // Sampler: klingt auch ohne laufendes Deck und hört am Ende auf
+    auto clap = std::make_shared<const std::vector<float>>(synthDjSample(6, kRate));
+    CHECK(clap->size() > 1000 && std::string(djSampleName(6)) == "Clap");
+    dj.setSample(2, clap);
+    CHECK(dj.hasSample(2) && !dj.hasSample(3));
+    dj.triggerSample(2);
+    dj.render(out.data(), 1024);
+    CHECK(energy(out) > 1e-4 && dj.samplePlaying(2));
+    for (int i = 0; i < 40; ++i) dj.render(out.data(), 1024);
+    CHECK(!dj.samplePlaying(2));
+    for (int k = 0; k < 8; ++k) CHECK(!synthDjSample(k, kRate).empty());
 }
 
 // Tempo-Erkennung auf synthetischen Mustern (inkl. „krummer“ Tempi und

@@ -107,6 +107,20 @@ public:
     bool pfl(int deck) const;
     void setHeadphones(double mix, double volume);   // mix 0 = nur Vorhören, 1 = Master
 
+    // Key Shift in Halbtönen (−12…12), Tempo bleibt
+    void setKeyShift(int deck, int semitones);
+    int keyShift(int deck) const;
+
+    // Sampler: 8 Plätze, Stereo verschachtelt in der Mixer-Abtastrate
+    static constexpr int kSamplerSlots = 8;
+    void setSample(int slot, std::shared_ptr<const std::vector<float>> stereo);
+    bool hasSample(int slot) const;
+    void triggerSample(int slot);
+    void stopSample(int slot);
+    bool samplePlaying(int slot) const;
+    void setSamplerVolume(double v);
+    double samplerVolume() const;
+
     void setStem(int deck, DjStem stem, bool on);
     bool stem(int deck, DjStem stem) const;
 
@@ -152,7 +166,21 @@ private:
     std::unique_ptr<Fx> m_fx;
     std::function<void(const float*, std::size_t)> m_recorder;
     std::vector<float> m_bufA, m_bufB, m_cueBus;
+    struct Voice {
+        std::shared_ptr<const std::vector<float>> data;
+        std::size_t pos = 0;
+        bool playing = false;
+    };
+    std::array<Voice, kSamplerSlots> m_samples;
+    double m_samplerVol = 0.8;
     double m_headMix = 0.0, m_headVol = 1.0;
 };
 
+}  // namespace loggx
+
+namespace loggx {
+// Eingebaute Sampler-Klänge (synthetisch erzeugt, frei von Rechten):
+// 0 Air Horn, 1 Sirene, 2 Riser, 3 Downlifter, 4 Laser, 5 Sub Drop, 6 Clap, 7 Scratch
+std::vector<float> synthDjSample(int kind, int sampleRate);
+const char* djSampleName(int kind);
 }  // namespace loggx

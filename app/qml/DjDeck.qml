@@ -84,7 +84,14 @@ Rectangle {
                 width: keyText.implicitWidth + 14; height: 24; radius: 6
                 color: Theme.panel2
                 border.color: Theme.border
-                Label { id: keyText; anchors.centerIn: parent; text: info.key || ""; font.bold: true; color: Theme.ok }
+                Label {
+                    id: keyText
+                    anchors.centerIn: parent
+                    // Nach Key Shift / Tempo die klingende Tonart (wie „Current Key“)
+                    text: (info.keyNow && info.keyNow !== info.key) ? info.key + " → " + info.keyNow : (info.key || "")
+                    font.bold: true
+                    color: info.keyShift ? Theme.warn : Theme.ok
+                }
                 ToolTip.text: info.keyName || ""
                 ToolTip.visible: keyMouse.containsMouse
                 MouseArea { id: keyMouse; anchors.fill: parent; hoverEnabled: true }
@@ -173,7 +180,28 @@ Rectangle {
                 ToolTip.delay: 500
             }
             Item { Layout.fillWidth: true }
-            Label { text: qsTr("Raster"); color: Theme.faint; font.pixelSize: 11 }
+            Label { text: qsTr("Tonart"); color: Theme.faint; font.pixelSize: 11 }
+            Button { text: "−"; implicitWidth: 26; implicitHeight: 24; onClicked: dj.setKeyShift(deckRoot.deck, (info.keyShift || 0) - 1) }
+            Label {
+                text: (info.keyShift > 0 ? "+" : "") + (info.keyShift || 0)
+                Layout.preferredWidth: 22
+                horizontalAlignment: Text.AlignHCenter
+                font.family: "monospace"
+                font.pixelSize: 11
+                color: info.keyShift ? Theme.warn : Theme.dim
+                MouseArea { anchors.fill: parent; onDoubleClicked: dj.setKeyShift(deckRoot.deck, 0) }
+            }
+            Button { text: "+"; implicitWidth: 26; implicitHeight: 24; onClicked: dj.setKeyShift(deckRoot.deck, (info.keyShift || 0) + 1) }
+            Button {
+                text: qsTr("KEY SYNC")
+                implicitHeight: 24
+                font.pixelSize: 10
+                onClicked: dj.keySync(deckRoot.deck)
+                ToolTip.text: qsTr("Tonart an das andere Deck anpassen (Tempo bleibt)")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
+            Item { Layout.preferredWidth: 4 }
             IconButton { iconName: "chevron-left"; tip: qsTr("Raster 10 ms früher"); implicitWidth: 26; implicitHeight: 24; onClicked: dj.shiftGrid(deckRoot.deck, -10) }
             IconButton { iconName: "chevron-right"; tip: qsTr("Raster 10 ms später"); implicitWidth: 26; implicitHeight: 24; onClicked: dj.shiftGrid(deckRoot.deck, 10) }
             Button {

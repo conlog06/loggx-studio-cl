@@ -736,6 +736,17 @@ int main(int argc, char** argv) {
             CHECK(playLed);
             midi.handle(0x90, 0x0B, 0x7F);   // Pause
             CHECK(!dj.deckA().value("playing").toBool());
+            midi.handle(0x97, 0x72, 0x7F);   // Key-Shift-Pad 3: +2 Halbtöne
+            CHECK(dj.deckA().value("keyShift").toInt() == 2 && dj.deckA().value("keyLock").toBool());
+            midi.handle(0x97, 0x70, 0x7F);   // Pad 1: zurück
+            CHECK(dj.deckA().value("keyShift").toInt() == 0);
+            midi.handle(0x97, 0x31, 0x7F);   // Sampler-Pad 2
+            CHECK(dj.sampler().at(1).toMap().value("playing").toBool());
+            midi.handle(0x98, 0x31, 0x7F);   // Shift: stoppen
+            CHECK(!dj.sampler().at(1).toMap().value("playing").toBool());
+            const double z = dj.waveZoom();
+            midi.handle(0xB6, 0x64, 0x01);   // Shift + Browse: Zoom
+            CHECK(dj.waveZoom() < z);
             // MIDI-Learn: beliebiger Controller
             midi.usePreset(false);
             midi.learn(QStringLiteral("fader"), 1);

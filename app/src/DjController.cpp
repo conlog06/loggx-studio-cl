@@ -149,10 +149,21 @@ DjController::DjController(AppController* app, QObject* parent) : QObject(parent
     m_autoKeyLock = settings.value(QStringLiteral("dj/autoKeyLock"), false).toBool();
     m_range = {m_defaultRange, m_defaultRange};
     m_mixer.setHeadphones(m_headMix, m_headVolume);
+    m_waveZoom = settings.value(QStringLiteral("dj/waveZoom"), 8.0).toDouble();
+    m_mixer.setSamplerVolume(settings.value(QStringLiteral("dj/samplerVolume"), 0.8).toDouble());
+    initSampler();
     loadLibrary();
     connect(&m_timer, &QTimer::timeout, this, [this] {
         emit tick();
         if (++m_frame % 4 == 0) emit decksChanged();
+        // Sampler: abgelaufene Klänge melden
+        bool samplerDirty = false;
+        for (int i = 0; i < 8; ++i)
+            if (m_samplePlaying[static_cast<std::size_t>(i)] && !m_mixer.samplePlaying(i)) {
+                m_samplePlaying[static_cast<std::size_t>(i)] = false;
+                samplerDirty = true;
+            }
+        if (samplerDirty) emit samplerChanged();
         // Mitschnitt aus dem Audio-Thread in die Datei schreiben
         if (m_writer) {
             std::vector<float> chunk;
@@ -186,7 +197,7 @@ void DjController::setStatus(const QString& text) {
 // ------------------------------------------------------------ Bibliothek
 
 namespace {
-constexpr int kAnalysisVersion = 2;   // 0.7: neue Tempo-Erkennung
+constexpr int kAnalysisVersion = 3;   // 0.7: neue Tempo-Erkennung (3: ganzzahlig einrasten)
 }
 
 void DjController::loadLibrary() {
@@ -856,6 +867,14 @@ QVariantMap DjController::deckInfo(int deck) const {
     m[QStringLiteral("sync")] = m_mixer.syncLock(deck);
     m[QStringLiteral("master")] = m_mixer.masterDeck() == (deck & 1) && t != nullptr;
     m[QStringLiteral("pfl")] = m_mixer.pfl(deck);
+    // Tonart nach Key Shift (und ohne Key Lock nach Tempo) – wie „aktuelle Tonart“
+    const int shift = m_mixer.keyShift(deck);
+    m[QStringLiteral("keyShift")] = shift;
+    if (t && t->key >= 0) {
+        const double tempoSemis = m_mixer.keyLock(deck) ? 0.0 : 12.0 * std::log2(1.0 + m_mixer.tempo(deck) / 100.0);
+        const int now = ((t->key + shift + static_cast<int>(std::lround(tempoSemis))) % 12 + 12) % 12;
+        m[QStringLiteral("keyNow")] = qstr(camelotKey(now, t->minor));
+    }
     if (!t) return m;
     const double pos = m_mixer.position(deck);
     m[QStringLiteral("path")] = qstr(t->path);
@@ -1311,3 +1330,123 @@ void DjController::setRating(const QString& path, int stars) {
         emit libraryChanged();
     }
 }
+
+// ------------------------------------------------------------ Tonart
+
+void DjController::setKeyShift(int deck, int semitones) {
+    m_mixer.setKeyShift(deck, semitones);
+    emit decksChanged();
+}
+
+// Key Sync: kleinste Verschiebung, damit die Tonart zum anderen Deck passt
+// (gleiche Tonart; Moll/Dur über die Paralleltonart)
+void DjController::keySync(int deck) {
+    const int other = 1 - (deck & 1);
+    auto a = m_mixer.track(deck), b = m_mixer.track(other);
+    if (!a || !b || a->key < 0 || b->key < 0) {
+        setStatus(tr("Key Sync braucht in beiden Decks einen Track mit Tonart"));
+        return;
+    }
+    auto effective = [&](int d, const DjTrack& t) {
+        const double tempoSemis = m_mixer.keyLock(d) ? 0.0 : 12.0 * std::log2(1.0 + m_mixer.tempo(d) / 100.0);
+        int k = t.key + m_mixer.keyShift(d) + static_cast<int>(std::lround(tempoSemis));
+        if (t.minor) k += 3;   // auf Dur-Parallele beziehen (a-Moll ~ C-Dur)
+        return ((k % 12) + 12) % 12;
+    };
+    const int target = effective(other, *b);
+    const int mine = effective(deck, *a) - m_mixer.keyShift(deck);
+    int diff = ((target - mine) % 12 + 12) % 12;
+    if (diff > 6) diff -= 12;
+    m_mixer.setKeyLock(deck, true);
+    m_mixer.setKeyShift(deck, diff);
+    setStatus(tr("Key Sync: Deck %1 um %2 Halbtöne verschoben").arg((deck & 1) + 1).arg(diff > 0 ? QStringLiteral("+%1").arg(diff) : QString::number(diff)));
+    emit decksChanged();
+}
+
+// ------------------------------------------------------------ Sampler
+
+void DjController::initSampler() {
+    const QStringList saved = QSettings().value(QStringLiteral("dj/sampler")).toStringList();
+    for (int i = 0; i < 8; ++i) {
+        const QString path = i < saved.size() ? saved[i] : QString();
+        if (!path.isEmpty() && loadSample(i, QUrl::fromLocalFile(path))) continue;
+        m_samplePaths[static_cast<std::size_t>(i)].clear();
+        m_mixer.setSample(i, std::make_shared<const std::vector<float>>(synthDjSample(i, m_mixer.sampleRate())));
+    }
+}
+
+QVariantList DjController::sampler() const {
+    QVariantList list;
+    for (int i = 0; i < 8; ++i) {
+        const QString& path = m_samplePaths[static_cast<std::size_t>(i)];
+        list << QVariantMap{{QStringLiteral("name"), path.isEmpty() ? QString::fromLatin1(djSampleName(i)) : QFileInfo(path).completeBaseName()},
+                            {QStringLiteral("custom"), !path.isEmpty()},
+                            {QStringLiteral("playing"), m_samplePlaying[static_cast<std::size_t>(i)]}};
+    }
+    return list;
+}
+
+void DjController::triggerSample(int slot) {
+    ensureAudio();
+    m_mixer.triggerSample(slot);
+    if (slot >= 0 && slot < 8) m_samplePlaying[static_cast<std::size_t>(slot)] = true;
+    emit samplerChanged();
+}
+
+void DjController::stopSample(int slot) {
+    m_mixer.stopSample(slot);
+    if (slot >= 0 && slot < 8) m_samplePlaying[static_cast<std::size_t>(slot)] = false;
+    emit samplerChanged();
+}
+
+bool DjController::loadSample(int slot, const QUrl& file) {
+    if (slot < 0 || slot >= 8) return false;
+    const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
+    AudioReader reader;
+    std::string error;
+    if (!reader.open(str(path), m_mixer.sampleRate(), &error)) {
+        setStatus(tr("Sample kann nicht geladen werden: %1").arg(qstr(error)));
+        return false;
+    }
+    // höchstens 30 Sekunden
+    const std::size_t maxFrames = static_cast<std::size_t>(m_mixer.sampleRate()) * 30;
+    std::vector<float> data(maxFrames * 2);
+    const std::size_t got = reader.read(data.data(), maxFrames);
+    if (got == 0) return false;
+    data.resize(got * 2);
+    m_mixer.setSample(slot, std::make_shared<const std::vector<float>>(std::move(data)));
+    m_samplePaths[static_cast<std::size_t>(slot)] = path;
+    QStringList saved;
+    for (const QString& p : m_samplePaths) saved << p;
+    QSettings().setValue(QStringLiteral("dj/sampler"), saved);
+    emit samplerChanged();
+    return true;
+}
+
+void DjController::resetSample(int slot) {
+    if (slot < 0 || slot >= 8) return;
+    m_samplePaths[static_cast<std::size_t>(slot)].clear();
+    m_mixer.setSample(slot, std::make_shared<const std::vector<float>>(synthDjSample(slot, m_mixer.sampleRate())));
+    QStringList saved;
+    for (const QString& p : m_samplePaths) saved << p;
+    QSettings().setValue(QStringLiteral("dj/sampler"), saved);
+    emit samplerChanged();
+}
+
+void DjController::setSamplerVolume(double v) {
+    m_mixer.setSamplerVolume(v);
+    QSettings().setValue(QStringLiteral("dj/samplerVolume"), m_mixer.samplerVolume());
+    emit samplerChanged();
+}
+
+// ------------------------------------------------------------ Zoom
+
+void DjController::setWaveZoom(double seconds) {
+    seconds = std::clamp(seconds, 2.0, 32.0);
+    if (std::abs(seconds - m_waveZoom) < 1e-9) return;
+    m_waveZoom = seconds;
+    QSettings().setValue(QStringLiteral("dj/waveZoom"), seconds);
+    emit waveZoomChanged();
+}
+
+void DjController::zoomWave(int steps) { setWaveZoom(m_waveZoom * std::pow(0.8, steps)); }
