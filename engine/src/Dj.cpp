@@ -222,11 +222,26 @@ struct DjMixer::Fx {
     std::size_t delayPos = 0;
     Reverb reverb;
     std::vector<float> mono, wetL, wetR;
+    // weitere Effekte
+    std::vector<float> roll;            // Ringpuffer (Stereo) für Roll
+    std::vector<float> rollSeg;         // eingefrorenes Stück
+    std::size_t rollPos = 0, rollLen = 0, rollRead = 0;
+    bool rollActive = false;
+    std::vector<float> flange;          // kurze Verzögerung (Stereo)
+    std::size_t flangePos = 0;
+    double lfo = 0.0;                    // 0…1 freilaufend
+    std::array<std::array<float, 4>, 2> ap{};   // Phaser: Allpass-Zustände
+    float phaserFb[2] = {0, 0};
+    Biquad sweep;
+    std::uint32_t noiseSeed = 22222;
+    float noiseLp[2] = {0, 0};
 };
 
 DjMixer::DjMixer(int sampleRate) : m_rate(sampleRate), m_fx(std::make_unique<Fx>()) {
     for (auto& d : m_decks) d = std::make_unique<Deck>();
     m_fx->delay.assign(static_cast<std::size_t>(sampleRate) * 4 * 2, 0.0f);
+    m_fx->roll.assign(static_cast<std::size_t>(sampleRate) * 4 * 2, 0.0f);
+    m_fx->flange.assign(static_cast<std::size_t>(sampleRate) / 20 * 2, 0.0f);
     m_fx->reverb.prepare(sampleRate);
 }
 
@@ -876,23 +891,134 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
     // Effekt auf ein Deck oder den Master
     auto applyFx = [&](float* buf) {
         Fx& fx = *m_fx;
+        // Roll braucht immer die letzten Sekunden des Ziels
+        {
+            const std::size_t len = fx.roll.size() / 2;
+            for (std::size_t k = 0; k < frames; ++k) {
+                fx.roll[fx.rollPos * 2] = buf[k * 2];
+                fx.roll[fx.rollPos * 2 + 1] = buf[k * 2 + 1];
+                fx.rollPos = (fx.rollPos + 1) % len;
+            }
+            if (!fx.on || fx.type != DjFx::Roll) fx.rollActive = false;
+        }
         if (!fx.on || fx.type == DjFx::Brake) return;
         const Deck& ref = *m_decks[static_cast<std::size_t>(fx.target == 2 ? m_master : fx.target)];
         const double bpm = ref.bpm() > 0 ? ref.bpm() : 120.0;
         const float wet = static_cast<float>(fx.wet);
-        if (fx.type == DjFx::Echo) {
+        // LFO im Takt: eine Periode = fx.beats Schläge
+        const double lfoStep = bpm / 60.0 / std::max(0.0625, fx.beats) / m_rate;
+        if (fx.type == DjFx::Echo || fx.type == DjFx::PingPong) {
             const std::size_t len = fx.delay.size() / 2;
             const std::size_t dl = std::clamp<std::size_t>(static_cast<std::size_t>(fx.beats * 60.0 / bpm * m_rate), 1, len - 1);
+            const bool pp = fx.type == DjFx::PingPong;
             for (std::size_t k = 0; k < frames; ++k) {
                 const std::size_t rd = (fx.delayPos + len - dl) % len;
-                for (int c = 0; c < 2; ++c) {
-                    const float delayed = fx.delay[rd * 2 + c];
-                    fx.delay[fx.delayPos * 2 + c] = buf[k * 2 + c] + delayed * 0.55f;
-                    buf[k * 2 + c] += delayed * wet;
+                const float dL = fx.delay[rd * 2], dR = fx.delay[rd * 2 + 1];
+                if (pp) {   // Ping-Pong: Echo springt zwischen links und rechts
+                    const float in = 0.5f * (buf[k * 2] + buf[k * 2 + 1]);
+                    fx.delay[fx.delayPos * 2] = in + dR * 0.6f;
+                    fx.delay[fx.delayPos * 2 + 1] = dL * 0.6f;
+                } else {
+                    fx.delay[fx.delayPos * 2] = buf[k * 2] + dL * 0.55f;
+                    fx.delay[fx.delayPos * 2 + 1] = buf[k * 2 + 1] + dR * 0.55f;
                 }
+                buf[k * 2] += dL * wet;
+                buf[k * 2 + 1] += dR * wet;
                 fx.delayPos = (fx.delayPos + 1) % len;
             }
-        } else {
+        } else if (fx.type == DjFx::Flanger) {
+            const std::size_t len = fx.flange.size() / 2;
+            for (std::size_t k = 0; k < frames; ++k) {
+                fx.lfo = std::fmod(fx.lfo + lfoStep, 1.0);
+                const double ms = 1.0 + 4.0 * (0.5 - 0.5 * std::cos(2 * kPi * fx.lfo));
+                const double d = ms * 0.001 * m_rate;
+                const double rp = static_cast<double>(fx.flangePos) + len - d;
+                const std::size_t i0 = static_cast<std::size_t>(rp) % len, i1 = (i0 + 1) % len;
+                const float t = static_cast<float>(rp - std::floor(rp));
+                for (int c = 0; c < 2; ++c) {
+                    const float delayed = fx.flange[i0 * 2 + c] * (1 - t) + fx.flange[i1 * 2 + c] * t;
+                    fx.flange[fx.flangePos * 2 + c] = buf[k * 2 + c] + delayed * 0.6f;
+                    buf[k * 2 + c] = buf[k * 2 + c] * (1 - 0.5f * wet) + delayed * wet * 0.7f;
+                }
+                fx.flangePos = (fx.flangePos + 1) % len;
+            }
+        } else if (fx.type == DjFx::Phaser) {
+            for (std::size_t k = 0; k < frames; ++k) {
+                fx.lfo = std::fmod(fx.lfo + lfoStep, 1.0);
+                const double hz = 300.0 * std::pow(10.0, 1.0 * (0.5 - 0.5 * std::cos(2 * kPi * fx.lfo)));
+                const float a = static_cast<float>((std::tan(kPi * hz / m_rate) - 1) / (std::tan(kPi * hz / m_rate) + 1));
+                for (int c = 0; c < 2; ++c) {
+                    float x = buf[k * 2 + c] + fx.phaserFb[c] * 0.5f;
+                    for (float& z : fx.ap[static_cast<std::size_t>(c)]) {
+                        const float y = a * x + z;
+                        z = x - a * y;
+                        x = y;
+                    }
+                    fx.phaserFb[c] = x;
+                    buf[k * 2 + c] = buf[k * 2 + c] * (1 - 0.5f * wet) + x * wet * 0.5f + buf[k * 2 + c] * 0.5f * wet;
+                }
+            }
+        } else if (fx.type == DjFx::Trans) {
+            // Zerhacker im Takt, am Raster des Ziel-Decks ausgerichtet
+            double phase = fx.lfo;
+            if (ref.track && ref.gridBpm > 0) {
+                const double t = ref.pos / ref.track->sampleRate;
+                phase = std::fmod((t - ref.gridFirst) / (60.0 / ref.gridBpm) / std::max(0.0625, fx.beats) + 1000.0, 1.0);
+            }
+            for (std::size_t k = 0; k < frames; ++k) {
+                phase = std::fmod(phase + lfoStep, 1.0);
+                // offen in der ersten Hälfte, sanfte Kanten (~3 ms)
+                const double edge = 0.003 * bpm / 60.0 / std::max(0.0625, fx.beats);
+                double g = phase < 0.5 ? 1.0 : 0.0;
+                if (phase < edge) g = phase / edge;
+                else if (phase > 0.5 && phase < 0.5 + edge) g = 1.0 - (phase - 0.5) / edge;
+                const float gain = static_cast<float>(1.0 - wet * (1.0 - g));
+                buf[k * 2] *= gain;
+                buf[k * 2 + 1] *= gain;
+            }
+            fx.lfo = phase;
+        } else if (fx.type == DjFx::Roll) {
+            // Wiederholt das Stück direkt vor dem Einschalten (Länge = Schläge)
+            const std::size_t len = fx.roll.size() / 2;
+            const std::size_t L = std::clamp<std::size_t>(static_cast<std::size_t>(fx.beats * 60.0 / bpm * m_rate), 64, len - frames - 1);
+            if (!fx.rollActive) {
+                fx.rollActive = true;
+                fx.rollLen = L;
+                fx.rollSeg.resize(L * 2);
+                // Ring wurde schon um diesen Block weitergeschrieben: davor beginnen
+                const std::size_t start = (fx.rollPos + 2 * len - frames - L) % len;
+                for (std::size_t i = 0; i < L; ++i) {
+                    fx.rollSeg[i * 2] = fx.roll[((start + i) % len) * 2];
+                    fx.rollSeg[i * 2 + 1] = fx.roll[((start + i) % len) * 2 + 1];
+                }
+                fx.rollRead = 0;
+            }
+            for (std::size_t k = 0; k < frames; ++k) {
+                for (int c = 0; c < 2; ++c) buf[k * 2 + c] = buf[k * 2 + c] * (1 - wet) + fx.rollSeg[fx.rollRead * 2 + c] * wet;
+                fx.rollRead = (fx.rollRead + 1) % fx.rollLen;
+            }
+        } else if (fx.type == DjFx::Filter) {
+            for (std::size_t k = 0; k < frames; k += 32) {
+                fx.lfo = std::fmod(fx.lfo + lfoStep * 32, 1.0);
+                const double hz = 250.0 * std::pow(40.0, 0.5 - 0.5 * std::cos(2 * kPi * fx.lfo));
+                fx.sweep.design(Biquad::Type::LowPass, hz, 0, 2.5, m_rate);
+                for (std::size_t j = k; j < std::min(frames, k + 32); ++j)
+                    for (int c = 0; c < 2; ++c) {
+                        const float f = fx.sweep.process(buf[j * 2 + c], c);
+                        buf[j * 2 + c] = buf[j * 2 + c] * (1 - wet) + f * wet;
+                    }
+            }
+        } else if (fx.type == DjFx::Noise) {
+            for (std::size_t k = 0; k < frames; ++k) {
+                for (int c = 0; c < 2; ++c) {
+                    fx.noiseSeed = fx.noiseSeed * 1664525u + 1013904223u;
+                    const float n = static_cast<float>(fx.noiseSeed >> 8) / 8388608.0f - 1.0f;
+                    const float hp = n - fx.noiseLp[c];
+                    fx.noiseLp[c] += 0.2f * (n - fx.noiseLp[c]);
+                    buf[k * 2 + c] += hp * 0.18f * wet;
+                }
+            }
+        } else if (fx.type == DjFx::Reverb) {
             fx.mono.resize(frames);
             fx.wetL.resize(frames);
             fx.wetR.resize(frames);

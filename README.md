@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.10**: DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.11**: DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -22,6 +22,11 @@ Dieses Repository enthält die **MVP-Vorschau 0.10**: DJ als eigener Modus mit *
 - **Key Shift** (±12 Halbtöne, Tempo bleibt) und **Key Sync** (Tonart ans andere Deck anpassen); das Deck zeigt die klingende Tonart (z. B. 7B → 9B)
 - **Wellenform-Zoom** (Mausrad, Strg+Plus/Minus, Shift+Browse am Controller)
 - **Tastatur ohne Controller**: Deck 1 – A Cue, S Play, D Sync, Q/W Bend, 1–4 Hot Cues; Deck 2 – J Cue, K Play, L Sync, O/P Bend, 7–0 Hot Cues
+- **Stems** pro Track: **eingebaute Stem-Engine** (sofort, ohne Download: Gesang über das Stereobild, Schlagzeug/Tonales per HPSS, Bass = tonal unter ~120 Hz) oder **KI** (MDX-Net, deutlich sauberer) – wählbar unter Einstellungen → DJ
+- **Phrasen-Anzeige** wie in rekordbox unter der Übersicht: Intro, Up (Aufbau), Chorus (Drop), Down (Breakdown), Outro – 8-Takt-Abschnitte nach Energie und Bass
+- **10 Beat-FX**: Echo, Hall, Bremse, Ping-Pong, Flanger, Phaser, Trans (Zerhacker im Raster), Roll, Filter (LFO), Rauschen
+- **Quellen**: Google Drive, iCloud Drive, OneDrive, Dropbox (über deren Desktop-Apps, Sync-Ordner werden automatisch gefunden), Musik, Downloads und eigene Ordner (USB, NAS) direkt durchsuchen und laden
+- Tracks aus der Liste oder direkt aus Explorer/Finder auf ein Deck ziehen
 - **KI-Stems** pro Track: Gesang, Instrumente, Bass, Schlagzeug einzeln stummschalten (drei MDX-Net-Modelle, einmalig ~90 MB)
 - **Bibliothek wie in rekordbox**: Sammlung, **Verlauf** (History, als Playlist sicherbar), **Playlists** (anlegen, umbenennen, Tracks hineinziehen), Spalten Titel/Interpret/Genre/BPM/Tonart/Zeit/Bewertung/Hinzugefügt, Suche, Sortierung, Pfeiltasten + Enter/←/→ zum Laden
 - **Bibliothek anpassen**: Trenner zwischen Decks und Liste ziehen (größer/kleiner), Doppelklick oder „Groß“ (Strg+B) = Bibliothek groß mit kompakten Decks oben; Spalten ein-/ausblenden (Rechtsklick auf die Spaltenköpfe: Interpret, Album, Genre, BPM, Tonart, Zeit, Bewertung, Gespielt, Kommentar, Neu) und Zeilenhöhe – alles wird gemerkt
@@ -44,6 +49,10 @@ Dieses Repository enthält die **MVP-Vorschau 0.10**: DJ als eigener Modus mit *
 - Controller: Gerät, Tempo-Fader umkehren, MIDI-Learn
 - Bibliothek: rekordbox/iTunes übernehmen, Verlauf leeren
 - KI: Standard-Methode, **Modelle automatisch im Hintergrund laden**, Modell-Liste mit Status/Größe, alle laden, einzeln löschen, Ordner öffnen
+
+**Video-Export**: H.264, H.265, **Apple ProRes 422 HQ** und **ProRes 4444** (mit Alpha, MOV, Ton als PCM), bis **8K** (Pro-Edition).
+
+**macOS**: Die Mac-Version wird bei jedem Build als **LXStudio-macOS.dmg** gebaut (Apple Silicon und Intel über Homebrew-Bibliotheken des Build-Rechners: Apple Silicon). Ohne Apple-Entwicklerkonto ist sie nur ad-hoc signiert: beim ersten Start Rechtsklick → „Öffnen“.
 
 **Streaming**: Spotify, Apple Music, SoundCloud und Beatport geben ihre Streams nur an DJ-Programme mit eigenem Partnervertrag frei (so wie bei rekordbox, Serato oder djay). Ohne diese Verträge kann LXStudio sie nicht abspielen; es gibt die Suche bei diesen Diensten per Rechtsklick und den Import gekaufter Dateien bzw. der Apple-Music-Library (nur lokale Dateien).
 

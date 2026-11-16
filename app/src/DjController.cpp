@@ -138,6 +138,11 @@ private:
 
 DjController::DjController(AppController* app, QObject* parent) : QObject(parent), m_app(app), m_mixer(pickRate()) {
     m_clock.start();
+    // Jede Änderung der Bibliothek verwirft den Zwischenspeicher (vor QML)
+    connect(this, &DjController::libraryChanged, this, [this] {
+        m_rowsValid = false;
+        m_libValid = false;
+    });
     QSettings settings;
     m_bpmMin = settings.value(QStringLiteral("dj/bpmMin"), 70.0).toDouble();
     m_bpmMax = settings.value(QStringLiteral("dj/bpmMax"), 180.0).toDouble();
@@ -149,6 +154,7 @@ DjController::DjController(AppController* app, QObject* parent) : QObject(parent
     m_autoKeyLock = settings.value(QStringLiteral("dj/autoKeyLock"), false).toBool();
     m_autoGain = settings.value(QStringLiteral("dj/autoGain"), true).toBool();
     m_autoStems = settings.value(QStringLiteral("dj/autoStems"), false).toBool();
+    m_stemEngine = settings.value(QStringLiteral("dj/stemEngine"), 0).toInt();
     m_lockPlaying = settings.value(QStringLiteral("dj/lockPlaying"), true).toBool();
     m_waveStyle = settings.value(QStringLiteral("dj/waveStyle"), 0).toInt();
     m_libraryHeight = settings.value(QStringLiteral("dj/libraryHeight"), 230.0).toDouble();
@@ -302,7 +308,23 @@ DjController::Entry* DjController::entry(const QString& path) {
     return nullptr;
 }
 
+// Zwischenspeicher: Sortieren/Filtern nur nach Änderungen (große Bibliotheken)
 std::vector<const DjController::Entry*> DjController::rows() const {
+    if (m_rowsValid && m_rowsEntryCount == m_entries.size()) {
+        std::vector<const Entry*> out;
+        out.reserve(m_rowsCache.size());
+        for (std::size_t i : m_rowsCache) out.push_back(&m_entries[i]);
+        return out;
+    }
+    std::vector<const Entry*> rows = computeRows();
+    m_rowsCache.clear();
+    for (const Entry* e : rows) m_rowsCache.push_back(static_cast<std::size_t>(e - m_entries.data()));
+    m_rowsEntryCount = m_entries.size();
+    m_rowsValid = true;
+    return rows;
+}
+
+std::vector<const DjController::Entry*> DjController::computeRows() const {
     std::vector<const Entry*> rows;
     const QString needle = m_search.trimmed();
     auto matches = [&](const Entry& e) {
@@ -315,6 +337,7 @@ std::vector<const DjController::Entry*> DjController::rows() const {
             if (e.path == path) return &e;
         return nullptr;
     };
+    if (m_view == -3) return rows;   // Ordner-Ansicht hat eigene Liste
     if (m_view == -1) {
         for (const Entry& e : m_entries)
             if (matches(e)) rows.push_back(&e);
@@ -354,6 +377,7 @@ std::vector<const DjController::Entry*> DjController::rows() const {
 }
 
 QVariantList DjController::library() const {
+    if (m_libValid && m_rowsValid && m_rowsEntryCount == m_entries.size()) return m_libCache;
     QVariantList list;
     for (const Entry* e : rows()) {
         QVariantMap m;
@@ -383,6 +407,8 @@ QVariantList DjController::library() const {
         m[QStringLiteral("exists")] = QFileInfo::exists(e->path);
         list << m;
     }
+    m_libCache = list;
+    m_libValid = true;
     return list;
 }
 
@@ -548,10 +574,6 @@ bool DjController::hasStems(const QString& path) const {
 
 void DjController::prepareStems(const QString& path) {
     if (m_working) return;
-    if (!aiSeparationAvailable()) {
-        setStatus(tr("Diese Version hat keine KI eingebaut"));
-        return;
-    }
     if (m_app->working()) {
         setStatus(tr("Bitte warten, bis die laufende Aufgabe fertig ist"));
         return;
@@ -561,30 +583,38 @@ void DjController::prepareStems(const QString& path) {
         setStatus(tr("Ordner kann nicht angelegt werden: %1").arg(dir));
         return;
     }
-    m_app->ensureModels({QStringLiteral("vocals"), QStringLiteral("drums"), QStringLiteral("bass")}, [this, path, dir] {
+    const bool ai = m_stemEngine == 1 && aiSeparationAvailable();
+    // Läuft im Hintergrund; danach Decks mit Stems neu laden
+    auto run = [this, path, dir, ai] {
         m_working = true;
         m_workProgress = 0;
-        m_workLabel = tr("KI trennt Stems: %1").arg(QFileInfo(path).completeBaseName());
+        m_workLabel = (ai ? tr("KI trennt Stems: %1") : tr("Stems werden getrennt: %1")).arg(QFileInfo(path).completeBaseName());
         emit workChanged();
         auto result = std::make_shared<SeparationResult>();
         m_cancel = std::make_shared<std::atomic<bool>>(false);
         auto cancel = m_cancel;
         std::vector<StemJob> jobs;
-        for (const char* id : {"vocals", "drums", "bass"}) {
-            const StemModelInfo* model = findStemModel(id);
-            jobs.push_back({model, str(m_app->models()->pathFor(*model)), str(dir + QLatin1Char('/') + QLatin1String(id) + QStringLiteral(".wav"))});
+        if (ai) {
+            for (const char* id : {"vocals", "drums", "bass"}) {
+                const StemModelInfo* model = findStemModel(id);
+                jobs.push_back({model, str(m_app->models()->pathFor(*model)), str(dir + QLatin1Char('/') + QLatin1String(id) + QStringLiteral(".wav"))});
+            }
         }
-        QThread* thread = QThread::create([this, path, dir, jobs, result, cancel] {
-            *result = separateStemsAi(str(path), jobs, str(dir + QStringLiteral("/inst.wav")), false,
-                                      [this](double p) {
-                                          QMetaObject::invokeMethod(this, [this, p] {
-                                              m_workProgress = p;
-                                              emit workChanged();
-                                          }, Qt::QueuedConnection);
-                                      },
-                                      cancel.get());
+        auto report = [this](double p) {
+            QMetaObject::invokeMethod(this, [this, p] {
+                m_workProgress = p;
+                emit workChanged();
+            }, Qt::QueuedConnection);
+        };
+        QThread* thread = QThread::create([path, dir, jobs, result, cancel, ai, report] {
+            if (ai) {
+                *result = separateStemsAi(str(path), jobs, str(dir + QStringLiteral("/inst.wav")), false, report, cancel.get());
+            } else {
+                *result = separateStemsDsp(str(path), str(dir + QStringLiteral("/vocals.wav")), str(dir + QStringLiteral("/drums.wav")),
+                                           str(dir + QStringLiteral("/bass.wav")), str(dir + QStringLiteral("/inst.wav")), report, cancel.get());
+            }
         });
-        connect(thread, &QThread::finished, this, [this, thread, path, dir, result] {
+        connect(thread, &QThread::finished, this, [this, thread, path, dir, result, ai] {
             thread->deleteLater();
             m_working = false;
             emit workChanged();
@@ -593,14 +623,30 @@ void DjController::prepareStems(const QString& path) {
                 setStatus(result->error.empty() ? tr("Stem-Trennung fehlgeschlagen") : qstr(result->error));
                 return;
             }
+            QFile marker(dir + QStringLiteral("/engine.txt"));
+            if (marker.open(QIODevice::WriteOnly)) marker.write(ai ? "ai" : "dsp");
             emit libraryChanged();
-            // Geladene, angehaltene Decks gleich mit Stems neu laden
             for (int d = 0; d < 2; ++d)
                 if (m_loaded[static_cast<std::size_t>(d)] == path && !m_mixer.playing(d)) loadTrack(d, path);
-            setStatus(tr("Stems bereit: Gesang, Schlagzeug, Bass, Instrumente"));
+            setStatus(ai ? tr("KI-Stems bereit: Gesang, Schlagzeug, Bass, Instrumente")
+                         : tr("Stems bereit (eingebaute Engine) – für noch sauberere Trennung: Einstellungen → KI"));
         });
         thread->start();
-    });
+    };
+    if (ai) m_app->ensureModels({QStringLiteral("vocals"), QStringLiteral("drums"), QStringLiteral("bass")}, run);
+    else run();
+}
+
+void DjController::setStemEngine(int engine) {
+    m_stemEngine = std::clamp(engine, 0, 1);
+    QSettings().setValue(QStringLiteral("dj/stemEngine"), m_stemEngine);
+    emit settingsChanged();
+}
+
+void DjController::recomputeStems(const QString& path) {
+    QDir(stemFolder(path)).removeRecursively();
+    emit libraryChanged();
+    prepareStems(path);
 }
 
 void DjController::cancelWork() {
@@ -775,7 +821,7 @@ void DjController::loadTrack(int deck, const QString& path) {
         }
         if (m_autoGain && e->loudness < 0 && e->loudness > -80)
             m_mixer.setTrim(deck, std::clamp(std::pow(10.0, (kGainTarget - e->loudness) / 20.0), 0.35, 2.0));
-        if (m_autoStems && aiAvailable() && !hasStems(path)) QTimer::singleShot(0, this, [this, path] { prepareStems(path); });
+        if (m_autoStems && !hasStems(path)) QTimer::singleShot(0, this, [this, path] { prepareStems(path); });
         m_loaded[static_cast<std::size_t>(deck)] = path;
         emit decksChanged();
         emit libraryChanged();
@@ -907,6 +953,23 @@ QVariantMap DjController::deckInfo(int deck) const {
     m[QStringLiteral("sync")] = m_mixer.syncLock(deck);
     m[QStringLiteral("master")] = m_mixer.masterDeck() == (deck & 1) && t != nullptr;
     m[QStringLiteral("pfl")] = m_mixer.pfl(deck);
+    // Phrasen (Intro/Up/Chorus/Down/Outro) – nur neu berechnen, wenn sich Track/Raster ändern
+    if (t) {
+        auto& cache = m_phraseCache[static_cast<std::size_t>(deck & 1)];
+        const double gb = m_mixer.gridBpm(deck), gf = m_mixer.gridFirstBeat(deck);
+        if (cache.track != t.get() || cache.bpm != gb || cache.first != gf) {
+            cache.track = t.get();
+            cache.bpm = gb;
+            cache.first = gf;
+            cache.list.clear();
+            static const char* names[] = {"Intro", "Up", "Chorus", "Down", "Outro"};
+            for (const DjPhrase& p : analyzeDjPhrases(*t, gb, gf))
+                cache.list << QVariantMap{{QStringLiteral("start"), p.start / t->duration()},
+                                          {QStringLiteral("end"), p.end / t->duration()},
+                                          {QStringLiteral("kind"), QString::fromLatin1(names[static_cast<int>(p.kind)])}};
+        }
+        m[QStringLiteral("phrases")] = cache.list;
+    }
     // Tonart nach Key Shift (und ohne Key Lock nach Tempo) – wie „aktuelle Tonart“
     const int shift = m_mixer.keyShift(deck);
     m[QStringLiteral("keyShift")] = shift;
@@ -974,7 +1037,7 @@ void DjController::setQuantize(bool on) {
 }
 
 void DjController::setFx(int type, double beats, double wet, int target) {
-    m_fxType = std::clamp(type, 0, 2);
+    m_fxType = std::clamp(type, 0, kDjFxCount - 1);
     m_fxBeats = beats;
     m_fxWet = wet;
     m_fxTarget = std::clamp(target, 0, 2);
@@ -1267,7 +1330,8 @@ QVariantList DjController::playlists() const {
 }
 
 void DjController::setView(int view) {
-    if (view < -2 || view >= static_cast<int>(m_playlists.size())) view = -1;
+    if (view == -3 && m_browsePath.isEmpty()) view = -1;
+    if (view < -3 || view >= static_cast<int>(m_playlists.size())) view = -1;
     if (view == m_view) return;
     m_view = view;
     m_cursor = 0;
@@ -1562,4 +1626,11 @@ void DjController::setRowSize(int size) {
     m_rowSize = size;
     QSettings().setValue(QStringLiteral("dj/rowSize"), size);
     emit layoutChanged();
+}
+
+void DjController::loadUrl(int deck, const QUrl& url) {
+    const QString path = url.isLocalFile() ? url.toLocalFile() : url.toString();
+    if (!QFileInfo(path).isFile()) return;
+    importFiles({url});
+    loadTrack(deck, QFileInfo(path).absoluteFilePath());
 }

@@ -1136,16 +1136,23 @@ void AppController::exportVideo(const QUrl& url, int width, int height, int code
     if (m_exportWorker) return;
     QString path = url.toLocalFile();
     if (path.isEmpty()) return;
+    const bool prores = codec == 2 || codec == 3;
+    // ProRes gehört in eine MOV-Datei
+    if (prores && QFileInfo(path).suffix().toLower() != QLatin1String("mov"))
+        path = QFileInfo(path).path() + QLatin1Char('/') + QFileInfo(path).completeBaseName() + QStringLiteral(".mov");
     if (QFileInfo(path).suffix().isEmpty()) path += QStringLiteral(".mp4");
-    if (!isPro() && (std::min(width, height) > 1080 || codec == 1)) {
-        setStatus(tr("4K und H.265 sind in der Pro-Edition enthalten"));
+    if (!isPro() && (std::min(width, height) > 1080 || codec >= 1)) {
+        setStatus(tr("4K/8K, H.265 und ProRes sind in der Pro-Edition enthalten"));
         return;
     }
     ExportSettings settings;
     settings.path = str(path);
     settings.width = std::max(16, width) & ~1;
     settings.height = std::max(16, height) & ~1;
-    settings.codec = codec == 1 ? ExportSettings::Codec::H265 : ExportSettings::Codec::H264;
+    settings.codec = codec == 1 ? ExportSettings::Codec::H265
+                   : codec == 2 ? ExportSettings::Codec::ProRes422HQ
+                   : codec == 3 ? ExportSettings::Codec::ProRes4444
+                                : ExportSettings::Codec::H264;
     settings.quality = std::clamp(quality, 0, 3);
     startExport(settings, ExportWorker::Video);
 }

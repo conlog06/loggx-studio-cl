@@ -116,4 +116,55 @@ std::vector<float> synthDjSample(int kind, int rate) {
     return out;
 }
 
+std::vector<DjPhrase> analyzeDjPhrases(const DjTrack& track, double bpm, double firstBeat) {
+    std::vector<DjPhrase> out;
+    const double duration = track.duration();
+    if (bpm <= 0 || track.wave.empty() || duration < 20) return out;
+    const double block = 60.0 / bpm * 4 * 8;   // 8 Takte
+    // Erster Block beginnt am ersten Taktanfang (vor dem Raster: Vorlauf)
+    double t0 = firstBeat;
+    while (t0 - block > 0) t0 -= block;
+    std::vector<double> starts;
+    if (t0 > 0.5) starts.push_back(0.0);
+    for (double t = t0; t < duration - 1.0; t += block) starts.push_back(t);
+    const std::size_t n = starts.size();
+    std::vector<double> energy(n, 0), bass(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double a = starts[i], b = i + 1 < n ? starts[i + 1] : duration;
+        const std::size_t c0 = static_cast<std::size_t>(a * DjTrack::kWaveRate);
+        const std::size_t c1 = std::min(track.wave.size(), static_cast<std::size_t>(b * DjTrack::kWaveRate));
+        double e = 0, l = 0;
+        for (std::size_t c = c0; c < c1; ++c) {
+            e += track.wave[c][0];
+            l += track.wave[c][1];
+        }
+        const double cnt = static_cast<double>(std::max<std::size_t>(1, c1 - c0));
+        energy[i] = e / cnt;
+        bass[i] = l / cnt;
+    }
+    const double maxE = std::max(1.0, *std::max_element(energy.begin(), energy.end()));
+    const double maxB = std::max(1.0, *std::max_element(bass.begin(), bass.end()));
+    std::vector<DjPhraseKind> kind(n, DjPhraseKind::Down);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double e = energy[i] / maxE, b = bass[i] / maxB;
+        kind[i] = (b > 0.62 && e > 0.6) ? DjPhraseKind::Chorus : DjPhraseKind::Down;
+    }
+    // Vor einem Chorus: Aufbau (Up), sofern nicht selbst Chorus
+    for (std::size_t i = 0; i + 1 < n; ++i)
+        if (kind[i] == DjPhraseKind::Down && kind[i + 1] == DjPhraseKind::Chorus) kind[i] = DjPhraseKind::Up;
+    const auto firstChorus = std::find(kind.begin(), kind.end(), DjPhraseKind::Chorus);
+    const auto lastChorus = std::find(kind.rbegin(), kind.rend(), DjPhraseKind::Chorus);
+    if (firstChorus != kind.end()) {
+        for (auto it = kind.begin(); it != firstChorus; ++it)
+            if (*it != DjPhraseKind::Up) *it = DjPhraseKind::Intro;
+        for (auto it = kind.rbegin(); it != lastChorus; ++it) *it = DjPhraseKind::Outro;
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        const double a = starts[i], b = i + 1 < n ? starts[i + 1] : duration;
+        if (!out.empty() && out.back().kind == kind[i]) out.back().end = b;
+        else out.push_back({a, b, kind[i]});
+    }
+    return out;
+}
+
 }  // namespace loggx

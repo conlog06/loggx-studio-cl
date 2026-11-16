@@ -47,7 +47,13 @@ class DjController : public QObject {
     Q_PROPERTY(int sortColumn READ sortColumn WRITE setSortColumn NOTIFY libraryChanged)
     // Bibliothek wie in DJ-Programmen: Sammlung, Verlauf, Playlists
     Q_PROPERTY(QVariantList playlists READ playlists NOTIFY libraryChanged)
-    Q_PROPERTY(int view READ view WRITE setView NOTIFY libraryChanged)   // -1 Sammlung, -2 Verlauf, ≥0 Playlist
+    Q_PROPERTY(int view READ view WRITE setView NOTIFY libraryChanged)   // -1 Sammlung, -2 Verlauf, -3 Ordner, ≥0 Playlist
+    // Quellen: Cloud-Ordner (Google Drive, iCloud, OneDrive, Dropbox), Musik, eigene Ordner
+    Q_PROPERTY(QVariantList sources READ sources NOTIFY sourcesChanged)
+    Q_PROPERTY(QVariantList browseItems READ browseItems NOTIFY browseChanged)
+    Q_PROPERTY(QString browsePath READ browsePath NOTIFY browseChanged)
+    Q_PROPERTY(QString browseRoot READ browseRoot NOTIFY browseChanged)
+    Q_PROPERTY(QString browseTitle READ browseTitle NOTIFY browseChanged)
     Q_PROPERTY(int cursor READ cursor WRITE setCursor NOTIFY cursorChanged)
     Q_PROPERTY(int trackCount READ trackCount NOTIFY libraryChanged)
     // Tempo-Erkennung: Bereich (BPM), in den gefaltet wird
@@ -65,7 +71,9 @@ class DjController : public QObject {
     Q_PROPERTY(double defaultTempoRange READ defaultTempoRange WRITE setDefaultTempoRange NOTIFY settingsChanged)
     Q_PROPERTY(bool autoKeyLock READ autoKeyLock WRITE setAutoKeyLock NOTIFY settingsChanged)
     Q_PROPERTY(bool autoGain READ autoGain WRITE setAutoGain NOTIFY settingsChanged)        // Lautheit angleichen
-    Q_PROPERTY(bool autoStems READ autoStems WRITE setAutoStems NOTIFY settingsChanged)     // KI-Stems beim Laden
+    Q_PROPERTY(bool autoStems READ autoStems WRITE setAutoStems NOTIFY settingsChanged)     // Stems beim Laden
+    // Stem-Engine: 0 = eingebaut (sofort, ohne Download), 1 = KI (beste Qualität)
+    Q_PROPERTY(int stemEngine READ stemEngine WRITE setStemEngine NOTIFY settingsChanged)
     Q_PROPERTY(bool lockPlaying READ lockPlaying WRITE setLockPlaying NOTIFY settingsChanged)
     Q_PROPERTY(int waveStyle READ waveStyle WRITE setWaveStyle NOTIFY settingsChanged)       // 0 3-Band, 1 Blau, 2 Weiß
     // Bibliothek anpassen: Höhe (Trenner ziehen), groß (Decks kompakt), Spalten, Zeilenhöhe
@@ -86,9 +94,11 @@ public:
     // ---- Bibliothek
     QVariantList library() const;
     Q_INVOKABLE void importFiles(const QList<QUrl>& urls);
+    Q_INVOKABLE void importPaths(const QStringList& paths);
     Q_INVOKABLE void removeTrack(const QString& path);
     Q_INVOKABLE void prepareStems(const QString& path);   // KI: Gesang, Schlagzeug, Bass, Rest
     Q_INVOKABLE void reanalyze(const QString& path);
+    Q_INVOKABLE void loadUrl(int deck, const QUrl& url);   // Datei aus Explorer/Finder direkt ins Deck
     Q_INVOKABLE void setTrackBpm(const QString& path, double bpm);
     Q_INVOKABLE void setRating(const QString& path, int stars);
     Q_INVOKABLE QVariantMap trackInfo(const QString& path) const;
@@ -103,6 +113,15 @@ public:
     Q_INVOKABLE void addToPlaylist(int index, const QStringList& paths);
     Q_INVOKABLE void removeFromPlaylist(int index, const QString& path);
     Q_INVOKABLE void clearHistory();
+    QVariantList sources() const;
+    Q_INVOKABLE void addSource(const QUrl& folder);
+    Q_INVOKABLE void removeSource(const QString& path);
+    Q_INVOKABLE void browse(const QString& path);
+    Q_INVOKABLE void browseUp();
+    QVariantList browseItems() const { return m_browseItems; }
+    QString browsePath() const { return m_browsePath; }
+    QString browseRoot() const { return m_browseRoot; }
+    QString browseTitle() const;
     // Cursor (Browse-Regler am Controller, Pfeiltasten)
     int cursor() const { return m_cursor; }
     void setCursor(int row);
@@ -236,6 +255,9 @@ public:
     bool autoGain() const { return m_autoGain; }
     void setAutoGain(bool on);
     bool autoStems() const { return m_autoStems; }
+    int stemEngine() const { return m_stemEngine; }
+    void setStemEngine(int engine);
+    Q_INVOKABLE void recomputeStems(const QString& path);
     void setAutoStems(bool on);
     bool lockPlaying() const { return m_lockPlaying; }
     void setLockPlaying(bool on);
@@ -268,6 +290,8 @@ signals:
     void deckLoaded(int deck);
     void samplerChanged();
     void layoutChanged();
+    void sourcesChanged();
+    void browseChanged();
     void waveZoomChanged();
 
 private:
@@ -290,6 +314,11 @@ private:
     };
     QVariantMap deckInfo(int deck) const;
     std::vector<const Entry*> rows() const;
+    std::vector<const Entry*> computeRows() const;
+    mutable std::vector<std::size_t> m_rowsCache;
+    mutable std::size_t m_rowsEntryCount = 0;
+    mutable bool m_rowsValid = false, m_libValid = false;
+    mutable QVariantList m_libCache;
     Entry* entry(const QString& path);
     void syncHotCues(int deck);
     void applyGrid(const QString& path);
@@ -317,9 +346,17 @@ private:
     std::vector<Playlist> m_playlists;
     QStringList m_history;
     int m_view = -1;
+    QString m_browsePath, m_browseRoot;
+    QVariantList m_browseItems;
     int m_cursor = 0;
     std::array<std::vector<qint64>, 2> m_taps;
     std::array<double, 2> m_loopIn{-1.0, -1.0};
+    struct PhraseCache {
+        const void* track = nullptr;
+        double bpm = -1, first = -1;
+        QVariantList list;
+    };
+    mutable std::array<PhraseCache, 2> m_phraseCache;
     QElapsedTimer m_clock;
     double m_bpmMin = 70.0, m_bpmMax = 180.0;
     QString m_outputDevice, m_headDevice, m_audioInfo;
@@ -329,6 +366,7 @@ private:
     bool m_autoKeyLock = false;
     bool m_autoGain = true, m_autoStems = false, m_lockPlaying = true;
     int m_waveStyle = 0;
+    int m_stemEngine = 0;
     double m_libraryHeight = 230;
     bool m_libraryMax = false;
     QStringList m_columns;

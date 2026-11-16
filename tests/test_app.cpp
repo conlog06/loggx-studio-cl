@@ -696,6 +696,25 @@ int main(int argc, char** argv) {
         dj.setRating(song, 4);
         CHECK(dj.library().first().toMap().value("rating").toInt() == 4);
         CHECK(dj.searchUrl("beatport", song).startsWith("https://www.beatport.com/search?q="));
+        // Quellen: eigener Ordner (wie Cloud-Sync-Ordner) durchsuchen und laden
+        {
+            QDir(dir.path()).mkpath("Quelle/Unterordner");
+            QFile::copy(song, dir.filePath("Quelle/lied.wav"));
+            dj.addSource(QUrl::fromLocalFile(dir.filePath("Quelle")));
+            bool listed = false;
+            for (const QVariant& v : dj.sources()) listed = listed || v.toMap().value("custom").toBool();
+            CHECK(listed);
+            CHECK(dj.view() == -3 && dj.browseItems().size() == 2);   // Unterordner + Datei
+            CHECK(dj.browseItems().first().toMap().value("folder").toBool());
+            dj.browse(dir.filePath("Quelle/Unterordner"));
+            CHECK(dj.browseItems().isEmpty());
+            dj.browseUp();
+            CHECK(QDir(dj.browsePath()) == QDir(dir.filePath("Quelle")));
+            dj.browseUp();   // nicht über die Quelle hinaus
+            CHECK(QDir(dj.browsePath()) == QDir(dir.filePath("Quelle")));
+            dj.removeSource(dir.filePath("Quelle"));
+            CHECK(dj.view() == -1);
+        }
         // Bibliothek anpassen: Höhe, groß, Spalten, Zeilenhöhe
         dj.setLibraryHeight(400);
         CHECK(dj.libraryHeight() == 400);

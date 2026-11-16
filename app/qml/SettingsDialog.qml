@@ -269,9 +269,19 @@ Dialog {
                         Switch { checked: dj.lockPlaying; onToggled: dj.lockPlaying = checked }
                     }
                     Row2 {
-                        label: qsTr("KI-Stems beim Laden")
+                        label: qsTr("Stem-Engine")
+                        hint: qsTr("Eingebaut: sofort, ohne Download. KI: deutlich sauberere Trennung, Modelle einmalig ca. 90 MB.")
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: dj.aiAvailable ? [qsTr("Eingebaut (sofort, ohne Download)"), qsTr("KI – beste Qualität")] : [qsTr("Eingebaut (sofort, ohne Download)")]
+                            currentIndex: dj.aiAvailable ? dj.stemEngine : 0
+                            onActivated: function (i) { dj.stemEngine = i }
+                        }
+                    }
+                    Row2 {
+                        label: qsTr("Stems beim Laden")
                         hint: qsTr("Stems (Gesang, Drums, Bass, Rest) automatisch vorbereiten, sobald ein Track geladen wird")
-                        Switch { enabled: dj.aiAvailable; checked: dj.autoStems; onToggled: dj.autoStems = checked }
+                        Switch { checked: dj.autoStems; onToggled: dj.autoStems = checked }
                     }
                     Heading { text: qsTr("Anzeige") }
                     Row2 {

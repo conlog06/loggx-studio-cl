@@ -15,6 +15,7 @@ qt_add_executable(loggx-studio
   src/ModelManager.cpp src/ModelManager.h
   src/DjController.cpp src/DjController.h
   src/DjLibraryImport.cpp
+  src/DjSources.cpp
   src/DjMidi.cpp src/DjMidi.h
   src/DjWaveItem.cpp src/DjWaveItem.h
   src/MicRecorder.cpp src/MicRecorder.h
@@ -127,7 +128,13 @@ set_target_properties(loggx-studio PROPERTIES
   MACOSX_BUNDLE_BUNDLE_NAME "LXStudio"
   MACOSX_BUNDLE_GUI_IDENTIFIER "de.loggx.studio"
   MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+  MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/Info.plist.in"
   OUTPUT_NAME "LoggX Studio")
+if(APPLE)
+  # App-Symbol und ONNX Runtime ins Bundle
+  target_sources(loggx-studio PRIVATE resources/loggx.icns)
+  set_source_files_properties(resources/loggx.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+endif()
 target_compile_definitions(loggx-studio PRIVATE LOGGX_VERSION="${PROJECT_VERSION}")
 
 if(LOGGX_BUILD_TESTS)
@@ -143,6 +150,7 @@ if(LOGGX_BUILD_TESTS)
     src/ModelManager.cpp src/ModelManager.h
     src/DjController.cpp src/DjController.h
     src/DjLibraryImport.cpp
+    src/DjSources.cpp
     src/DjMidi.cpp src/DjMidi.h
     src/MicRecorder.cpp src/MicRecorder.h
     src/MidiInput.cpp src/MidiInput.h)

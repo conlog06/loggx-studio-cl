@@ -69,7 +69,8 @@ struct ExportSettings {
     int fpsDen = 1;
     int sampleRate = 48000;
     std::int64_t videoBitrate = 0;   // 0 = automatisch aus Auflösung und Qualität
-    enum class Codec { H264, H265 } codec = Codec::H264;
+    // ProRes: Schnittformat (MOV, 10 Bit, Ton als PCM); 4444 mit Alpha-Kanal
+    enum class Codec { H264, H265, ProRes422HQ, ProRes4444 } codec = Codec::H264;
     int quality = 1;                 // 0 klein, 1 normal, 2 hoch, 3 sehr hoch
     int audioBitrate = 192000;
     bool audio = true;

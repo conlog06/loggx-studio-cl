@@ -136,8 +136,10 @@ struct Exporter::Impl {
         c->height = s.height;
         c->time_base = AVRational{s.fpsDen, s.fpsNum};
         c->framerate = AVRational{s.fpsNum, s.fpsDen};
-        c->pix_fmt = pickPixelFormat(c, codec);
-        c->bit_rate = s.videoBitrate;
+        const bool prores = std::strcmp(name, "prores_ks") == 0;
+        c->pix_fmt = prores ? (s.codec == ExportSettings::Codec::ProRes4444 ? AV_PIX_FMT_YUVA444P10LE : AV_PIX_FMT_YUV422P10LE)
+                            : pickPixelFormat(c, codec);
+        c->bit_rate = prores ? 0 : s.videoBitrate;
         c->gop_size = std::max(1, s.fpsNum / s.fpsDen) * 2;   // Keyframe alle 2 s
         // B-Bilder nur mit den Software-Encodern: die Hardware-Encoder liefern damit je
         // nach Treiber uneinheitliche Zeitstempel.
@@ -159,6 +161,12 @@ struct Exporter::Impl {
             av_dict_set(&opts, "x264-params", "sync-lookahead=0", 0);
             c->thread_count = 4;
         }
+        if (prores) {
+            // Profil 3 = 422 HQ, 4 = 4444; Hersteller-Kennung wie bei Apple
+            av_dict_set(&opts, "profile", s.codec == ExportSettings::Codec::ProRes4444 ? "4" : "3", 0);
+            av_dict_set(&opts, "vendor", "apl0", 0);
+            if (s.codec == ExportSettings::Codec::ProRes4444) av_dict_set(&opts, "alpha_bits", "16", 0);
+        }
         if (std::strcmp(name, "libx265") == 0)
             av_dict_set(&opts, "x265-params", huge ? "log-level=error:rc-lookahead=8:frame-threads=2:lookahead-slices=4" : "log-level=error", 0);
         const int rc = avcodec_open2(c, codec, &opts);
@@ -177,7 +185,11 @@ struct Exporter::Impl {
         std::vector<std::string> names;
         bool twentyFour = s.audioBits >= 24;
         const std::string ext = s.video ? "" : extensionOf(s.path);
-        if (s.video || ext == "m4a" || ext == "aac" || ext == "mp4") names = {"aac"};
+        const bool prores = s.video && (s.codec == ExportSettings::Codec::ProRes422HQ || s.codec == ExportSettings::Codec::ProRes4444);
+        if (prores) {   // Schnittformat: Ton unkomprimiert (24 Bit)
+            names = {"pcm_s24le"};
+            twentyFour = true;
+        } else if (s.video || ext == "m4a" || ext == "aac" || ext == "mp4") names = {"aac"};
         else if (ext == "wav") names = {twentyFour ? "pcm_s24le" : "pcm_s16le"};
         else if (ext == "aif" || ext == "aiff") names = {twentyFour ? "pcm_s24be" : "pcm_s16be"};
         else if (ext == "flac") names = {"flac"};
@@ -322,6 +334,8 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         // nur Ton
     } else if (!s.videoEncoder.empty()) {
         ok = d->openVideoEncoder(s.videoEncoder.c_str());
+    } else if (s.codec == ExportSettings::Codec::ProRes422HQ || s.codec == ExportSettings::Codec::ProRes4444) {
+        ok = d->openVideoEncoder("prores_ks");
     } else {
         if (hevc) {
             for (const char* name : kH265Encoders)
@@ -333,6 +347,7 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
     }
     if (!ok) {
         if (error) *error = hevc ? "Kein H.265-Encoder auf diesem Rechner verfügbar"
+                          : s.codec >= ExportSettings::Codec::ProRes422HQ ? "ProRes-Encoder (prores_ks) fehlt in dieser FFmpeg-Version"
                                  : "Kein Video-Encoder verfügbar";
         d->close();
         return false;

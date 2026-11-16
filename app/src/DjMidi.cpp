@@ -456,7 +456,7 @@ bool DjMidi::handleFlx4(int status, int d1, int d2) {
         if (!press) return true;
         if (d1 == 0x47) dj.setFxOn(!dj.fxOn());
         else if (d1 == 0x43) dj.setFxOn(false);
-        else if (d1 == 0x63) dj.setFx((dj.fxType() + 1) % 3, dj.fxBeats(), dj.fxWet(), dj.fxTarget());
+        else if (d1 == 0x63) dj.setFx((dj.fxType() + 1) % kDjFxCount, dj.fxBeats(), dj.fxWet(), dj.fxTarget());
         else if (d1 == 0x4A) dj.setFx(dj.fxType(), std::max(0.125, dj.fxBeats() / 2), dj.fxWet(), dj.fxTarget());
         else if (d1 == 0x4B) dj.setFx(dj.fxType(), std::min(8.0, dj.fxBeats() * 2), dj.fxWet(), dj.fxTarget());
         else if (d1 == 0x10) dj.setFx(dj.fxType(), dj.fxBeats(), dj.fxWet(), 0);

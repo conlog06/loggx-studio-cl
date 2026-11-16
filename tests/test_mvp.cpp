@@ -1050,6 +1050,61 @@ void testDjCueAndJog() {
     for (int i = 0; i < 40; ++i) dj.render(out.data(), 1024);
     CHECK(!dj.samplePlaying(2));
     for (int k = 0; k < 8; ++k) CHECK(!synthDjSample(k, kRate).empty());
+    // Alle Effekte: laufen, bleiben endlich, verändern den Klang
+    dj.setKeyShift(0, 0);
+    dj.setFader(0, 1.0);
+    dj.play(0);
+    for (int type = 3; type < kDjFxCount; ++type) {
+        dj.setFxOn(false);
+        dj.seek(0, 2.0);
+        std::vector<float> dry(1024 * 2);
+        dj.render(dry.data(), 1024);
+        dj.seek(0, 2.0);
+        dj.setFx(static_cast<DjFx>(type), 0.5, 0.9, 2);
+        dj.setFxOn(true);
+        double diff = 0;
+        bool finite = true;
+        for (int i = 0; i < 30; ++i) {
+            dj.render(out.data(), 1024);
+            for (float x : out) finite = finite && std::isfinite(x);
+        }
+        dj.seek(0, 2.0);
+        dj.render(out.data(), 1024);
+        for (std::size_t i = 0; i < out.size(); ++i) diff += std::abs(out[i] - dry[i]);
+        CHECK(finite);
+        CHECK(diff > 1.0 || type == static_cast<int>(DjFx::Trans));   // Trans: Tor kann gerade offen sein
+        CHECK(energy(out) > 1e-6);
+    }
+    dj.setFxOn(false);
+}
+
+// Eingebaute Stem-Engine: Schlagzeug und Bass landen im richtigen Stem
+void testDspStems() {
+    constexpr int R = 44100;
+    std::vector<float> st(static_cast<std::size_t>(R) * 6 * 2, 0.0f);
+    std::mt19937 rng(3);
+    std::uniform_real_distribution<float> U(-1, 1);
+    for (std::size_t i = 0; i < st.size() / 2; ++i) {
+        const double t = static_cast<double>(i) / R;
+        const float bass = 0.4f * static_cast<float>(std::sin(2 * 3.14159265358979 * 55 * t));
+        // Klicks (perkussiv) alle 0,5 s
+        const double ph = std::fmod(t, 0.5);
+        const float hit = ph < 0.01 ? 0.8f * U(rng) * static_cast<float>(1.0 - ph / 0.01) : 0.0f;
+        st[i * 2] = st[i * 2 + 1] = bass + hit;
+    }
+    std::vector<float> drums, bass;
+    CHECK(splitHarmonicPercussive(st, R, drums, bass));
+    auto energyIn = [&](const std::vector<float>& v, bool hits) {
+        double e = 0;
+        for (std::size_t i = 0; i < v.size() / 2; ++i) {
+            const double ph = std::fmod(static_cast<double>(i) / R, 0.5);
+            if ((ph < 0.01) == hits) e += static_cast<double>(v[i * 2]) * v[i * 2];
+        }
+        return e;
+    };
+    // Zwischen den Klicks: Bass-Stem trägt fast alles; in den Klicks: Drums deutlich
+    CHECK(energyIn(bass, false) > 10 * energyIn(drums, false));
+    CHECK(energyIn(drums, true) > 0.2 * energyIn(st, true) * 0.5);
 }
 
 // Tempo-Erkennung auf synthetischen Mustern (inkl. „krummer“ Tempi und
@@ -1115,6 +1170,7 @@ int main() {
     testEffects();
     testDj();
     testDjCueAndJog();
+    testDspStems();
     testTempoDetection();
     testAi(dir);
     std::error_code ec;

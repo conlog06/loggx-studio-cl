@@ -34,7 +34,8 @@ Rectangle {
         MenuItem { text: qsTr("Neu analysieren"); onTriggered: dj.reanalyze(info.path) }
         MenuSeparator {}
         MenuItem { text: qsTr("Im Musik-Editor öffnen"); icon.name: "piano"; onTriggered: dj.openInMusicEditor(info.path) }
-        MenuItem { text: qsTr("Stems mit KI vorbereiten"); icon.name: "sparkles"; enabled: dj.aiAvailable && !info.hasStems; onTriggered: dj.prepareStems(info.path) }
+        MenuItem { text: qsTr("Stems vorbereiten"); icon.name: "sparkles"; enabled: !info.hasStems && !dj.working; onTriggered: dj.prepareStems(info.path) }
+        MenuItem { text: qsTr("Stems neu berechnen"); enabled: info.hasStems === true && !dj.working; onTriggered: dj.recomputeStems(info.path) }
         MenuSeparator {}
         MenuItem { text: qsTr("Auswerfen"); enabled: !info.playing; onTriggered: dj.eject(deckRoot.deck) }
     }
@@ -42,8 +43,13 @@ Rectangle {
     // Track aus der Bibliothek hierher ziehen
     DropArea {
         anchors.fill: parent
-        keys: ["loggx/djtrack"]
-        onDropped: function (drop) { dj.loadTrack(deckRoot.deck, drop.source.trackPath) }
+        keys: ["loggx/djtrack", "text/uri-list"]
+        onDropped: function (drop) {
+            const path = drop.hasFormat("loggx/djtrack") ? drop.getDataAsString("loggx/djtrack") : ""
+            if (path !== "") dj.loadTrack(deckRoot.deck, path)
+            else if (drop.hasUrls) dj.loadUrl(deckRoot.deck, drop.urls[0])   // Datei aus Explorer/Finder
+            drop.accept(Qt.CopyAction)
+        }
         Rectangle { anchors.fill: parent; radius: 10; color: Theme.alpha(deckRoot.accent, 0.15); visible: parent.containsDrag }
     }
 
@@ -123,6 +129,36 @@ Rectangle {
             deck: deckRoot.deck
             overview: true
             accent: deckRoot.accent
+        }
+        // Aufbau: Intro, Up (Aufbau), Chorus (Drop), Down (Breakdown), Outro
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 13
+            Layout.topMargin: -6
+            visible: deckRoot.loaded && (info.phrases || []).length > 0
+            Repeater {
+                model: info.phrases || []
+                Rectangle {
+                    required property var modelData
+                    x: modelData.start * parent.width
+                    width: Math.max(1, (modelData.end - modelData.start) * parent.width - 1)
+                    height: parent.height
+                    radius: 2
+                    color: modelData.kind === "Chorus" ? "#2fbf5b" : modelData.kind === "Up" ? "#8a4dff" : modelData.kind === "Down" ? "#c98a2a"
+                         : modelData.kind === "Intro" ? "#d64545" : "#3d7bd9"
+                    opacity: 0.85
+                    Label {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.kind.toUpperCase()
+                        visible: parent.width > 34
+                        font.pixelSize: 8
+                        font.bold: true
+                        color: "white"
+                    }
+                }
+            }
         }
         RowLayout {
             Layout.fillWidth: true
@@ -456,11 +492,12 @@ Rectangle {
             }
             Button {
                 visible: deckRoot.loaded && !info.hasStems
-                text: qsTr("KI-Stems")
+                text: qsTr("Stems")
                 icon.name: "sparkles"
-                enabled: dj.aiAvailable && !dj.working
+                enabled: !dj.working
                 onClicked: dj.prepareStems(info.path)
-                ToolTip.text: dj.aiAvailable ? qsTr("Gesang, Schlagzeug, Bass und Instrumente mit KI trennen (einmalig ca. 90 MB Modelle)") : qsTr("Diese Version hat keine KI eingebaut")
+                ToolTip.text: dj.stemEngine === 1 && dj.aiAvailable ? qsTr("Gesang, Schlagzeug, Bass und Instrumente mit KI trennen (Modelle einmalig ca. 90 MB)")
+                                                                     : qsTr("Gesang, Schlagzeug, Bass und Instrumente trennen – eingebaute Engine, sofort, ohne Download")
                 ToolTip.visible: hovered
                 ToolTip.delay: 400
             }

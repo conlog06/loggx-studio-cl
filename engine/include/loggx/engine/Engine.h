@@ -189,6 +189,16 @@ SeparationResult separateStemsAi(const std::string& input, const std::vector<Ste
                                  bool denoise = false, const std::function<void(double)>& progress = {},
                                  const std::atomic<bool>* cancel = nullptr);
 
+// Eingebaute Stem-Engine ohne KI (sofort, kein Download): Gesang über das
+// Stereobild, Schlagzeug/Tonales per HPSS, Bass = tonal unter ~120 Hz.
+SeparationResult separateStemsDsp(const std::string& input, const std::string& vocalsPath, const std::string& drumsPath,
+                                  const std::string& bassPath, const std::string& instPath,
+                                  const std::function<void(double)>& progress = {},
+                                  const std::atomic<bool>* cancel = nullptr);
+bool splitHarmonicPercussive(const std::vector<float>& stereo, int sampleRate, std::vector<float>& drums,
+                             std::vector<float>& bass, const std::function<void(double)>& progress = {},
+                             const std::atomic<bool>* cancel = nullptr);
+
 // Für Tests: arbeitet auf Stereo-Samples im Speicher.
 SeparationResult separateVocalsBuffer(const std::vector<float>& stereo, int sampleRate,
                                       std::vector<float>& vocals, std::vector<float>& instrumental,

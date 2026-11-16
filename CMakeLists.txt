@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(LoggXStudio VERSION 0.10.0 LANGUAGES C CXX)
+project(LoggXStudio VERSION 0.11.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -97,7 +97,8 @@ add_library(loggx_engine STATIC
   engine/src/Compositor.cpp engine/src/AudioMixer.cpp engine/src/Render.cpp
   engine/src/ImageOps.cpp engine/src/Synth.cpp engine/src/AudioFx.cpp engine/src/Beat.cpp
   engine/src/Parallel.cpp engine/src/Spectral.cpp engine/src/AiSeparation.cpp engine/src/Dj.cpp
-  engine/src/DjSamples.cpp)
+  engine/src/DjSamples.cpp
+  engine/src/StemsDsp.cpp)
 target_include_directories(loggx_engine PUBLIC engine/include)
 target_link_libraries(loggx_engine PUBLIC loggx_core loggx_media)
 if(LOGGX_HAVE_RUBBERBAND)

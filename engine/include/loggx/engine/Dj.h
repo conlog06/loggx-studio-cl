@@ -42,10 +42,21 @@ std::shared_ptr<DjTrack> loadDjTrack(const std::string& path, int sampleRate, st
                                      const std::atomic<bool>* cancel = nullptr);
 void computeDjWaveform(DjTrack& track);
 
+// Aufbau des Tracks (wie die Phrasen-Anzeige in DJ-Programmen): Abschnitte zu
+// 8 Takten ab dem Raster, eingeteilt nach Energie und Bass.
+enum class DjPhraseKind { Intro, Up, Chorus, Down, Outro };
+struct DjPhrase {
+    double start = 0, end = 0;   // Sekunden
+    DjPhraseKind kind = DjPhraseKind::Intro;
+};
+std::vector<DjPhrase> analyzeDjPhrases(const DjTrack& track, double bpm, double firstBeat);
+
 // Camelot-Schreibweise der Tonart (z. B. „8A“ für a-Moll)
 std::string camelotKey(int tonic, bool minor);
 
-enum class DjFx { Echo = 0, Reverb = 1, Brake = 2 };
+// Effekte (Beat FX): Zeitangaben in Schlägen des Master- bzw. Ziel-Decks
+enum class DjFx { Echo = 0, Reverb = 1, Brake = 2, PingPong = 3, Flanger = 4, Phaser = 5, Trans = 6, Roll = 7, Filter = 8, Noise = 9 };
+constexpr int kDjFxCount = 10;
 
 class DjMixer {
 public:

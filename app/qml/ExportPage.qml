@@ -31,7 +31,8 @@ Rectangle {
         { text: qsTr("480p (Entwurf)"), h: 480 }
     ]
     readonly property var target: sizeFor(sizes[sizeBox.currentIndex].h)
-    readonly property bool needsPro: Math.min(target.w, target.h) > 1080 || codecBox.currentIndex === 1
+    readonly property bool needsPro: Math.min(target.w, target.h) > 1080 || codecBox.currentIndex >= 1
+    readonly property bool prores: codecBox.currentIndex >= 2
 
     readonly property var presets: [
         { text: qsTr("Eigene Einstellungen"), size: -1 },
@@ -39,6 +40,8 @@ Rectangle {
         { text: qsTr("YouTube 1080p"), size: 4, codec: 0, quality: 2 },
         { text: qsTr("Instagram / TikTok (1080p)"), size: 4, codec: 0, quality: 1 },
         { text: qsTr("Archiv (H.265, sehr hoch)"), size: 0, codec: 1, quality: 3 },
+        { text: qsTr("YouTube 8K"), size: 1, codec: 1, quality: 2 },
+        { text: qsTr("Schnitt-Master (ProRes 422 HQ)"), size: 0, codec: 2, quality: 3 },
         { text: qsTr("Entwurf (480p, klein)"), size: 6, codec: 0, quality: 0 }
     ]
     readonly property var audioFormats: [
@@ -62,8 +65,8 @@ Rectangle {
         id: videoDialog
         title: qsTr("Video exportieren")
         fileMode: FileDialog.SaveFile
-        defaultSuffix: "mp4"
-        nameFilters: [qsTr("MP4-Video (*.mp4)"), qsTr("QuickTime (*.mov)"), qsTr("Matroska (*.mkv)")]
+        defaultSuffix: root.prores ? "mov" : "mp4"
+        nameFilters: root.prores ? [qsTr("QuickTime (*.mov)")] : [qsTr("MP4-Video (*.mp4)"), qsTr("QuickTime (*.mov)"), qsTr("Matroska (*.mkv)")]
         onAccepted: app.exportVideo(selectedFile, root.target.w, root.target.h, codecBox.currentIndex, qualityBox.currentIndex)
     }
     FileDialog {
@@ -174,13 +177,15 @@ Rectangle {
                     ComboBox {
                         id: codecBox
                         Layout.fillWidth: true
-                        model: [qsTr("H.264 (überall abspielbar)"), qsTr("H.265 / HEVC (kleinere Dateien)")]
+                        model: [qsTr("H.264 (überall abspielbar)"), qsTr("H.265 / HEVC (kleinere Dateien)"),
+                                qsTr("Apple ProRes 422 HQ (Schnitt, .mov)"), qsTr("Apple ProRes 4444 (mit Alpha, .mov)")]
                         onActivated: presetBox.currentIndex = 0
                     }
                     Label { text: qsTr("Qualität") }
                     ComboBox {
                         id: qualityBox
                         Layout.fillWidth: true
+                        enabled: !root.prores   // ProRes hat feste Qualität
                         currentIndex: 1
                         model: [qsTr("Klein"), qsTr("Normal"), qsTr("Hoch"), qsTr("Sehr hoch")]
                         onActivated: presetBox.currentIndex = 0

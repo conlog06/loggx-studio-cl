@@ -99,11 +99,30 @@ jobs:
         run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json rtmidi
       - name: ONNX Runtime
         run: curl -sSL https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz | tar xz -C $HOME
-      - run: cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-osx-universal2-${ORT_VERSION}
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-osx-universal2-${ORT_VERSION}
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
         env:
           QT_QPA_PLATFORM: offscreen
+      - name: App-Paket (DMG)
+        run: |
+          APP="build/app/LoggX Studio.app"
+          mkdir -p "$APP/Contents/Frameworks"
+          cp -a $HOME/onnxruntime-osx-universal2-${ORT_VERSION}/lib/libonnxruntime*.dylib "$APP/Contents/Frameworks/"
+          "$(brew --prefix qt)/bin/macdeployqt" "$APP" -qmldir=app/qml -always-overwrite
+          # Name im Finder: LXStudio
+          mv "$APP" build/app/LXStudio.app
+          # Ad-hoc-Signatur (ohne Apple-Entwicklerkonto): erster Start per Rechtsklick → Öffnen
+          codesign --force --deep -s - build/app/LXStudio.app
+          mkdir -p dmg && cp -R build/app/LXStudio.app dmg/ && ln -s /Applications dmg/Programme
+          hdiutil create -volname LXStudio -srcfolder dmg -ov -format UDZO LXStudio-macOS.dmg
+          # Kurztest: startet das gepackte Programm?
+          QT_QPA_PLATFORM=offscreen timeout 60 build/app/LXStudio.app/Contents/MacOS/"LoggX Studio" --screenshot $RUNNER_TEMP/mac.png --screenshot-delay 1500
+          test -s $RUNNER_TEMP/mac.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LXStudio-macOS
+          path: LXStudio-macOS.dmg
 
   windows:
     runs-on: windows-2022
@@ -186,6 +205,7 @@ jobs:
           path: |
             dist/*.exe
             dist/*.zip
+            dist/*.dmg
             dist/screenshot-windows.png
           if-no-files-found: error
 
@@ -201,9 +221,14 @@ jobs:
         with:
           name: LoggX-Studio-Windows
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: LXStudio-macOS
+          path: dist
       - uses: softprops/action-gh-release@v2
         with:
           prerelease: true
           files: |
             dist/*.exe
             dist/*.zip
+            dist/*.dmg

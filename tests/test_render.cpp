@@ -57,6 +57,34 @@ bool makeSource(const std::string& path) {
     return e.finish(&error);
 }
 
+// ProRes 422 HQ / 4444 in MOV (Schnitt-Master): öffnen, schreiben, wieder lesen
+void testProRes(const fs::path& dir) {
+    for (auto codec : {ExportSettings::Codec::ProRes422HQ, ExportSettings::Codec::ProRes4444}) {
+        ExportSettings s;
+        s.path = (dir / (codec == ExportSettings::Codec::ProRes4444 ? "p4444.mov" : "p422.mov")).string();
+        s.width = kW;
+        s.height = kH;
+        s.fpsNum = kFps;
+        s.sampleRate = kRate;
+        s.codec = codec;
+        Exporter e;
+        std::string error;
+        CHECK(e.open(s, &error));
+        if (!error.empty()) std::fprintf(stderr, "ProRes: %s\n", error.c_str());
+        CHECK(e.videoEncoderName() == "prores_ks");
+        std::vector<std::uint8_t> image(static_cast<std::size_t>(kW) * kH * 4, 128);
+        std::vector<float> audio(static_cast<std::size_t>(kRate / kFps) * 2, 0.1f);
+        for (int i = 0; i < kFps; ++i) {
+            CHECK(e.writeVideoFrame(image.data()));
+            CHECK(e.writeAudio(audio.data(), audio.size() / 2));
+        }
+        CHECK(e.finish(&error));
+        MediaAsset a;
+        CHECK(probeMedia(s.path, a));
+        CHECK(a.hasVideo && a.hasAudio && a.width == kW && a.height == kH);
+    }
+}
+
 // Welcher der vier Testfarben ein Pixel am nächsten kommt.
 int nearestColor(const std::vector<std::uint8_t>& rgba, int w, int x, int y) {
     const std::uint8_t* p = rgba.data() + (static_cast<std::size_t>(y) * w + x) * 4;
@@ -312,6 +340,7 @@ int main() {
     const fs::path dir = fs::temp_directory_path() / ("loggx_test_" + std::to_string(stamp));
     fs::create_directories(dir);
     run(dir);
+    testProRes(dir);
     std::error_code ec;
     fs::remove_all(dir, ec);
     return finish("test_render");
