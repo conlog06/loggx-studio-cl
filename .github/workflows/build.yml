@@ -110,16 +110,30 @@ jobs:
           mkdir -p "$APP/Contents/Frameworks"
           cp -a $HOME/onnxruntime-osx-universal2-${ORT_VERSION}/lib/libonnxruntime*.dylib "$APP/Contents/Frameworks/"
           "$(brew --prefix qt)/bin/macdeployqt" "$APP" -qmldir=app/qml -always-overwrite -libpath="$(brew --prefix)/lib" -libpath="$(brew --prefix)/Frameworks"
+          # Fremde Suchpfade (Homebrew, Build-Rechner) entfernen: nur das Bundle zählt
+          while IFS= read -r f; do
+            file "$f" | grep -q Mach-O || continue
+            for rp in $(otool -l "$f" | awk '/LC_RPATH/{getline; getline; print $2}'); do
+              case "$rp" in /opt/homebrew*|/usr/local*|/Users/*) install_name_tool -delete_rpath "$rp" "$f" 2>/dev/null || true ;; esac
+            done
+          done < <(find "$APP" -type f)
+          EXE="$APP/Contents/MacOS/LoggX Studio"
+          otool -l "$EXE" | grep -q "@executable_path/../Frameworks" || install_name_tool -add_rpath "@executable_path/../Frameworks" "$EXE"
           # Name im Finder: LXStudio
           mv "$APP" build/app/LXStudio.app
           # Ad-hoc-Signatur (ohne Apple-Entwicklerkonto): erster Start per Rechtsklick → Öffnen
           codesign --force --deep -s - build/app/LXStudio.app
           mkdir -p dmg && cp -R build/app/LXStudio.app dmg/ && ln -s /Applications dmg/Programme
           hdiutil create -volname LXStudio -srcfolder dmg -ov -format UDZO LXStudio-macOS.dmg
-          # Prüfen: das Programm hängt nicht mehr an Homebrew-Bibliotheken
-          if otool -L build/app/LXStudio.app/Contents/MacOS/"LoggX Studio" | grep -q /opt/homebrew; then
-            otool -L build/app/LXStudio.app/Contents/MacOS/"LoggX Studio"; exit 1
-          fi
+          # Prüfen: nichts im Paket hängt noch an Homebrew (sonst auf anderen Macs Absturz)
+          bad=0
+          while IFS= read -r f; do
+            file "$f" | grep -q Mach-O || continue
+            if otool -L "$f" 2>/dev/null | tail -n +2 | grep -q /opt/homebrew; then
+              echo "::error::$f verweist auf Homebrew:"; otool -L "$f" | grep /opt/homebrew; bad=1
+            fi
+          done < <(find build/app/LXStudio.app -type f)
+          test $bad -eq 0
           # Kurztest mit echter Oberfläche (Cocoa); auf CI ohne Bildschirm nur Warnung
           perl -e 'alarm 90; exec @ARGV' build/app/LXStudio.app/Contents/MacOS/"LoggX Studio" --screenshot $RUNNER_TEMP/mac.png --screenshot-delay 1500 || echo "::warning::Starttest ohne Bildschirm nicht möglich"
           ls -la $RUNNER_TEMP/mac.png || true
