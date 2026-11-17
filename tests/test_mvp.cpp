@@ -1080,19 +1080,20 @@ void testDjCueAndJog() {
 
 // Eingebaute Stem-Engine: Schlagzeug und Bass landen im richtigen Stem
 void testMastering() {
+    constexpr double kPi = 3.14159265358979323846;
     const int rate = 48000;
     // 10 s leiser Mix: Sinus 220 Hz + Bass-Puls, um −30 dBFS
     std::vector<float> mix(static_cast<std::size_t>(rate) * 10 * 2);
     for (std::size_t i = 0; i < mix.size() / 2; ++i) {
         const double t = static_cast<double>(i) / rate;
-        const float v = static_cast<float>(0.03 * std::sin(2 * M_PI * 220 * t) +
-                                           (std::fmod(t, 0.5) < 0.1 ? 0.06 * std::sin(2 * M_PI * 60 * t) : 0.0));
+        const float v = static_cast<float>(0.03 * std::sin(2 * kPi * 220 * t) +
+                                           (std::fmod(t, 0.5) < 0.1 ? 0.06 * std::sin(2 * kPi * 60 * t) : 0.0));
         mix[i * 2] = mix[i * 2 + 1] = v;
     }
     // Referenz: 1 kHz Sinus mit 0 dBFS Spitze ≈ −3,0 LUFS
     std::vector<float> ref(static_cast<std::size_t>(rate) * 3 * 2);
     for (std::size_t i = 0; i < ref.size() / 2; ++i)
-        ref[i * 2] = ref[i * 2 + 1] = static_cast<float>(std::sin(2 * M_PI * 1000 * i / rate));
+        ref[i * 2] = ref[i * 2 + 1] = static_cast<float>(std::sin(2 * kPi * 1000 * i / rate));
     const double refL = loggx::measureLufs(ref, rate);
     CHECK(std::abs(refL - (-3.0 + 3.0)) < 1.0 || std::abs(refL - (-3.0)) < 1.0);   // Stereo: +3 dB
     const double before = loggx::measureLufs(mix, rate);
