@@ -110,9 +110,16 @@ jobs:
           mkdir -p "$APP/Contents/Frameworks"
           cp -a $HOME/onnxruntime-osx-universal2-${ORT_VERSION}/lib/libonnxruntime*.dylib "$APP/Contents/Frameworks/"
           "$(brew --prefix qt)/bin/macdeployqt" "$APP" -qmldir=app/qml -always-overwrite -libpath="$(brew --prefix)/lib" -libpath="$(brew --prefix)/Frameworks"
-          # Fremde Suchpfade (Homebrew, Build-Rechner) entfernen: nur das Bundle zählt
+          # Fremde Pfade (Homebrew, Build-Rechner) auf das Bundle umbiegen: Abhängigkeiten
+          # und eigene Namen als @rpath/…, fremde Suchpfade entfernen
+          to_rpath() { case "$1" in *.framework/*) echo "@rpath/${1#*/lib/}" | sed -E 's#^@rpath/.*/([^/]+\.framework/)#@rpath/\1#' ;; *) echo "@rpath/$(basename "$1")" ;; esac; }
           while IFS= read -r f; do
             file "$f" | grep -q Mach-O || continue
+            id=$(otool -D "$f" | tail -n +2)
+            case "$id" in /opt/homebrew*|/usr/local*) install_name_tool -id "$(to_rpath "$id")" "$f" 2>/dev/null || true ;; esac
+            for dep in $(otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -E '^(/opt/homebrew|/usr/local)'); do
+              install_name_tool -change "$dep" "$(to_rpath "$dep")" "$f" 2>/dev/null || true
+            done
             for rp in $(otool -l "$f" | awk '/LC_RPATH/{getline; getline; print $2}'); do
               case "$rp" in /opt/homebrew*|/usr/local*|/Users/*) install_name_tool -delete_rpath "$rp" "$f" 2>/dev/null || true ;; esac
             done
