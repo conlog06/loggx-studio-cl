@@ -24,7 +24,7 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=LoggX-Studio-{#AppVersion}-Windows-Setup
+OutputBaseFilename=LXStudio-{#AppVersion}-Windows-Setup
 SetupIconFile=..\..\app\resources\loggx.ico
 UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2/max
@@ -64,3 +64,11 @@ Root: HKA; Subkey: "Software\Classes\LoggXStudio.Project\shell\open\command"; Va
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; Automatisches Update (still, mit /UPDATE): danach LXStudio wieder starten
+Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: IsUpdate
+
+[Code]
+function IsUpdate: Boolean;
+begin
+  Result := Pos('/UPDATE', UpperCase(GetCmdTail)) > 0;
+end;

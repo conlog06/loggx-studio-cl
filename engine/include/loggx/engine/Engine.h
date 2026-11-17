@@ -96,12 +96,21 @@ private:
     MeterLevels m_levels;
 };
 
+// Mastering-Assistent: Lautheit messen (LUFS) und auf ein Ziel bringen
+enum class MasteringPreset { Off = 0, Streaming = 1, Club = 2, Podcast = 3 };   // −14 / −9 / −16 LUFS
+struct MasteringResult {
+    double lufsBefore = -70, lufsAfter = -70, gainDb = 0, maxReductionDb = 0;
+};
+double measureLufs(const std::vector<float>& stereo, int sampleRate);
+MasteringResult masterAudio(std::vector<float>& stereo, int sampleRate, MasteringPreset preset);
+
 struct RenderResult {
     bool ok = false;
     bool cancelled = false;
     std::string error;
     std::string videoEncoder;
     std::int64_t frames = 0;
+    MasteringResult mastering;   // nur Audio-Export mit Mastering
 };
 
 // Rendert das ganze Projekt in eine Datei. settings.fps/sampleRate werden

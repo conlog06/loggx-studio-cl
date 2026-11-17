@@ -57,8 +57,17 @@ foreach ($f in @("third_party\pocketfft\LICENSE.md")) {
     if (Test-Path $f) { Copy-Item $f (Join-Path $licenses "pocketfft.txt") }
 }
 
+# 3b. Vollversion: KI-Modelle (MIT, kuielab MDX-Net) gleich mitliefern – kein Download nötig
+if ($env:LOGGX_MODELS_DIR -and (Test-Path $env:LOGGX_MODELS_DIR)) {
+    $models = Join-Path $app "models"
+    New-Item -ItemType Directory -Force -Path $models | Out-Null
+    Copy-Item (Join-Path $env:LOGGX_MODELS_DIR "*.onnx") $models
+    Copy-Item "third_party\models\LICENSE-kuielab-mdx-net.txt" (Join-Path $licenses "KI-Modelle-kuielab-mdx-net.txt")
+    Write-Host "KI-Modelle mitgeliefert: $((Get-ChildItem $models).Count)"
+}
+
 # 4. Portables ZIP
-$zip = Join-Path $dist "LoggX-Studio-$version-Windows-portable.zip"
+$zip = Join-Path $dist "LXStudio-$version-Windows-portable.zip"
 Compress-Archive -Path $app -DestinationPath $zip
 Write-Host "ZIP: $zip"
 

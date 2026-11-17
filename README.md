@@ -52,7 +52,7 @@ Dieses Repository enthält die **MVP-Vorschau 0.11**: DJ als eigener Modus mit *
 
 **Video-Export**: H.264, H.265, **Apple ProRes 422 HQ** und **ProRes 4444** (mit Alpha, MOV, Ton als PCM), bis **8K** (Pro-Edition).
 
-**macOS**: Die Mac-Version wird bei jedem Build als **LXStudio-macOS.dmg** gebaut (Apple Silicon und Intel über Homebrew-Bibliotheken des Build-Rechners: Apple Silicon). Ohne Apple-Entwicklerkonto ist sie nur ad-hoc signiert: beim ersten Start Rechtsklick → „Öffnen“.
+**macOS**: Die Mac-Version wird bei jedem Build als **LXStudio-<version>-macOS.dmg** gebaut (Apple Silicon). Ohne Apple-Entwicklerkonto ist sie nur ad-hoc signiert: beim ersten Start Rechtsklick → „Öffnen“.
 
 **Streaming**: Spotify, Apple Music, SoundCloud und Beatport geben ihre Streams nur an DJ-Programme mit eigenem Partnervertrag frei (so wie bei rekordbox, Serato oder djay). Ohne diese Verträge kann LXStudio sie nicht abspielen; es gibt die Suche bei diesen Diensten per Rechtsklick und den Import gekaufter Dateien bzw. der Apple-Music-Library (nur lokale Dateien).
 
@@ -100,6 +100,8 @@ Dieses Repository enthält die **MVP-Vorschau 0.11**: DJ als eigener Modus mit *
 - **Lizenzen und Admin:** Free / Pro / Admin mit signierten Schlüsseln (Ed25519, offline prüfbar); Admin-Bereich mit Free-Simulation, Vorschau in voller Auflösung, Renderzeit und Systeminfos – siehe [license/README.md](license/README.md)
 - Projektdateien `.loggx` (JSON, Version 2; Dateien des Prototyps lassen sich weiter öffnen), Undo/Redo ohne Grenze
 - **Automatisches Sichern** jede Minute, Wiederherstellung nach einem Absturz
+- **Mastering-Assistent** beim Audio-Export: misst die Lautheit (LUFS nach ITU-R BS.1770 mit Gating), formt den Klang leicht (Rumpelfilter, Bass, Luft), bringt den Mix auf das Ziel (Streaming −14, Club −9, Podcast −16 LUFS) und begrenzt Spitzen mit einem Limiter (−1 dBFS, 5 ms Vorschau). „Lautheit messen“ zeigt den aktuellen Wert.
+- **Automatische Updates:** LXStudio prüft beim Start (höchstens alle 6 Stunden) die GitHub-Releases, zeigt oben ein Update-Symbol und installiert auf Klick (Windows still über den Installer, macOS tauscht die App aus); Prüfsumme (SHA-256) wird kontrolliert. Abschaltbar unter Einstellungen → Allgemein → Updates.
 - Kommandozeile: `loggx-render projekt.loggx ausgabe.mp4 [--size 1280x720] [--codec h265] [--quality 2]`
 
 | Musik | Mixer |
@@ -115,8 +117,10 @@ Dieses Repository enthält die **MVP-Vorschau 0.11**: DJ als eigener Modus mit *
 | Phase | Inhalt |
 | --- | --- |
 | MVP (Rest) | GPU-Rendering (Metal / DirectX 12) – bis dahin rechnet alles auf der CPU; Online-Konten und Lizenzprüfung über einen Server |
-| 1.0 | ProRes, AV1, HDR, Masken-Tracking, KI-Freistellung, VST3/AU/CLAP, Audio-Aufnahme (Mikrofon), Web-Admin-Dashboard |
-| Ausbau | Stem-Separation, Auto-Reframe, Mastering-Assistent, Marktplatz, Multicam, RAW |
+| 1.0 | AV1, HDR, Masken-Tracking, KI-Freistellung, VST3/AU/CLAP, Web-Admin-Dashboard (braucht einen Server) |
+| Ausbau | Auto-Reframe, Marktplatz (braucht einen Server), Multicam, RAW |
+
+Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
 
 Bekannte Grenzen:
 
@@ -124,24 +128,23 @@ Bekannte Grenzen:
 - Die Mikrofon-Aufnahme gleicht die Latenz des Audiogeräts noch nicht aus (bei großen Puffern liegt sie minimal zu spät). Ein 8K-Export ist langsam und braucht rund 4 GB Arbeitsspeicher.
 - Die Tempo-Erkennung (spektraler Fluss, feine Rastersuche über den ganzen Track und den ganzen BPM-Bereich, Bereich wie rekordbox 70–180 BPM einstellbar) erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück). Bei halb/doppelt erkannten Tempi hilft ×2 / ÷2, bei Live-Aufnahmen TAP.
 - Die KI-Trennung rechnet auf der CPU: grob 0,3–1× Echtzeit je nach Rechner und Stufe (ein 3-Minuten-Song braucht also etwa 1–10 Minuten). GPU-Beschleunigung fehlt noch.
-- **Lizenzen der KI-Modelle:** Die Modelle werden nicht mit dem Programm verteilt, sondern bei Bedarf aus dem öffentlichen Modell-Archiv von *Ultimate Vocal Remover* geladen. Die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass) stehen unter MIT-Lizenz; für „Kim Vocal 2“ ist keine Lizenz angegeben – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
+- **Lizenzen der KI-Modelle:** Die Vollversion (Release-Downloads) bringt die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass, MIT-Lizenz) gleich mit. „Kim Vocal 2“ hat keine angegebene Lizenz und wird deshalb nicht mitgeliefert, sondern bei Bedarf aus dem öffentlichen Archiv von *Ultimate Vocal Remover* geladen – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
 - DJ: Kopfhörer auf einem eigenen Gerät (statt Kanälen 3/4) läuft über eine zweite Audioausgabe und kann sich bei sehr langen Sets minimal verschieben. Ob Windows die Kanäle 3/4 des FLX4 anbietet, hängt vom Treiber ab (Pioneer-Treiber installieren); die Info-Zeile unter Einstellungen → Audio zeigt, was aktiv ist – sonst Kopfhörer über „Eigenes Gerät“.
 - Ohne öffentlichen Schlüssel in `license/public_key.txt` baut man eine Entwicklerversion: alle Funktionen frei, Admin-Bereich sichtbar.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.
 - Hall und Echo setzen nach einem Sprung in der Timeline neu an (kein Nachklang von der vorherigen Stelle).
 - Drehungs-Metadaten (Hochkant-Videos vom Handy) werden noch nicht ausgewertet.
-- Für macOS gibt es noch kein fertiges Paket; dort wird aus dem Quelltext gebaut.
+- Installer und DMG sind nicht signiert: Windows SmartScreen warnt („Weitere Informationen → Trotzdem ausführen“), macOS beim ersten Start Rechtsklick → Öffnen.
 
-## Herunterladen (Windows)
+## Herunterladen
 
-Jeder Push baut auf GitHub automatisch ein Windows-Paket: **Actions → Build → letzter Lauf → Artefakt „LoggX-Studio-Windows“**. Es enthält:
+Jeder erfolgreiche Push auf `prototyp` oder `main` erzeugt automatisch ein **Release** auf GitHub (**Releases → neueste Version**, Tag `v<version>-build.<nr>`). Es enthält die Vollversion:
 
-- `LoggX-Studio-<version>-Windows-Setup.exe` – Installer (Startmenü, optional Desktop-Verknüpfung und Zuordnung von `.loggx`-Dateien)
-- `LoggX-Studio-<version>-Windows-portable.zip` – entpacken und `LoggX Studio.exe` starten, ohne Installation
+- `LXStudio-<version>-Windows-Setup.exe` – Installer (Startmenü, optional Desktop-Verknüpfung und `.loggx`-Zuordnung), inklusive KI-Modelle
+- `LXStudio-<version>-Windows-portable.zip` – entpacken und `LoggX Studio.exe` starten, ohne Installation
+- `LXStudio-<version>-macOS.dmg` – LXStudio in „Programme“ ziehen (Apple Silicon)
 
-Das Paket ist nicht signiert. Windows SmartScreen warnt deshalb beim ersten Start („Weitere Informationen → Trotzdem ausführen“).
-
-Wird ein Tag wie `v0.1.0` gepusht, legt die CI die Dateien zusätzlich als (Vor-)Release an.
+Die letzten 8 automatischen Builds bleiben erhalten. Installierte Versionen finden neue Releases selbst und aktualisieren sich auf Klick. Tags wie `v1.0.0` werden ebenfalls veröffentlicht.
 
 ## Bauen
 

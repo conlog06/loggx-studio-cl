@@ -218,6 +218,53 @@ ApplicationWindow {
     LicenseDialog { id: licenseDialog }
     ProjectSettingsDialog { id: settingsDialog }
     SettingsDialog { id: generalSettings }
+    Dialog {
+        id: updateDialog
+        title: qsTr("Update auf LXStudio %1").arg(updater.latestVersion)
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 80, 560)
+        ColumnLayout {
+            width: parent.width
+            spacing: 10
+            Label { text: qsTr("Installiert: %1").arg(updater.currentVersion); color: Theme.dim }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 200
+                clip: true
+                Label {
+                    width: parent.width
+                    text: updater.notes === "" ? qsTr("Keine Beschreibung.") : updater.notes
+                    textFormat: Text.MarkdownText
+                    wrapMode: Text.WordWrap
+                }
+            }
+            ProgressBar { Layout.fillWidth: true; visible: updater.downloading; value: updater.progress }
+            Label { Layout.fillWidth: true; text: updater.status; color: Theme.faint; wrapMode: Text.WordWrap }
+            Label {
+                Layout.fillWidth: true
+                visible: !updater.canInstall
+                wrapMode: Text.WordWrap
+                color: Theme.faint
+                text: qsTr("Für dieses System gibt es kein automatisches Paket – die Download-Seite wird geöffnet.")
+            }
+        }
+        footer: RowLayout {
+            spacing: 8
+            Item { Layout.fillWidth: true }
+            Button { text: qsTr("Release-Seite"); flat: true; onClicked: Qt.openUrlExternally(updater.pageUrl) }
+            Button { text: updater.downloading ? qsTr("Abbrechen") : qsTr("Später"); onClicked: updater.downloading ? updater.cancel() : updateDialog.close() }
+            Button {
+                text: qsTr("Jetzt installieren")
+                highlighted: true
+                enabled: !updater.downloading
+                Layout.rightMargin: 12
+                Layout.bottomMargin: 12
+                // Vorher ungespeicherte Änderungen sichern
+                onClicked: window.guarded(function () { updater.install() })
+            }
+        }
+    }
 
     // ---------------------------------------------------------- Kopfzeile
     header: Rectangle {
@@ -356,6 +403,14 @@ ApplicationWindow {
                 ToolTip.text: qsTr("Projekteinstellungen: Auflösung, Bildrate, Tempo (Strg+,)")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
+            }
+            // Update verfügbar (GitHub Releases)
+            Button {
+                visible: updater.available
+                text: updater.downloading ? qsTr("Update %1 %").arg(Math.round(updater.progress * 100)) : qsTr("Update %1").arg(updater.latestVersion)
+                icon.name: "import"
+                highlighted: true
+                onClicked: updateDialog.open()
             }
             IconButton { iconName: "settings"; tip: qsTr("Einstellungen (Strg+,)"); onClicked: generalSettings.open() }
             // Edition / Lizenz / Admin

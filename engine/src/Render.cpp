@@ -112,6 +112,7 @@ RenderResult renderAudio(const Project& project, ExportSettings settings,
     const std::int64_t maxTail = tail && settings.audioTail ? 5 * static_cast<std::int64_t>(rate) : 0;
     constexpr std::size_t block = 4096;
     std::vector<float> buf(block * 2);
+    std::vector<float> mastered;
     std::int64_t pos = 0;
     while (pos < total + maxTail) {
         if (cancel && cancel->load()) {
@@ -127,13 +128,27 @@ RenderResult renderAudio(const Project& project, ExportSettings settings,
             for (std::size_t i = 0; i < n * 2; ++i) peak = std::max(peak, std::abs(buf[i]));
             if (peak < 1e-4f) break;
         }
-        if (!exporter.writeAudio(buf.data(), n)) {
+        if (settings.mastering > 0) {
+            // Mastering braucht den ganzen Mix (Lautheit über das Stück)
+            mastered.insert(mastered.end(), buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(n * 2));
+        } else if (!exporter.writeAudio(buf.data(), n)) {
             result.error = "Fehler beim Schreiben des Tons";
             break;
         }
         pos += static_cast<std::int64_t>(n);
         result.frames = pos;
-        if (progress) progress(std::min(1.0, static_cast<double>(pos) / static_cast<double>(total)));
+        if (progress) progress(std::min(1.0, static_cast<double>(pos) / static_cast<double>(total)) * (settings.mastering > 0 ? 0.7 : 1.0));
+    }
+    if (settings.mastering > 0 && !result.cancelled && result.error.empty()) {
+        result.mastering = masterAudio(mastered, rate, static_cast<MasteringPreset>(std::clamp(settings.mastering, 0, 3)));
+        if (progress) progress(0.9);
+        for (std::size_t i = 0; i < mastered.size() / 2; i += block) {
+            const std::size_t n = std::min(block, mastered.size() / 2 - i);
+            if (!exporter.writeAudio(mastered.data() + i * 2, n)) {
+                result.error = "Fehler beim Schreiben des Tons";
+                break;
+            }
+        }
     }
     std::string finishError;
     const bool finished = exporter.finish(&finishError);

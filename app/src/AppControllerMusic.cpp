@@ -167,7 +167,7 @@ int AppController::cutOnBeats(int everyBeats) {
 
 // ------------------------------------------------------ Musik-Dateien
 
-void AppController::exportAudio(const QUrl& url, int bits, bool tail) {
+void AppController::exportAudio(const QUrl& url, int bits, bool tail, int mastering) {
     if (m_exportWorker) return;
     QString path = url.toLocalFile();
     if (path.isEmpty()) return;
@@ -177,7 +177,24 @@ void AppController::exportAudio(const QUrl& url, int bits, bool tail) {
     s.audioBits = bits;
     s.video = false;
     s.audioTail = tail;
+    s.mastering = mastering;
     startExport(s, ExportWorker::Audio);
+}
+
+double AppController::projectLoudness() {
+    // Schnellmessung: Mix der ersten 3 Minuten
+    const TimeUs dur = std::min<TimeUs>(m_project.duration(), 180 * kSecond);
+    if (dur <= 0) return -70.0;
+    AudioMixer mixer;
+    mixer.setProject(std::make_shared<const Project>(m_project));
+    const int rate = m_project.sampleRate;
+    const std::int64_t total = dur * rate / kSecond;
+    std::vector<float> mix(static_cast<std::size_t>(total) * 2);
+    for (std::int64_t pos = 0; pos < total; pos += 4096) {
+        const std::size_t n = static_cast<std::size_t>(std::min<std::int64_t>(4096, total - pos));
+        mixer.render(pos, mix.data() + pos * 2, n);
+    }
+    return measureLufs(mix, rate);
 }
 
 void AppController::exportStems(const QUrl& folder, const QString& extension, int bits) {

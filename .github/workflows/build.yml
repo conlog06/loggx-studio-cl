@@ -99,7 +99,7 @@ jobs:
         run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json rtmidi
       - name: ONNX Runtime
         run: curl -sSL https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz | tar xz -C $HOME
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-osx-universal2-${ORT_VERSION}
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-osx-universal2-${ORT_VERSION} -DLOGGX_BUILD_NUMBER=${{ github.run_number }}
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
         env:
@@ -126,12 +126,24 @@ jobs:
           done < <(find "$APP" -type f)
           EXE="$APP/Contents/MacOS/LoggX Studio"
           otool -l "$EXE" | grep -q "@executable_path/../Frameworks" || install_name_tool -add_rpath "@executable_path/../Frameworks" "$EXE"
+          # Vollversion: KI-Modelle (MIT) mitliefern
+          mkdir -p "$APP/Contents/Resources/models"
+          base=https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models
+          for f in kuielab_a_vocals kuielab_a_drums kuielab_a_bass; do curl -sSL -o "$APP/Contents/Resources/models/$f.onnx" "$base/$f.onnx"; done
+          (cd "$APP/Contents/Resources/models" && shasum -a 256 -c - <<'SUMS'
+          daba83c2ee1afee9139766ad64c9b6808d6b6f092fff04bed3338be50baac721  kuielab_a_vocals.onnx
+          40f586b7091934dd6f5563f0cba8f14bad57ce88440da1098bf388ea716c2901  kuielab_a_drums.onnx
+          0c3e77b9963185b1ea6bb46a4b8924137d9370fc1ccdefec7b1b416ef550dcaa  kuielab_a_bass.onnx
+          SUMS
+          )
+          cp third_party/models/LICENSE-kuielab-mdx-net.txt "$APP/Contents/Resources/models/"
           # Name im Finder: LXStudio
           mv "$APP" build/app/LXStudio.app
           # Ad-hoc-Signatur (ohne Apple-Entwicklerkonto): erster Start per Rechtsklick → Öffnen
           codesign --force --deep -s - build/app/LXStudio.app
           mkdir -p dmg && cp -R build/app/LXStudio.app dmg/ && ln -s /Applications dmg/Programme
-          hdiutil create -volname LXStudio -srcfolder dmg -ov -format UDZO LXStudio-macOS.dmg
+          VERSION=$(sed -nE 's/^project\(LoggXStudio VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          hdiutil create -volname LXStudio -srcfolder dmg -ov -format UDZO "LXStudio-$VERSION-macOS.dmg"
           # Prüfen: nichts im Paket hängt noch an Homebrew (sonst auf anderen Macs Absturz)
           bad=0
           while IFS= read -r f; do
@@ -147,7 +159,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: LXStudio-macOS
-          path: LXStudio-macOS.dmg
+          path: LXStudio-*-macOS.dmg
 
   windows:
     runs-on: windows-2022
@@ -186,7 +198,7 @@ jobs:
           "ONNXRUNTIME_DIR=$env:RUNNER_TEMP\onnxruntime-win-x64-$env:ORT_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Konfigurieren
         shell: pwsh
-        run: cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows "-DLOGGX_ONNXRUNTIME_DIR=$env:ONNXRUNTIME_DIR"
+        run: cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows "-DLOGGX_ONNXRUNTIME_DIR=$env:ONNXRUNTIME_DIR" -DLOGGX_BUILD_NUMBER=${{ github.run_number }}
       - run: cmake --build build --config Release
       - run: ctest --test-dir build -C Release --output-on-failure
         env:
@@ -196,6 +208,21 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: KI-Modelle für die Vollversion
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "models"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $base = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models"
+          $sums = @{ "kuielab_a_vocals.onnx" = "daba83c2ee1afee9139766ad64c9b6808d6b6f092fff04bed3338be50baac721";
+                     "kuielab_a_drums.onnx" = "40f586b7091934dd6f5563f0cba8f14bad57ce88440da1098bf388ea716c2901";
+                     "kuielab_a_bass.onnx" = "0c3e77b9963185b1ea6bb46a4b8924137d9370fc1ccdefec7b1b416ef550dcaa" }
+          foreach ($f in $sums.Keys) {
+            Invoke-WebRequest -Uri "$base/$f" -OutFile (Join-Path $dir $f)
+            $h = (Get-FileHash (Join-Path $dir $f) -Algorithm SHA256).Hash.ToLower()
+            if ($h -ne $sums[$f]) { throw "Prüfsumme falsch: $f" }
+          }
+          "LOGGX_MODELS_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Paket bauen
         shell: pwsh
         run: .\installer\windows\package.ps1 -BuildDir build -QtDir $env:QT_ROOT_DIR -VcpkgInstalled "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
@@ -235,13 +262,16 @@ jobs:
           if-no-files-found: error
 
   release:
-    # Bei einem Tag wie v0.1.0 werden die Windows-Dateien als Release veröffentlicht.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Jeder erfolgreiche Push auf prototyp/main wird ein Release zum Herunterladen
+    # (Windows-Setup, portables ZIP, macOS-DMG). Die App findet es über die
+    # Update-Prüfung. Tags v* werden wie bisher veröffentlicht.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/prototyp' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [linux, macos, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: LoggX-Studio-Windows
@@ -250,10 +280,26 @@ jobs:
         with:
           name: LXStudio-macOS
           path: dist
-      - uses: softprops/action-gh-release@v2
-        with:
-          prerelease: true
-          files: |
-            dist/*.exe
-            dist/*.zip
-            dist/*.dmg
+      - name: Release erstellen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(sed -nE 's/^project\(LoggXStudio VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then TAG="${GITHUB_REF#refs/tags/}"; else TAG="v$VERSION-build.${{ github.run_number }}"; fi
+          {
+            echo "## LXStudio $VERSION (Build ${{ github.run_number }})"
+            echo
+            echo "**Download:** Windows → \`LXStudio-$VERSION-Windows-Setup.exe\` (Vollversion mit KI-Modellen) · macOS → \`LXStudio-$VERSION-macOS.dmg\` (beim ersten Start Rechtsklick → Öffnen)"
+            echo
+            echo "Installierte Versionen melden das Update von selbst (Einstellungen → Allgemein → Updates)."
+            echo
+            echo "### Änderungen"
+            git log -1 --pretty=format:'%B' | grep -v -E '^(Co-Authored-By|Claude-Session):' | sed '/^$/N;/^\n$/D'
+          } > notes.md
+          ls -la dist
+          gh release create "$TAG" dist/*.exe dist/*.zip dist/*.dmg --title "LXStudio $VERSION (Build ${{ github.run_number }})" \
+            --notes-file notes.md --target "$GITHUB_SHA" --latest
+          # Nur die letzten 8 automatischen Builds behalten
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" -q '.[] | select(.tag_name | test("-build\\.")) | .tag_name' | tail -n +9 | while read -r old; do
+            gh release delete "$old" --yes --cleanup-tag || true
+          done

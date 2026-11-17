@@ -105,7 +105,12 @@ void ExportWorker::run() {
     if (result.ok && m_mode == Stems)
         message = tr("%1 Stems exportiert").arg(files.size());
     else if (result.ok && m_mode == Audio)
-        message = tr("Audio-Export fertig");
+        message = m_settings.mastering > 0
+                      ? tr("Audio-Export fertig – gemastert: %1 → %2 LUFS (Limiter max. %3 dB)")
+                            .arg(result.mastering.lufsBefore, 0, 'f', 1)
+                            .arg(result.mastering.lufsAfter, 0, 'f', 1)
+                            .arg(result.mastering.maxReductionDb, 0, 'f', 1)
+                      : tr("Audio-Export fertig");
     else if (result.ok)
         message = tr("Export fertig (%1 Bilder, Encoder %2)")
                       .arg(result.frames)

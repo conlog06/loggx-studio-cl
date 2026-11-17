@@ -11,6 +11,7 @@
 #include "AppController.h"
 #include "DjController.h"
 #include "DjMidi.h"
+#include "Updater.h"
 #include "DjWaveItem.h"
 #include "IconItem.h"
 #include "Items.h"
@@ -59,10 +60,13 @@ int main(int argc, char** argv) {
     qmlRegisterType<DjWaveItem>("LoggX", 1, 0, "DjWave");
     qmlRegisterUncreatableType<DjController>("LoggX", 1, 0, "DjController", QStringLiteral("nur als dj"));
     qmlRegisterUncreatableType<DjMidi>("LoggX", 1, 0, "DjMidi", QStringLiteral("nur als djmidi"));
+    qmlRegisterUncreatableType<Updater>("LoggX", 1, 0, "Updater", QStringLiteral("nur als updater"));
 
     AppController controller;
     DjController dj(&controller);
     DjMidi djmidi(&dj);
+    Updater updater;
+    QObject::connect(&updater, &Updater::quitRequested, &app, [] { QTimer::singleShot(400, qApp, &QCoreApplication::quit); });
 
     // Aufruf: "LoggX Studio" [projekt.loggx] [--music] [--page N] [--tab N]
     //         [--select CLIP] [--seek SEK] [--license] [--screenshot bild.png]
@@ -130,12 +134,14 @@ int main(int argc, char** argv) {
     engine.rootContext()->setContextProperty(QStringLiteral("app"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("dj"), &dj);
     engine.rootContext()->setContextProperty(QStringLiteral("djmidi"), &djmidi);
+    engine.rootContext()->setContextProperty(QStringLiteral("updater"), &updater);
     engine.rootContext()->setContextProperty(QStringLiteral("startPage"), startPage);
     engine.rootContext()->setContextProperty(QStringLiteral("startTab"), startTab);
     engine.rootContext()->setContextProperty(QStringLiteral("showLicense"), showLicense);
     engine.rootContext()->setContextProperty(QStringLiteral("showSettings"), showSettings);
     engine.rootContext()->setContextProperty(QStringLiteral("settingsTab"), settingsTab);
     engine.load(mainQml);
+    if (screenshot.isEmpty()) updater.checkOnStartup();   // nicht bei Tests/Bildschirmfotos
     if (engine.rootObjects().isEmpty()) return 1;
 
     if (!screenshot.isEmpty()) {

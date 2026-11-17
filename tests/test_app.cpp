@@ -20,6 +20,7 @@
 #include "ModelManager.h"
 #include "DjController.h"
 #include "DjMidi.h"
+#include "Updater.h"
 #include <QCryptographicHash>
 #include <cstdlib>
 #include "check.h"
@@ -714,6 +715,29 @@ int main(int argc, char** argv) {
             CHECK(QDir(dj.browsePath()) == QDir(dir.filePath("Quelle")));
             dj.removeSource(dir.filePath("Quelle"));
             CHECK(dj.view() == -1);
+        }
+        // Updates: Versionen vergleichen und Releases von GitHub auswerten
+        {
+            CHECK(Updater::isNewer("v0.12.0-build.3", "0.11.0", 0));
+            CHECK(Updater::isNewer("v0.11.0-build.50", "0.11.0", 49));
+            CHECK(!Updater::isNewer("v0.11.0-build.49", "0.11.0", 49));
+            CHECK(!Updater::isNewer("v0.11.0-build.80", "0.11.0", 0));   // lokaler Build: gleiche Version nie ersetzen
+            CHECK(!Updater::isNewer("v0.10.0", "0.11.0", 7));
+            CHECK(!Updater::isNewer("ee", "0.11.0", 7));
+            QFile rel(dir.filePath("releases.json"));
+            CHECK(rel.open(QIODevice::WriteOnly));
+            rel.write(R"([{"tag_name":"ee","draft":false,"assets":[]},
+                {"tag_name":"v9.9.0-build.5","draft":false,"body":"Neu","html_url":"https://example.org",
+                 "assets":[{"name":"LXStudio-9.9.0-Windows-Setup.exe","browser_download_url":"https://example.org/a.exe"},
+                           {"name":"LXStudio-macOS.dmg","browser_download_url":"https://example.org/a.dmg"}]}])");
+            rel.close();
+            Updater up;
+            up.setApiUrl(QUrl::fromLocalFile(rel.fileName()));
+            up.check(true);
+            QElapsedTimer t;
+            t.start();
+            while (up.checking() && t.elapsed() < 5000) QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+            CHECK(up.available() && up.latestVersion() == "9.9.0-build.5");
         }
         // Bibliothek anpassen: Höhe, groß, Spalten, Zeilenhöhe
         dj.setLibraryHeight(400);

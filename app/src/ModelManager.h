@@ -20,6 +20,7 @@ public:
     explicit ModelManager(QObject* parent = nullptr);
     QString folder() const;
     QString pathFor(const loggx::StemModelInfo& model) const;
+    QString bundledPath(const loggx::StemModelInfo& model) const;   // leer = nicht mitgeliefert
     bool isReady(const loggx::StemModelInfo& model) const;
     bool busy() const { return m_reply != nullptr; }
     // Für Tests/Spiegel: statt der eingetragenen Adresse <base>/<Datei> laden.

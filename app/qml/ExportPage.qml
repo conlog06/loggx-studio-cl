@@ -75,7 +75,7 @@ Rectangle {
         fileMode: FileDialog.SaveFile
         defaultSuffix: root.audioFormat.ext
         nameFilters: [root.audioFormat.text + " (*." + root.audioFormat.ext + ")"]
-        onAccepted: app.exportAudio(selectedFile, root.bits, tailBox.checked)
+        onAccepted: app.exportAudio(selectedFile, root.bits, tailBox.checked, masterBox.currentIndex)
     }
     FolderDialog {
         id: stemsDialog
@@ -223,6 +223,20 @@ Rectangle {
                         id: tailBox
                         checked: true
                         text: qsTr("Ausklang mitnehmen (Hall und Release nach dem Ende)")
+                    }
+                    Label { text: qsTr("Mastering") }
+                    Row {
+                        spacing: 8
+                        ComboBox {
+                            id: masterBox
+                            width: 230
+                            model: [qsTr("Aus"), qsTr("Streaming (−14 LUFS)"), qsTr("Club / DJ (−9 LUFS)"), qsTr("Podcast / Sprache (−16 LUFS)")]
+                        }
+                        Button {
+                            text: qsTr("Lautheit messen")
+                            onClicked: loudLabel.text = app.projectLoudness().toFixed(1) + " LUFS"
+                        }
+                        Label { id: loudLabel; anchors.verticalCenter: parent.verticalCenter; color: Theme.dim }
                     }
                     Item { width: 1 }
                     Label { color: Theme.dim; text: qsTr("Stereo · 48 kHz · Master-Limiter aktiv") }

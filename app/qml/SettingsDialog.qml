@@ -130,6 +130,20 @@ Dialog {
                             onActivated: function (i) { app.previewQuality = i }
                         }
                     }
+                    Heading { text: qsTr("Updates") }
+                    Row2 {
+                        label: qsTr("Automatisch nach Updates suchen")
+                        hint: qsTr("Beim Start (höchstens alle 6 Stunden) bei GitHub nachsehen. Installiert wird erst nach deiner Bestätigung.")
+                        Switch { checked: updater.autoCheck; onToggled: updater.autoCheck = checked }
+                    }
+                    Row2 {
+                        label: qsTr("Version %1").arg(updater.currentVersion)
+                        hint: updater.status
+                        RowLayout {
+                            Button { text: updater.checking ? qsTr("Suche …") : qsTr("Jetzt prüfen"); enabled: !updater.checking; onClicked: updater.check(true) }
+                            Button { visible: updater.available; text: qsTr("Update %1 installieren").arg(updater.latestVersion); highlighted: true; onClicked: updater.install() }
+                        }
+                    }
                     Row2 {
                         label: qsTr("Zuletzt geöffnet")
                         Button { text: qsTr("Liste leeren"); enabled: app.recentProjects.length > 0; onClicked: app.clearRecent() }
@@ -488,10 +502,10 @@ Dialog {
                                 Layout.fillWidth: true
                                 spacing: 0
                                 Label { text: modelData.name }
-                                Label { text: qsTr("%1 · %2 MB · %3").arg(modelData.stem).arg(modelData.mb).arg(modelData.ready ? qsTr("bereit") : qsTr("nicht geladen")); color: Theme.faint; font.pixelSize: 11 }
+                                Label { text: qsTr("%1 · %2 MB · %3").arg(modelData.stem).arg(modelData.mb).arg(modelData.bundled ? qsTr("mitgeliefert") : modelData.ready ? qsTr("bereit") : qsTr("nicht geladen")); color: Theme.faint; font.pixelSize: 11 }
                             }
                             IconButton {
-                                visible: modelData.ready
+                                visible: modelData.ready && !modelData.bundled
                                 iconName: "trash"
                                 tip: qsTr("Modell löschen (Speicher freigeben)")
                                 onClicked: app.deleteModel(modelData.id)
@@ -531,7 +545,7 @@ Dialog {
                     ColumnLayout {
                         spacing: 2
                         Label { text: "LXStudio"; font.pixelSize: 22; font.weight: Font.Bold }
-                        Label { text: qsTr("Version %1 · %2").arg(Qt.application.version).arg(app.editionName); color: Theme.dim }
+                        Label { text: qsTr("Version %1 · %2").arg(updater.currentVersion).arg(app.editionName); color: Theme.dim }
                     }
                 }
                 Label {

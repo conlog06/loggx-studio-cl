@@ -277,7 +277,8 @@ QVariantList AppController::aiModels() const {
                             {QStringLiteral("name"), qstr(m.name)},
                             {QStringLiteral("stem"), qstr(m.stem)},
                             {QStringLiteral("mb"), static_cast<int>(m.bytes / 1000000)},
-                            {QStringLiteral("ready"), m_models->isReady(m)}};
+                            {QStringLiteral("ready"), m_models->isReady(m)},
+                            {QStringLiteral("bundled"), !m_models->bundledPath(m).isEmpty()}};
     }
     return list;
 }

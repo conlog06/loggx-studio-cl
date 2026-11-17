@@ -1,5 +1,7 @@
 #include "ModelManager.h"
 
+#include <QCoreApplication>
+
 #include <QDir>
 #include <QFileInfo>
 #include <QNetworkAccessManager>
@@ -14,7 +16,22 @@ QString ModelManager::folder() const {
                               : m_folder;
 }
 
+// Mit dem Installer (Vollversion) mitgelieferte Modelle liegen neben dem
+// Programm (Windows: „models“, macOS: Contents/Resources/models)
+QString ModelManager::bundledPath(const loggx::StemModelInfo& model) const {
+    if (!m_folder.isEmpty()) return {};   // Tests: nur der eigene Ordner
+    const QString file = QString::fromStdString(model.file);
+    for (const QString& dir : {QCoreApplication::applicationDirPath() + QStringLiteral("/models"),
+                               QCoreApplication::applicationDirPath() + QStringLiteral("/../Resources/models")}) {
+        const QFileInfo info(dir + QLatin1Char('/') + file);
+        if (info.exists() && info.size() == model.bytes) return info.absoluteFilePath();
+    }
+    return {};
+}
+
 QString ModelManager::pathFor(const loggx::StemModelInfo& model) const {
+    const QString bundled = bundledPath(model);
+    if (!bundled.isEmpty()) return bundled;
     return folder() + QLatin1Char('/') + QString::fromStdString(model.file);
 }
 

@@ -173,7 +173,8 @@ public:
     Q_INVOKABLE int cutOnBeats(int everyBeats);
 
     // ---- Musik-Dateien
-    Q_INVOKABLE void exportAudio(const QUrl& url, int bits = 16, bool tail = true);
+    Q_INVOKABLE void exportAudio(const QUrl& url, int bits = 16, bool tail = true, int mastering = 0);
+    Q_INVOKABLE double projectLoudness();   // LUFS des aktuellen Mixes (Mastering-Assistent)
     Q_INVOKABLE void exportStems(const QUrl& folder, const QString& extension, int bits = 16);
     Q_INVOKABLE bool exportMidiFile(const QUrl& url);
     Q_INVOKABLE bool importMidiFile(const QUrl& url);

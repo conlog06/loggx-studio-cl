@@ -79,6 +79,7 @@ struct ExportSettings {
     bool video = true;
     int audioBits = 16;              // WAV/FLAC: 16 oder 24 Bit
     bool audioTail = true;           // Audio-Export: Ausklang nach dem Projektende
+    int mastering = 0;               // Audio-Export: 0 aus, 1 Streaming, 2 Club, 3 Podcast
     // Leer = automatisch (Software-Encoder, sonst Hardware-Encoder).
     std::string videoEncoder;
 };

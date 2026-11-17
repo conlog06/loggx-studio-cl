@@ -16,6 +16,7 @@ qt_add_executable(loggx-studio
   src/DjController.cpp src/DjController.h
   src/DjLibraryImport.cpp
   src/DjSources.cpp
+  src/Updater.cpp src/Updater.h
   src/DjMidi.cpp src/DjMidi.h
   src/DjWaveItem.cpp src/DjWaveItem.h
   src/MicRecorder.cpp src/MicRecorder.h
@@ -135,7 +136,8 @@ if(APPLE)
   target_sources(loggx-studio PRIVATE resources/loggx.icns)
   set_source_files_properties(resources/loggx.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 endif()
-target_compile_definitions(loggx-studio PRIVATE LOGGX_VERSION="${PROJECT_VERSION}")
+set(LOGGX_BUILD_NUMBER "0" CACHE STRING "Build-Nummer (CI), für Updates")
+target_compile_definitions(loggx-studio PRIVATE LOGGX_VERSION="${PROJECT_VERSION}" LOGGX_BUILD=${LOGGX_BUILD_NUMBER})
 
 if(LOGGX_BUILD_TESTS)
   qt_add_executable(test_app
@@ -151,6 +153,7 @@ if(LOGGX_BUILD_TESTS)
     src/DjController.cpp src/DjController.h
     src/DjLibraryImport.cpp
     src/DjSources.cpp
+    src/Updater.cpp src/Updater.h
     src/DjMidi.cpp src/DjMidi.h
     src/MicRecorder.cpp src/MicRecorder.h
     src/MidiInput.cpp src/MidiInput.h)
