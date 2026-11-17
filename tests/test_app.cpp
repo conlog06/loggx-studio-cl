@@ -727,6 +727,7 @@ int main(int argc, char** argv) {
             QFile rel(dir.filePath("releases.json"));
             CHECK(rel.open(QIODevice::WriteOnly));
             rel.write(R"([{"tag_name":"ee","draft":false,"assets":[]},
+                {"tag_name":"v99.0","draft":false,"body":"Test","assets":[]},
                 {"tag_name":"v9.9.0-build.5","draft":false,"body":"Neu","html_url":"https://example.org",
                  "assets":[{"name":"LXStudio-9.9.0-Windows-Setup.exe","browser_download_url":"https://example.org/a.exe"},
                            {"name":"LXStudio-macOS.dmg","browser_download_url":"https://example.org/a.dmg"}]}])");

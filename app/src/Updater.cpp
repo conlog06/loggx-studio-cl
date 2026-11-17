@@ -106,14 +106,16 @@ void Updater::handleReleases(const QByteArray& json, bool manual) {
         if (r.value(QStringLiteral("draft")).toBool()) continue;
         const QString tag = r.value(QStringLiteral("tag_name")).toString();
         if (!isNewer(tag, QStringLiteral(LOGGX_VERSION), LOGGX_BUILD)) continue;
-        // Neueste passende Version (Liste ist nach Datum sortiert)
-        m_available = true;
-        m_latest = tag.startsWith(QLatin1Char('v')) ? tag.mid(1) : tag;
-        m_notes = r.value(QStringLiteral("body")).toString().left(1500);
-        m_page = r.value(QStringLiteral("html_url")).toString();
+        // Neueste passende Version (Liste ist nach Datum sortiert). Releases ohne
+        // passende LXStudio-Datei (z. B. von Hand angelegte) werden übersprungen.
+        QUrl asset;
+        QString assetName, digest;
+        bool anyLx = false;
         for (const QJsonValue& a : r.value(QStringLiteral("assets")).toArray()) {
-            const QJsonObject asset = a.toObject();
-            const QString name = asset.value(QStringLiteral("name")).toString();
+            const QJsonObject o = a.toObject();
+            const QString name = o.value(QStringLiteral("name")).toString();
+            if (!name.startsWith(QLatin1String("LXStudio-"), Qt::CaseInsensitive)) continue;
+            anyLx = true;
 #if defined(Q_OS_WIN)
             const bool fits = name.endsWith(QLatin1String("Setup.exe"), Qt::CaseInsensitive);
 #elif defined(Q_OS_MACOS)
@@ -122,10 +124,22 @@ void Updater::handleReleases(const QByteArray& json, bool manual) {
             const bool fits = false;
 #endif
             if (!fits) continue;
-            m_asset = QUrl(asset.value(QStringLiteral("browser_download_url")).toString());
-            m_assetName = name;
-            m_digest = asset.value(QStringLiteral("digest")).toString();   // „sha256:…“ (falls vorhanden)
+            asset = QUrl(o.value(QStringLiteral("browser_download_url")).toString());
+            assetName = name;
+            digest = o.value(QStringLiteral("digest")).toString();   // „sha256:…“ (falls vorhanden)
         }
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+        if (!asset.isValid()) continue;
+#else
+        if (!anyLx) continue;
+#endif
+        m_available = true;
+        m_latest = tag.startsWith(QLatin1Char('v')) ? tag.mid(1) : tag;
+        m_notes = r.value(QStringLiteral("body")).toString().left(1500);
+        m_page = r.value(QStringLiteral("html_url")).toString();
+        m_asset = asset;
+        m_assetName = assetName;
+        m_digest = digest;
         break;
     }
     if (m_available) setStatus(tr("Update verfügbar: %1").arg(m_latest));
