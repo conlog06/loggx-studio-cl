@@ -56,6 +56,12 @@ private:
     std::vector<std::uint8_t> m_bufA, m_bufB;   // Ebenen für Übergänge
 };
 
+// KI-Freistellung (U²-Net): Modellpfad setzen (leer = aus), Maske berechnen.
+// Thread-sicher; eine Sitzung für alle Compositor-Instanzen.
+void setCutoutModel(const std::string& path);
+std::string cutoutModel();
+bool cutoutMask(const std::uint8_t* rgba, int w, int h, std::vector<std::uint8_t>& alpha, std::string* error = nullptr);
+
 // Masken-Tracking: verfolgt den Inhalt unter der Maske ab „from“ bis zum
 // Clip-Ende. Ergebnis: Keyframes (relativ zum Clip-Anfang) für maskX/maskY.
 // progress(0..1) gibt false zurück, um abzubrechen.

@@ -31,6 +31,7 @@ jobs:
           tools/ci/fetch-ort.sh ${ORT_VERSION} linux-x64 $HOME/onnxruntime-linux-x64-${ORT_VERSION}
           mkdir -p ~/ki-test
           [ -f ~/ki-test/kuielab_a_vocals.onnx ] || curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o ~/ki-test/kuielab_a_vocals.onnx https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/kuielab_a_vocals.onnx
+          [ -f ~/ki-test/u2netp.onnx ] || curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o ~/ki-test/u2netp.onnx https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
           [ -f ~/ki-test/song.mp3 ] || curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o ~/ki-test/song.mp3 https://raw.githubusercontent.com/deezer/spleeter/master/audio_example.mp3
           ls -la ~/ki-test
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-linux-x64-${ORT_VERSION}
@@ -130,13 +131,15 @@ jobs:
           mkdir -p "$APP/Contents/Resources/models"
           base=https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models
           for f in kuielab_a_vocals kuielab_a_drums kuielab_a_bass; do curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o "$APP/Contents/Resources/models/$f.onnx" "$base/$f.onnx"; done
+          curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o "$APP/Contents/Resources/models/u2netp.onnx" https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
           (cd "$APP/Contents/Resources/models" && shasum -a 256 -c - <<'SUMS'
           daba83c2ee1afee9139766ad64c9b6808d6b6f092fff04bed3338be50baac721  kuielab_a_vocals.onnx
           40f586b7091934dd6f5563f0cba8f14bad57ce88440da1098bf388ea716c2901  kuielab_a_drums.onnx
           0c3e77b9963185b1ea6bb46a4b8924137d9370fc1ccdefec7b1b416ef550dcaa  kuielab_a_bass.onnx
+          309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8  u2netp.onnx
           SUMS
           )
-          cp third_party/models/LICENSE-kuielab-mdx-net.txt "$APP/Contents/Resources/models/"
+          cp third_party/models/LICENSE-kuielab-mdx-net.txt third_party/models/LICENSE-u2net.txt "$APP/Contents/Resources/models/"
           # Name im Finder: LXStudio
           mv "$APP" build/app/LXStudio.app
           # Ad-hoc-Signatur (ohne Apple-Entwicklerkonto): erster Start per Rechtsklick → Öffnen
@@ -177,19 +180,19 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-ffmpeg-rubberband-rtmidi-x64-windows-v3
+          key: vcpkg-ffmpeg-dav1d-rubberband-rtmidi-x64-windows-v4
       - name: FFmpeg und Rubber Band
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample,mp3lame,opus,vorbis]:x64-windows" "rubberband:x64-windows" "nlohmann-json:x64-windows" "rtmidi:x64-windows"
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample,mp3lame,opus,vorbis,dav1d]:x64-windows" "rubberband:x64-windows" "nlohmann-json:x64-windows" "rtmidi:x64-windows"
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: vcpkg-Cache sichern
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: vcpkg-cache
-          key: vcpkg-ffmpeg-rubberband-rtmidi-x64-windows-v3
+          key: vcpkg-ffmpeg-dav1d-rubberband-rtmidi-x64-windows-v4
       - name: ONNX Runtime
         shell: pwsh
         run: |
@@ -225,11 +228,14 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP "models"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $base = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models"
+          $rembg = "https://github.com/danielgatis/rembg/releases/download/v0.0.0"
           $sums = @{ "kuielab_a_vocals.onnx" = "daba83c2ee1afee9139766ad64c9b6808d6b6f092fff04bed3338be50baac721";
                      "kuielab_a_drums.onnx" = "40f586b7091934dd6f5563f0cba8f14bad57ce88440da1098bf388ea716c2901";
-                     "kuielab_a_bass.onnx" = "0c3e77b9963185b1ea6bb46a4b8924137d9370fc1ccdefec7b1b416ef550dcaa" }
+                     "kuielab_a_bass.onnx" = "0c3e77b9963185b1ea6bb46a4b8924137d9370fc1ccdefec7b1b416ef550dcaa";
+                     "u2netp.onnx" = "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8" }
           foreach ($f in $sums.Keys) {
-            Invoke-WebRequest -Uri "$base/$f" -OutFile (Join-Path $dir $f)
+            $src = if ($f -like "u2net*") { $rembg } else { $base }
+            Invoke-WebRequest -Uri "$src/$f" -OutFile (Join-Path $dir $f) -MaximumRetryCount 5 -RetryIntervalSec 10
             $h = (Get-FileHash (Join-Path $dir $f) -Algorithm SHA256).Hash.ToLower()
             if ($h -ne $sums[$f]) { throw "Prüfsumme falsch: $f" }
           }

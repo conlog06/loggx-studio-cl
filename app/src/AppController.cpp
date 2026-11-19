@@ -76,6 +76,7 @@ AppController::AppController(QObject* parent)
     // KI-Modelle auf Wunsch im Hintergrund holen (nach dem Start, ohne zu stören)
     m_aiAutoDownload = QSettings().value(QStringLiteral("ai/autoDownload"), false).toBool();
     if (m_aiAutoDownload) QTimer::singleShot(4000, this, [this] { downloadAllModels(); });
+    QTimer::singleShot(0, this, [this] { updateCutoutModel(); });   // mitgeliefertes Freistellungs-Modell nutzen
     checkRecovery();
     publish();
     m_dirty = false;
@@ -402,7 +403,7 @@ QVariantList AppController::tracks() const {
 
 void AppController::importMedia(const QList<QUrl>& urls) {
     int added = 0;
-    QString lastError;
+    QString lastError, videoWarning;
     Project before = m_project;
     for (const QUrl& url : urls) {
         const QString path = url.isLocalFile() ? url.toLocalFile() : url.toString();
@@ -415,6 +416,14 @@ void AppController::importMedia(const QList<QUrl>& urls) {
             lastError = tr("%1: %2").arg(QFileInfo(path).fileName(), qstr(error));
             continue;
         }
+        // Prüfen, ob sich das Bild wirklich dekodieren lässt (sonst bliebe die Vorschau schwarz)
+        if (asset.hasVideo && !asset.isStill) {
+            VideoReader test;
+            std::vector<std::uint8_t> px;
+            if (!test.open(asset.path) || !test.frameAt(std::min<TimeUs>(asset.duration / 2, 1'000'000), 64, 36, px))
+                videoWarning = tr("%1: Das Bild (Codec %2) kann auf diesem Rechner nicht dekodiert werden – nur der Ton ist nutzbar")
+                                   .arg(QFileInfo(path).fileName(), qstr(asset.videoCodec).toUpper());
+        }
         m_project.addAsset(std::move(asset));
         ++added;
     }
@@ -424,6 +433,8 @@ void AppController::importMedia(const QList<QUrl>& urls) {
     }
     if (!lastError.isEmpty())
         setStatus(tr("Import fehlgeschlagen – %1").arg(lastError));
+    else if (!videoWarning.isEmpty())
+        setStatus(videoWarning);
     else if (added > 0)
         setStatus(tr("%1 Datei(en) importiert").arg(added));
 }
@@ -764,6 +775,8 @@ QVariantMap AppController::clip() const {
     m[QStringLiteral("colorNeutral")] = g.isNeutral();
 
     m[QStringLiteral("chromaKey")] = c->fx.chromaKey;
+    m[QStringLiteral("aiCutout")] = c->fx.aiCutout;
+    m[QStringLiteral("cutoutEdge")] = c->fx.cutoutEdge;
     m[QStringLiteral("keyColor")] = QColor::fromRgbF(static_cast<float>(c->fx.keyR),
                                                      static_cast<float>(c->fx.keyG),
                                                      static_cast<float>(c->fx.keyB));
@@ -869,6 +882,8 @@ void AppController::setClipProperty(const QString& name, double value) {
         else if (key == "colorGain") c->color.gain = std::clamp(value, 0.0, 2.0);
         else if (key == "lutMix") c->color.lutMix = std::clamp(value, 0.0, 1.0);
         else if (key == "chromaKey") c->fx.chromaKey = value != 0.0;
+        else if (key == "aiCutout") c->fx.aiCutout = value != 0.0;
+        else if (key == "cutoutEdge") c->fx.cutoutEdge = std::clamp(value, 0.0, 1.0);
         else if (key == "keyTolerance") c->fx.keyTolerance = std::clamp(value, 0.0, 1.0);
         else if (key == "keySoftness") c->fx.keySoftness = std::clamp(value, 0.0, 1.0);
         else if (key == "vignette") c->fx.vignette = std::clamp(value, 0.0, 1.0);

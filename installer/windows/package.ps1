@@ -63,6 +63,7 @@ if ($env:LOGGX_MODELS_DIR -and (Test-Path $env:LOGGX_MODELS_DIR)) {
     New-Item -ItemType Directory -Force -Path $models | Out-Null
     Copy-Item (Join-Path $env:LOGGX_MODELS_DIR "*.onnx") $models
     Copy-Item "third_party\models\LICENSE-kuielab-mdx-net.txt" (Join-Path $licenses "KI-Modelle-kuielab-mdx-net.txt")
+    Copy-Item "third_party\models\LICENSE-u2net.txt" (Join-Path $licenses "KI-Modell-U2-Net-Apache-2.0.txt")
     Write-Host "KI-Modelle mitgeliefert: $((Get-ChildItem $models).Count)"
 }
 

@@ -256,6 +256,11 @@ public:
     QString workLabel() const { return m_workLabel; }
     Q_INVOKABLE bool analyzeSelected();                 // Tempo + Tonart der Quelle
     Q_INVOKABLE bool trackSelectedMask();               // Maske ab Abspielkopf verfolgen
+    // KI-Freistellung: 0 schnell (mitgeliefert), 1 Personen beste Qualität (Download)
+    Q_INVOKABLE int cutoutQuality() const;
+    Q_INVOKABLE void setCutoutQuality(int q);
+    Q_INVOKABLE void setAiCutout(bool on);               // für den gewählten Clip
+    void updateCutoutModel();
     Q_INVOKABLE void setClipKey(int tonic);             // per Tonhöhe (Halbtöne)
     Q_INVOKABLE void setClipBpm(double bpm);            // per Tempo (Time-Stretch)
     Q_INVOKABLE void matchClipTempo();                  // auf Projekt-Tempo

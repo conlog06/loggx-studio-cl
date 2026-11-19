@@ -195,6 +195,21 @@ void testMaskTracking(const fs::path& dir) {
     CHECK(maxErr < 5.0);
 }
 
+// AV1 (z. B. YouTube-Downloads) muss ein Bild liefern – über dav1d
+void testAv1() {
+    const std::string path = std::string(LOGGX_TEST_DATA) + "/av1-rot.mp4";
+    MediaAsset a;
+    CHECK(probeMedia(path, a));
+    CHECK(a.hasVideo && a.videoCodec == "av1");
+    VideoReader r;
+    std::string error;
+    CHECK(r.open(path, &error));
+    std::vector<std::uint8_t> img;
+    CHECK(r.frameAt(500000, 32, 18, img));
+    CHECK(!img.empty() && img[0] > 200 && img[1] < 60 && img[2] < 60);   // rot
+    std::printf("AV1: Bild dekodiert (%s)\n", error.c_str());
+}
+
 // Welcher der vier Testfarben ein Pixel am nächsten kommt.
 int nearestColor(const std::vector<std::uint8_t>& rgba, int w, int x, int y) {
     const std::uint8_t* p = rgba.data() + (static_cast<std::size_t>(y) * w + x) * 4;
@@ -453,6 +468,7 @@ int main() {
     testProRes(dir);
     testHdr(dir);
     testMaskTracking(dir);
+    testAv1();
     std::error_code ec;
     fs::remove_all(dir, ec);
     return finish("test_render");

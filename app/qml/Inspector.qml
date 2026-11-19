@@ -471,6 +471,35 @@ Rectangle {
                     }
                 }
                 CheckBox {
+                    text: qsTr("KI-Freistellung (Hintergrund entfernen)")
+                    checked: root.hasClip && root.clip.aiCutout === true
+                    onToggled: app.setAiCutout(checked)
+                    ToolTip.text: qsTr("Erkennt Person/Objekt und macht den Hintergrund durchsichtig – ohne Greenscreen. Darunterliegende Videospur scheint durch.")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: root.hasClip && root.clip.aiCutout === true
+                    spacing: 8
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: qsTr("Modell"); Layout.preferredWidth: 84; color: Theme.dim }
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: [qsTr("Schnell (alle Motive)"), qsTr("Personen – beste Qualität (176 MB)")]
+                            currentIndex: app.cutoutQuality()
+                            onActivated: app.setCutoutQuality(currentIndex)
+                        }
+                    }
+                    ValueSlider {
+                        Layout.fillWidth: true
+                        label: qsTr("Kante"); prop: "cutoutEdge"
+                        value: root.hasClip ? (root.clip.cutoutEdge || 0) : 0.4
+                        resetValue: 0.4; displayFactor: 100; decimals: 0; suffix: " %"
+                    }
+                }
+                CheckBox {
                     text: qsTr("Greenscreen (Chroma Key)")
                     checked: root.hasClip && root.clip.chromaKey
                     onToggled: app.setClipProperty("chromaKey", checked ? 1 : 0)

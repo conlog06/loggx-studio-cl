@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.13**: Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), Masken-Tracking, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), Masken-Tracking, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -102,6 +102,8 @@ Dieses Repository enthält die **MVP-Vorschau 0.13**: Performance-Pads wie bei r
 - **Lizenzen und Admin:** Free / Pro / Admin mit signierten Schlüsseln (Ed25519, offline prüfbar); Admin-Bereich mit Free-Simulation, Vorschau in voller Auflösung, Renderzeit und Systeminfos – siehe [license/README.md](license/README.md)
 - Projektdateien `.loggx` (JSON, Version 2; Dateien des Prototyps lassen sich weiter öffnen), Undo/Redo ohne Grenze
 - **Automatisches Sichern** jede Minute, Wiederherstellung nach einem Absturz
+- **KI-Freistellung** (Inspector → Effekte): Person/Objekt wird erkannt, der Hintergrund wird durchsichtig – ohne Greenscreen; darunterliegende Videospur scheint durch. Modelle: U²-Net small (4,6 MB, in der Vollversion enthalten) oder U²-Net Personen (176 MB, beste Qualität, Download bei Bedarf), beide Apache-2.0; Regler „Kante“ weich ↔ hart. Findet das Modell kein Motiv, bleibt das Bild sichtbar
+- **AV1-Videos** (z. B. YouTube-Downloads) werden über dav1d dekodiert; lässt sich ein Video-Codec nicht dekodieren, meldet der Import das, statt schwarz zu bleiben
 - **HDR-Export (HLG)**: H.265 Main 10 oder ProRes, BT.2020, Transfer HLG (ARIB STD-B67); SDR-Weiß nach BT.2408 auf 75 % HLG – sieht auf HDR-Fernsehern, YouTube und iPhone richtig aus und auf normalen Bildschirmen weiterhin korrekt
 - **Masken-Tracking**: Maske auf den Clip legen, Abspielkopf auf den Startpunkt, „Maske verfolgen“ – der Inhalt unter der Maske wird bis zum Clip-Ende verfolgt (Vorlagenvergleich, grob → fein, geglättet) und als Keyframes für die Maskenposition gesetzt; Maskenposition ist auch von Hand animierbar
 - **Mastering-Assistent** beim Audio-Export: misst die Lautheit (LUFS nach ITU-R BS.1770 mit Gating), formt den Klang leicht (Rumpelfilter, Bass, Luft), bringt den Mix auf das Ziel (Streaming −14, Club −9, Podcast −16 LUFS) und begrenzt Spitzen mit einem Limiter (−1 dBFS, 5 ms Vorschau). „Lautheit messen“ zeigt den aktuellen Wert.
@@ -121,10 +123,10 @@ Dieses Repository enthält die **MVP-Vorschau 0.13**: Performance-Pads wie bei r
 | Phase | Inhalt |
 | --- | --- |
 | MVP (Rest) | GPU-Rendering (Metal / DirectX 12) – bis dahin rechnet alles auf der CPU; Online-Konten und Lizenzprüfung über einen Server |
-| 1.0 | AV1, HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), KI-Freistellung, VST3/AU/CLAP, Web-Admin-Dashboard (braucht einen Server) |
+| 1.0 | AV1-Export, HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), VST3/AU/CLAP, Web-Admin-Dashboard (braucht einen Server) |
 | Ausbau | Auto-Reframe, Marktplatz (braucht einen Server), Multicam, RAW |
 
-Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), Masken-Tracking, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
+Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), Masken-Tracking, KI-Freistellung, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
 
 Bekannte Grenzen:
 
@@ -132,7 +134,7 @@ Bekannte Grenzen:
 - Die Mikrofon-Aufnahme gleicht die Latenz des Audiogeräts noch nicht aus (bei großen Puffern liegt sie minimal zu spät). Ein 8K-Export ist langsam und braucht rund 4 GB Arbeitsspeicher.
 - Die Tempo-Erkennung (spektraler Fluss, feine Rastersuche über den ganzen Track und den ganzen BPM-Bereich, Bereich wie rekordbox 70–180 BPM einstellbar) erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück). Bei halb/doppelt erkannten Tempi hilft ×2 / ÷2, bei Live-Aufnahmen TAP.
 - Die KI-Trennung rechnet auf der CPU: grob 0,3–1× Echtzeit je nach Rechner und Stufe (ein 3-Minuten-Song braucht also etwa 1–10 Minuten). GPU-Beschleunigung fehlt noch.
-- **Lizenzen der KI-Modelle:** Die Vollversion (Release-Downloads) bringt die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass, MIT-Lizenz) gleich mit. „Kim Vocal 2“ hat keine angegebene Lizenz und wird deshalb nicht mitgeliefert, sondern bei Bedarf aus dem öffentlichen Archiv von *Ultimate Vocal Remover* geladen – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
+- **Lizenzen der KI-Modelle:** Die Vollversion (Release-Downloads) bringt die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass, MIT-Lizenz) und das Freistellungs-Modell U²-Net small (Apache-2.0) gleich mit. „Kim Vocal 2“ hat keine angegebene Lizenz und wird deshalb nicht mitgeliefert, sondern bei Bedarf aus dem öffentlichen Archiv von *Ultimate Vocal Remover* geladen – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
 - DJ: Kopfhörer auf einem eigenen Gerät (statt Kanälen 3/4) läuft über eine zweite Audioausgabe und kann sich bei sehr langen Sets minimal verschieben. Ob Windows die Kanäle 3/4 des FLX4 anbietet, hängt vom Treiber ab (Pioneer-Treiber installieren); die Info-Zeile unter Einstellungen → Audio zeigt, was aktiv ist – sonst Kopfhörer über „Eigenes Gerät“.
 - Ohne öffentlichen Schlüssel in `license/public_key.txt` baut man eine Entwicklerversion: alle Funktionen frei, Admin-Bereich sichtbar.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.

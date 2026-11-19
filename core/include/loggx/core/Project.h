@@ -42,6 +42,7 @@ struct MediaAsset {
     bool hasVideo = false;
     bool hasAudio = false;
     bool isStill = false;
+    std::string videoCodec;   // z. B. "h264", "av1" (nur zur Laufzeit, für Meldungen)
     // Ergebnis der Musik-Analyse (0 / -1 = noch nicht analysiert)
     double bpm = 0.0;
     TimeUs firstBeat = 0;
@@ -90,10 +91,12 @@ struct Effects {
     bool invert = false;        // Negativ
     bool mirrorH = false;       // horizontal spiegeln
     bool mirrorV = false;       // vertikal spiegeln
+    bool aiCutout = false;      // KI-Freistellung (Hintergrund entfernen)
+    double cutoutEdge = 0.4;    // Kante 0 weich … 1 hart
 
     bool isNeutral() const {
         return blur <= 0.0 && !chromaKey && vignette <= 0.0 && sharpen <= 0.0 && grain <= 0.0 && pixelate <= 0.0 &&
-               glow <= 0.0 && rgbSplit <= 0.0 && sepia <= 0.0 && !invert && !mirrorH && !mirrorV;
+               glow <= 0.0 && rgbSplit <= 0.0 && sepia <= 0.0 && !invert && !mirrorH && !mirrorV && !aiCutout;
     }
 };
 

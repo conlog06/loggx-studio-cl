@@ -689,7 +689,8 @@ json clipToJson(const Clip& c) {
                          {"keySoftness", f.keySoftness}, {"vignette", f.vignette},
                          {"sharpen", f.sharpen}, {"grain", f.grain}, {"pixelate", f.pixelate},
                          {"glow", f.glow}, {"rgbSplit", f.rgbSplit}, {"sepia", f.sepia},
-                         {"invert", f.invert}, {"mirrorH", f.mirrorH}, {"mirrorV", f.mirrorV}};
+                         {"invert", f.invert}, {"mirrorH", f.mirrorH}, {"mirrorV", f.mirrorV},
+                         {"aiCutout", f.aiCutout}, {"cutoutEdge", f.cutoutEdge}};
     }
     if (c.kind == ClipKind::Title) {
         const auto& t = c.title;
@@ -780,6 +781,8 @@ Clip clipFromJson(const json& jc) {
         c.fx.sepia = std::clamp(f.value("sepia", 0.0), 0.0, 1.0);
         c.fx.invert = f.value("invert", false);
         c.fx.mirrorH = f.value("mirrorH", false);
+        c.fx.aiCutout = f.value("aiCutout", false);
+        c.fx.cutoutEdge = std::clamp(f.value("cutoutEdge", 0.4), 0.0, 1.0);
         c.fx.mirrorV = f.value("mirrorV", false);
     }
     if (jc.contains("title")) {

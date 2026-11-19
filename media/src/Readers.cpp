@@ -4,6 +4,7 @@
 #include <cstring>
 #include <filesystem>
 #include <thread>
+#include <vector>
 
 #include "FFmpegUtil.h"
 
@@ -19,28 +20,46 @@ bool isStillFormat(const AVFormatContext* fmt, const AVStream* st) {
     return st->nb_frames == 1 && fmt->duration <= 0;
 }
 
+// Decoder-Kandidaten: AV1 zuerst über dav1d (FFmpegs eigener AV1-Decoder
+// braucht Hardware-Beschleunigung und liefert sonst keine Bilder), danach
+// alle übrigen Decoder für diesen Codec.
+std::vector<const AVCodec*> decoderCandidates(AVCodecID id) {
+    std::vector<const AVCodec*> list;
+    if (id == AV_CODEC_ID_AV1)
+        if (const AVCodec* d = avcodec_find_decoder_by_name("libdav1d")) list.push_back(d);
+    if (const AVCodec* d = avcodec_find_decoder(id))
+        if (std::find(list.begin(), list.end(), d) == list.end()) list.push_back(d);
+    void* it = nullptr;
+    while (const AVCodec* c = av_codec_iterate(&it))
+        if (c->id == id && av_codec_is_decoder(c) && std::find(list.begin(), list.end(), c) == list.end()) list.push_back(c);
+    return list;
+}
+
 bool openDecoder(AVFormatContext* fmt, int streamIndex, AVCodecContext** out, std::string* error) {
     const AVStream* st = fmt->streams[streamIndex];
-    const AVCodec* codec = avcodec_find_decoder(st->codecpar->codec_id);
-    if (!codec) {
-        if (error) *error = "Kein Decoder für dieses Format vorhanden";
+    const auto candidates = decoderCandidates(st->codecpar->codec_id);
+    if (candidates.empty()) {
+        if (error) *error = std::string("Kein Decoder für ") + avcodec_get_name(st->codecpar->codec_id) + " vorhanden";
         return false;
     }
-    AVCodecContext* ctx = avcodec_alloc_context3(codec);
-    if (!ctx) return false;
-    int rc = avcodec_parameters_to_context(ctx, st->codecpar);
-    if (rc >= 0) {
-        ctx->pkt_timebase = st->time_base;
-        ctx->thread_count = 0;   // FFmpeg wählt die Thread-Zahl
-        rc = avcodec_open2(ctx, codec, nullptr);
-    }
-    if (rc < 0) {
-        if (error) *error = ff::errorText(rc);
+    int rc = -1;
+    for (const AVCodec* codec : candidates) {
+        AVCodecContext* ctx = avcodec_alloc_context3(codec);
+        if (!ctx) return false;
+        rc = avcodec_parameters_to_context(ctx, st->codecpar);
+        if (rc >= 0) {
+            ctx->pkt_timebase = st->time_base;
+            ctx->thread_count = 0;   // FFmpeg wählt die Thread-Zahl
+            rc = avcodec_open2(ctx, codec, nullptr);
+        }
+        if (rc >= 0) {
+            *out = ctx;
+            return true;
+        }
         avcodec_free_context(&ctx);
-        return false;
     }
-    *out = ctx;
-    return true;
+    if (error) *error = ff::errorText(rc);
+    return false;
 }
 
 }  // namespace
@@ -94,6 +113,7 @@ bool probeMedia(const std::string& path, MediaAsset& out, std::string* error) {
     if (v >= 0 && !(fmt->streams[v]->disposition & AV_DISPOSITION_ATTACHED_PIC)) {
         const AVStream* st = fmt->streams[v];
         a.hasVideo = true;
+        a.videoCodec = avcodec_get_name(st->codecpar->codec_id);
         a.width = st->codecpar->width;
         a.height = st->codecpar->height;
         const AVRational sar = st->sample_aspect_ratio;

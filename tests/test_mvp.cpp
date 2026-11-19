@@ -952,6 +952,42 @@ void testDj() {
     dj.setFxOn(false);
 }
 
+// KI-Freistellung: helles Objekt in der Mitte vor ruhigem Hintergrund
+void testCutout() {
+    const char* env = std::getenv("LOGGX_TEST_MODEL_DIR");
+    const std::string model = env ? std::string(env) + "/u2netp.onnx" : std::string();
+    CHECK(findStemModel("cutout") && findStemModel("cutout-human"));
+    if (!aiSeparationAvailable() || model.empty() || !fs::exists(model)) {
+        std::printf("Freistellung übersprungen (kein Modell)\n");
+        return;
+    }
+    const int w = 256, h = 192;
+    std::vector<std::uint8_t> img(static_cast<std::size_t>(w) * h * 4);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            std::uint8_t* p = &img[(static_cast<std::size_t>(y) * w + x) * 4];
+            const double dx = (x - w / 2.0) / 50.0, dy = (y - h / 2.0) / 65.0;
+            const bool in = dx * dx + dy * dy < 1.0;
+            p[0] = in ? 230 : 40 + (x % 7);
+            p[1] = in ? 120 : 70;
+            p[2] = in ? 40 : 90;
+            p[3] = 255;
+        }
+    std::vector<std::uint8_t> alpha;
+    std::string error;
+    setCutoutModel("");
+    CHECK(!cutoutMask(img.data(), w, h, alpha, &error));   // ohne Modell: Fehler statt Absturz
+    setCutoutModel(model);
+    CHECK(cutoutMask(img.data(), w, h, alpha, &error));
+    if (!error.empty()) std::printf("Freistellung: %s\n", error.c_str());
+    CHECK(alpha.size() == static_cast<std::size_t>(w) * h);
+    const int centre = alpha[static_cast<std::size_t>(h / 2) * w + w / 2];
+    const int corner = alpha[5 * w + 5];
+    std::printf("Freistellung: Mitte %d, Ecke %d\n", centre, corner);
+    CHECK(centre > 200 && corner < 40);
+    setCutoutModel("");
+}
+
 // KI-Trennung nur, wenn ein Modell bereitliegt (CI lädt es herunter):
 // LOGGX_TEST_MODEL_DIR mit kuielab_a_vocals.onnx, optional song.mp3.
 void testAi(const fs::path& dir) {
@@ -1216,6 +1252,7 @@ int main() {
     testMastering();
     testTempoDetection();
     testAi(dir);
+    testCutout();
     std::error_code ec;
     fs::remove_all(dir, ec);
     return finish("test_mvp");

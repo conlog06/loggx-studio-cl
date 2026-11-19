@@ -14,6 +14,11 @@ struct Compositor::Source {
     VideoReader reader;
     std::string path;
     bool failed = false;
+    // KI-Freistellung: letzte Maske (gleiches Bild → nicht neu rechnen)
+    TimeUs maskTime = -1;
+    int maskW = 0, maskH = 0;
+    std::string maskModel;
+    std::vector<std::uint8_t> mask;
 };
 
 Compositor::Compositor() = default;
@@ -348,6 +353,27 @@ void Compositor::drawClip(const Clip& clip, TimeUs t, int w, int h, std::vector<
         lw = std::max(1, static_cast<int>(std::lround(baseW * k)));
         lh = std::max(1, static_cast<int>(std::lround(baseH * k)));
         if (!source->reader.frameAt(clip.sourceTime(t), lw, lh, m_layer)) return;
+        if (clip.fx.aiCutout) {
+            const TimeUs st = clip.sourceTime(t);
+            const std::string model = cutoutModel();
+            bool ok = source->maskTime == st && source->maskW == lw && source->maskH == lh && source->maskModel == model;
+            if (!ok && !model.empty()) {
+                ok = cutoutMask(m_layer.data(), lw, lh, source->mask);
+                source->maskTime = ok ? st : -1;
+                source->maskW = lw;
+                source->maskH = lh;
+                source->maskModel = model;
+            }
+            if (ok) {
+                // Kante: weich (0) … hart (1) um die Mitte 0,5
+                const float k = 1.0f + static_cast<float>(clip.fx.cutoutEdge) * 7.0f;
+                std::uint8_t curve[256];
+                for (int i = 0; i < 256; ++i)
+                    curve[i] = static_cast<std::uint8_t>(std::clamp((i / 255.0f - 0.5f) * k + 0.5f, 0.0f, 1.0f) * 255.0f + 0.5f);
+                for (std::size_t i = 0, n = static_cast<std::size_t>(lw) * lh; i < n; ++i)
+                    m_layer[i * 4 + 3] = static_cast<std::uint8_t>(m_layer[i * 4 + 3] * curve[source->mask[i]] / 255);
+            }
+        }
     } else if (clip.kind == ClipKind::Title) {
         if (!m_titles) return;
         baseW = w;

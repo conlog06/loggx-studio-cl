@@ -23,6 +23,7 @@ namespace loggx {
 
 const std::vector<StemModelInfo>& stemModels() {
     static const std::string base = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/";
+    static const std::string rembg = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/";
     static const std::vector<StemModelInfo> models = {
         {"vocals-hq", "Gesang – beste Qualität (Kim Vocal 2)", "Kim_Vocal_2.onnx", base + "Kim_Vocal_2.onnx",
          "ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b", "vocals", 66759214, 7680, 3072, 8, 1.009},
@@ -32,6 +33,11 @@ const std::vector<StemModelInfo>& stemModels() {
          "40f586b7091934dd6f5563f0cba8f14bad57ce88440da1098bf388ea716c2901", "drums", 29703204, 4096, 2048, 9, 1.035},
         {"bass", "Bass (MDX-Net)", "kuielab_a_bass.onnx", base + "kuielab_a_bass.onnx",
          "0c3e77b9963185b1ea6bb46a4b8924137d9370fc1ccdefec7b1b416ef550dcaa", "bass", 29703204, 16384, 2048, 9, 1.035},
+        // KI-Freistellung (Video): U²-Net, Apache-2.0
+        {"cutout", "Freistellung – schnell (U²-Net small)", "u2netp.onnx", rembg + "u2netp.onnx",
+         "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8", "cutout", 4574861, 0, 0, 0, 1.0},
+        {"cutout-human", "Freistellung – Personen, beste Qualität (U²-Net)", "u2net_human_seg.onnx", rembg + "u2net_human_seg.onnx",
+         "01eb6a29a5c4d8edb30b56adad9bb3a2a0535338e480724a213e0acfd2d1c73c", "cutout", 175997641, 0, 0, 0, 1.0},
     };
     return models;
 }

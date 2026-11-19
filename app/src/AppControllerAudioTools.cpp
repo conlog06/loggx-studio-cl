@@ -296,7 +296,7 @@ void AppController::downloadAllModels() {
     if (!aiAvailable()) return;
     QStringList ids;
     for (const StemModelInfo& m : stemModels())
-        if (!m_models->isReady(m)) ids << qstr(m.id);
+        if (!m_models->isReady(m) && m.id != "cutout-human") ids << qstr(m.id);   // 176 MB nur bei Bedarf
     if (ids.isEmpty()) {
         setStatus(tr("Alle KI-Modelle sind bereit"));
         return;
@@ -386,4 +386,50 @@ bool AppController::trackSelectedMask() {
                                        : tr("Maske über %1 Bilder verfolgt").arg(result->frames));
             });
     return true;
+}
+
+// ------------------------------------------------------------ KI-Freistellung
+
+int AppController::cutoutQuality() const { return QSettings().value(QStringLiteral("ai/cutoutQuality"), 0).toInt(); }
+
+void AppController::updateCutoutModel() {
+    // Gewähltes Modell, sonst das schnelle (wenn vorhanden)
+    const StemModelInfo* want = findStemModel(cutoutQuality() == 1 ? "cutout-human" : "cutout");
+    const StemModelInfo* fast = findStemModel("cutout");
+    std::string path;
+    if (want && m_models->isReady(*want)) path = str(m_models->pathFor(*want));
+    else if (fast && m_models->isReady(*fast)) path = str(m_models->pathFor(*fast));
+    if (path == cutoutModel()) return;
+    setCutoutModel(path);
+    publish();   // Vorschau neu zeichnen
+}
+
+void AppController::setCutoutQuality(int q) {
+    QSettings().setValue(QStringLiteral("ai/cutoutQuality"), std::clamp(q, 0, 1));
+    const QString id = q == 1 ? QStringLiteral("cutout-human") : QStringLiteral("cutout");
+    const StemModelInfo* m = findStemModel(str(id));
+    if (m && !m_models->isReady(*m) && aiAvailable()) ensureModels({id}, [this] { updateCutoutModel(); emit modelsChanged(); });
+    updateCutoutModel();
+    emit selectionChanged();
+}
+
+void AppController::setAiCutout(bool on) {
+    if (on && !aiAvailable()) {
+        setStatus(tr("Diese Version wurde ohne KI gebaut"));
+        return;
+    }
+    setClipProperty(QStringLiteral("aiCutout"), on ? 1 : 0);
+    if (!on) return;
+    const QString id = cutoutQuality() == 1 ? QStringLiteral("cutout-human") : QStringLiteral("cutout");
+    const StemModelInfo* m = findStemModel(str(id));
+    if (m && !m_models->isReady(*m)) {
+        ensureModels({id}, [this] {
+            updateCutoutModel();
+            setStatus(tr("KI-Freistellung bereit"));
+            emit modelsChanged();
+        });
+    } else {
+        updateCutoutModel();
+        setStatus(tr("KI-Freistellung aktiv – Hintergrund wird entfernt (darunterliegende Spur scheint durch)"));
+    }
 }
