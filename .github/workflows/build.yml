@@ -14,8 +14,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Abhängigkeiten
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev gdb \
+          sudo apt-get -o Acquire::Retries=6 update
+          sudo apt-get -o Acquire::Retries=6 install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev gdb \
             libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
             qt6-base-dev qt6-declarative-dev qt6-multimedia-dev libgl1-mesa-dev \
             qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
@@ -28,10 +28,10 @@ jobs:
           key: ki-test-kuielab-vocals-v1
       - name: ONNX Runtime und KI-Testdaten
         run: |
-          curl -sSL https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz | tar xz -C $HOME
+          curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz | tar xz -C $HOME
           mkdir -p ~/ki-test
-          [ -f ~/ki-test/kuielab_a_vocals.onnx ] || curl -sSL -o ~/ki-test/kuielab_a_vocals.onnx https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/kuielab_a_vocals.onnx
-          [ -f ~/ki-test/song.mp3 ] || curl -sSL -o ~/ki-test/song.mp3 https://raw.githubusercontent.com/deezer/spleeter/master/audio_example.mp3
+          [ -f ~/ki-test/kuielab_a_vocals.onnx ] || curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o ~/ki-test/kuielab_a_vocals.onnx https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/kuielab_a_vocals.onnx
+          [ -f ~/ki-test/song.mp3 ] || curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o ~/ki-test/song.mp3 https://raw.githubusercontent.com/deezer/spleeter/master/audio_example.mp3
           ls -la ~/ki-test
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-linux-x64-${ORT_VERSION}
       - run: cmake --build build
@@ -68,8 +68,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Abhängigkeiten
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev gdb \
+          sudo apt-get -o Acquire::Retries=6 update
+          sudo apt-get -o Acquire::Retries=6 install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev gdb \
             libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev
       - run: cmake -S . -B build -G Ninja -DLOGGX_BUILD_APP=OFF -DCMAKE_BUILD_TYPE=${{ matrix.type }} "-DCMAKE_CXX_FLAGS=${{ matrix.flags }}"
       - run: cmake --build build
@@ -98,7 +98,7 @@ jobs:
       - name: Abhängigkeiten
         run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json rtmidi
       - name: ONNX Runtime
-        run: curl -sSL https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz | tar xz -C $HOME
+        run: curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz | tar xz -C $HOME
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-osx-universal2-${ORT_VERSION} -DLOGGX_BUILD_NUMBER=${{ github.run_number }}
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
@@ -129,7 +129,7 @@ jobs:
           # Vollversion: KI-Modelle (MIT) mitliefern
           mkdir -p "$APP/Contents/Resources/models"
           base=https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models
-          for f in kuielab_a_vocals kuielab_a_drums kuielab_a_bass; do curl -sSL -o "$APP/Contents/Resources/models/$f.onnx" "$base/$f.onnx"; done
+          for f in kuielab_a_vocals kuielab_a_drums kuielab_a_bass; do curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o "$APP/Contents/Resources/models/$f.onnx" "$base/$f.onnx"; done
           (cd "$APP/Contents/Resources/models" && shasum -a 256 -c - <<'SUMS'
           daba83c2ee1afee9139766ad64c9b6808d6b6f092fff04bed3338be50baac721  kuielab_a_vocals.onnx
           40f586b7091934dd6f5563f0cba8f14bad57ce88440da1098bf388ea716c2901  kuielab_a_drums.onnx
