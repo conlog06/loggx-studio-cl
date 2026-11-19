@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), Masken-Tracking, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), Masken-Tracking, KI-Freistellung, Auto-Reframe, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -105,6 +105,7 @@ Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Video
 - **KI-Freistellung** (Inspector → Effekte): Person/Objekt wird erkannt, der Hintergrund wird durchsichtig – ohne Greenscreen; darunterliegende Videospur scheint durch. Modelle: U²-Net small (4,6 MB, in der Vollversion enthalten) oder U²-Net Personen (176 MB, beste Qualität, Download bei Bedarf), beide Apache-2.0; Regler „Kante“ weich ↔ hart. Findet das Modell kein Motiv, bleibt das Bild sichtbar
 - **AV1-Videos** (z. B. YouTube-Downloads) werden über dav1d dekodiert; lässt sich ein Video-Codec nicht dekodieren, meldet der Import das, statt schwarz zu bleiben
 - **HDR-Export (HLG)**: H.265 Main 10 oder ProRes, BT.2020, Transfer HLG (ARIB STD-B67); SDR-Weiß nach BT.2408 auf 75 % HLG – sieht auf HDR-Fernsehern, YouTube und iPhone richtig aus und auf normalen Bildschirmen weiterhin korrekt
+- **Auto-Reframe**: Video in ein anderes Format bringen (Hochkant 9:16 für Reels/TikTok/Shorts, 4:5, 1:1, 16:9) – Projektformat → Auto-Reframe → „Umwandeln“ oder im Inspektor pro Clip „Motiv folgen“. Das Motiv wird alle 0,25 s gesucht (mit KI-Freistellung, sonst über Bewegung und Kanten), der Schwenk geglättet wie bei einem ruhigen Kameramann (Totzone, ohne Verzögerung) und als Zoom + Keyframes gesetzt – alles rückgängig machbar und von Hand nachjustierbar
 - **Masken-Tracking**: Maske auf den Clip legen, Abspielkopf auf den Startpunkt, „Maske verfolgen“ – der Inhalt unter der Maske wird bis zum Clip-Ende verfolgt (Vorlagenvergleich, grob → fein, geglättet) und als Keyframes für die Maskenposition gesetzt; Maskenposition ist auch von Hand animierbar
 - **Mastering-Assistent** beim Audio-Export: misst die Lautheit (LUFS nach ITU-R BS.1770 mit Gating), formt den Klang leicht (Rumpelfilter, Bass, Luft), bringt den Mix auf das Ziel (Streaming −14, Club −9, Podcast −16 LUFS) und begrenzt Spitzen mit einem Limiter (−1 dBFS, 5 ms Vorschau). „Lautheit messen“ zeigt den aktuellen Wert.
 - **Automatische Updates:** LXStudio prüft beim Start (höchstens alle 6 Stunden) die GitHub-Releases, zeigt oben ein Update-Symbol und installiert auf Klick (Windows still über den Installer, macOS tauscht die App aus); Prüfsumme (SHA-256) wird kontrolliert. Abschaltbar unter Einstellungen → Allgemein → Updates.
@@ -124,9 +125,9 @@ Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Video
 | --- | --- |
 | MVP (Rest) | GPU-Rendering (Metal / DirectX 12) – bis dahin rechnet alles auf der CPU; Online-Konten und Lizenzprüfung über einen Server |
 | 1.0 | AV1-Export, HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), VST3/AU/CLAP, Web-Admin-Dashboard (braucht einen Server) |
-| Ausbau | Auto-Reframe, Marktplatz (braucht einen Server), Multicam, RAW |
+| Ausbau | Marktplatz (braucht einen Server), Multicam, RAW |
 
-Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), Masken-Tracking, KI-Freistellung, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
+Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), Masken-Tracking, KI-Freistellung, Auto-Reframe, KI-Freistellung, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
 
 Bekannte Grenzen:
 

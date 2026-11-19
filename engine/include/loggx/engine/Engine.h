@@ -74,6 +74,17 @@ struct MaskTrackResult {
 MaskTrackResult trackMask(const Project& project, const std::string& clipId, TimeUs from,
                           const std::function<bool(double)>& progress = {});
 
+// Auto-Reframe: Zoom (scale) und Keyframes für x/y, damit der Clip ein Ziel
+// im anderen Seitenverhältnis füllt und das Motiv im Bild bleibt.
+struct ReframeResult {
+    double scale = 1.0;
+    std::vector<Keyframe> x, y;   // relativ zum Clip-Anfang
+    bool usedAi = false, cancelled = false;
+    std::string error;
+};
+ReframeResult autoReframe(const Project& project, const std::string& clipId, int targetW, int targetH,
+                          const std::function<bool(double)>& progress = {});
+
 // Prüft, ob eine .cube-Datei als 3D-LUT lesbar ist.
 bool validateLut(const std::string& path, std::string* error = nullptr);
 

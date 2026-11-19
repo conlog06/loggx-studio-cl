@@ -210,6 +210,51 @@ void testAv1() {
     std::printf("AV1: Bild dekodiert (%s)\n", error.c_str());
 }
 
+// Auto-Reframe 16:9 → 9:16: ein Objekt läuft von links nach rechts
+void testAutoReframe(const fs::path& dir) {
+    const int w = 320, h = 180, fps = 25, frames = 100;
+    ExportSettings s;
+    s.path = (dir / "reframe.mp4").string();
+    s.width = w;
+    s.height = h;
+    s.fpsNum = fps;
+    s.sampleRate = kRate;
+    s.audio = false;
+    s.quality = 3;
+    Exporter e;
+    std::string error;
+    CHECK(e.open(s, &error));
+    std::vector<std::uint8_t> img(static_cast<std::size_t>(w) * h * 4);
+    for (int f = 0; f < frames; ++f) {
+        const double ox = 40.0 + f * 2.4, oy = 90.0;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                std::uint8_t* p = &img[(static_cast<std::size_t>(y) * w + x) * 4];
+                const double lx = x - ox, ly = y - oy;
+                std::uint8_t v = 50;
+                if (std::abs(lx) < 16 && std::abs(ly) < 24) v = ((static_cast<int>(lx + 16) / 4 + static_cast<int>(ly + 24) / 4) % 2) ? 240 : 20;
+                p[0] = p[1] = p[2] = v;
+                p[3] = 255;
+            }
+        CHECK(e.writeVideoFrame(img.data()));
+    }
+    CHECK(e.finish(&error));
+    MediaAsset asset;
+    CHECK(probeMedia(s.path, asset, &error));
+    Project project = Project::createDefault();
+    const std::string assetId = project.addAsset(asset);
+    const std::string clipId = project.addClip(project.tracks[1].id, assetId, 0);
+    const ReframeResult r = autoReframe(project, clipId, 1080, 1920);
+    CHECK(r.error.empty());
+    CHECK(std::abs(r.scale - 16.0 / 9.0 * 16.0 / 9.0) < 0.05);   // 16:9 füllt 9:16
+    CHECK(r.y.empty() && r.x.size() >= 3);
+    const double maxX = (r.scale * 1.0 - 1.0) / 2.0;   // Grundbreite = Zielbreite
+    std::printf("Auto-Reframe: Zoom %.2f, x %.3f → %.3f (Grenze %.3f), %zu Keyframes\n", r.scale, r.x.front().value, r.x.back().value, maxX, r.x.size());
+    CHECK(r.x.front().value > 0.5 * maxX);    // Objekt links → Bild nach rechts schieben
+    CHECK(r.x.back().value < -0.5 * maxX);    // Objekt rechts → nach links
+    for (const Keyframe& k : r.x) CHECK(std::abs(k.value) <= maxX + 1e-9);
+}
+
 // Welcher der vier Testfarben ein Pixel am nächsten kommt.
 int nearestColor(const std::vector<std::uint8_t>& rgba, int w, int x, int y) {
     const std::uint8_t* p = rgba.data() + (static_cast<std::size_t>(y) * w + x) * 4;
@@ -468,6 +513,7 @@ int main() {
     testProRes(dir);
     testHdr(dir);
     testMaskTracking(dir);
+    testAutoReframe(dir);
     testAv1();
     std::error_code ec;
     fs::remove_all(dir, ec);

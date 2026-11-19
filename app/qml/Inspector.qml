@@ -158,6 +158,15 @@ Rectangle {
                 Layout.fillWidth: true
                 title: qsTr("Transformieren")
                 visible: root.isVideo
+                Button {
+                    text: qsTr("Auto-Reframe: Motiv folgen")
+                    icon.name: "sparkles"
+                    enabled: !app.working
+                    onClicked: app.autoReframe(0, 0, true)
+                    ToolTip.text: qsTr("Füllt das Projektformat mit diesem Clip und schwenkt mit dem Motiv mit (z. B. 16:9-Video in einem 9:16-Projekt)")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                }
                 ValueSlider {
                     Layout.fillWidth: true
                     label: qsTr("Position X"); prop: "x"; from: -1; to: 1; keyable: true
@@ -172,7 +181,7 @@ Rectangle {
                 }
                 ValueSlider {
                     Layout.fillWidth: true
-                    label: qsTr("Größe"); prop: "scale"; from: 0.05; to: 3; keyable: true
+                    label: qsTr("Größe"); prop: "scale"; from: 0.05; to: 5; keyable: true
                     value: root.hasClip ? root.clip.scale : 1
                     resetValue: 1; displayFactor: 100; decimals: 0; suffix: " %"
                 }

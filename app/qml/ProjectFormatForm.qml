@@ -80,6 +80,34 @@ ColumnLayout {
             Button { text: qsTr("OK"); onClicked: app.setProjectFormat(wBox.value, hBox.value, app.projectFpsNum, app.projectFpsDen) }
         }
 
+        Label { text: qsTr("Auto-Reframe") }
+        RowLayout {
+            spacing: 6
+            ComboBox {
+                id: reframeBox
+                Layout.fillWidth: true
+                textRole: "text"
+                model: [
+                    { text: qsTr("Hochkant 9:16 (Reels, TikTok, Shorts)"), w: 1080, h: 1920 },
+                    { text: qsTr("Hochformat 4:5 (Instagram)"), w: 1080, h: 1350 },
+                    { text: qsTr("Quadrat 1:1"), w: 1080, h: 1080 },
+                    { text: qsTr("Quer 16:9"), w: 1920, h: 1080 }
+                ]
+            }
+            Button {
+                text: qsTr("Umwandeln")
+                icon.name: "sparkles"
+                enabled: !app.working
+                onClicked: {
+                    const s = reframeBox.model[reframeBox.currentIndex]
+                    app.autoReframe(s.w, s.h, false)
+                }
+                ToolTip.text: qsTr("Stellt das Projekt auf das Format um und schwenkt bei jedem Videoclip mit dem Motiv mit (Zoom + Keyframes, rückgängig machbar)")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
+        }
+
         Label { text: qsTr("Bildrate") }
         RowLayout {
             spacing: 6

@@ -433,3 +433,57 @@ void AppController::setAiCutout(bool on) {
         setStatus(tr("KI-Freistellung aktiv – Hintergrund wird entfernt (darunterliegende Spur scheint durch)"));
     }
 }
+
+// ------------------------------------------------------------ Auto-Reframe
+
+bool AppController::autoReframe(int width, int height, bool onlySelected) {
+    if (m_task) return false;
+    if (width > 0 && height > 0 && (width != m_project.width || height != m_project.height))
+        setProjectFormat(width, height, m_project.fpsNum, m_project.fpsDen);
+    std::vector<std::string> ids;
+    for (const Track& tr : m_project.tracks)
+        for (const Clip& c : tr.clips) {
+            const MediaAsset* a = m_project.findAsset(c.assetId);
+            if (!a || !a->hasVideo || a->width <= 0) continue;
+            if (onlySelected && c.id != str(m_selected)) continue;
+            ids.push_back(c.id);
+        }
+    if (ids.empty()) {
+        setStatus(onlySelected ? tr("Erst einen Videoclip wählen") : tr("Keine Videoclips im Projekt"));
+        return false;
+    }
+    auto snapshot = std::make_shared<const Project>(m_project);
+    auto results = std::make_shared<std::vector<std::pair<std::string, ReframeResult>>>();
+    const int w = m_project.width, h = m_project.height;
+    runTask(tr("Auto-Reframe …"),
+            [snapshot, ids, w, h, results](const std::function<void(double)>& progress, const std::atomic<bool>& cancel) {
+                for (std::size_t i = 0; i < ids.size() && !cancel.load(); ++i) {
+                    ReframeResult r = loggx::autoReframe(*snapshot, ids[i], w, h, [&](double p) {
+                        progress((static_cast<double>(i) + p) / static_cast<double>(ids.size()));
+                        return !cancel.load();
+                    });
+                    if (!r.cancelled && r.error.empty()) results->emplace_back(ids[i], std::move(r));
+                }
+            },
+            [this, results] {
+                if (results->empty()) return;
+                bool ai = false;
+                apply([&](Project& p) {
+                    for (auto& [id, r] : *results) {
+                        Clip* c = p.findClip(id);
+                        if (!c) continue;
+                        c->keys.erase("scale");
+                        c->scale = r.scale;
+                        c->keys.erase("x");
+                        c->keys.erase("y");
+                        c->x = c->y = 0;
+                        if (!r.x.empty()) c->keys["x"] = r.x;
+                        if (!r.y.empty()) c->keys["y"] = r.y;
+                        ai = ai || r.usedAi;
+                    }
+                    return true;
+                });
+                setStatus(tr("Auto-Reframe: %1 Clip(s) angepasst%2").arg(results->size()).arg(ai ? tr(" (Motiv per KI erkannt)") : QString()));
+            });
+    return true;
+}

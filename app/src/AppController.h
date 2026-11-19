@@ -256,6 +256,9 @@ public:
     QString workLabel() const { return m_workLabel; }
     Q_INVOKABLE bool analyzeSelected();                 // Tempo + Tonart der Quelle
     Q_INVOKABLE bool trackSelectedMask();               // Maske ab Abspielkopf verfolgen
+    // Auto-Reframe: Projekt auf B×H stellen (0 = so lassen) und Videoclips mit
+    // dem Motiv mitschwenken lassen (nur gewählter Clip oder alle)
+    Q_INVOKABLE bool autoReframe(int width, int height, bool onlySelected);
     // KI-Freistellung: 0 schnell (mitgeliefert), 1 Personen beste Qualität (Download)
     Q_INVOKABLE int cutoutQuality() const;
     Q_INVOKABLE void setCutoutQuality(int q);
