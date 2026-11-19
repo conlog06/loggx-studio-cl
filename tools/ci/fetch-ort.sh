@@ -20,5 +20,15 @@ case "$plat" in
   linux-x64) cp -a "$tmp/pkg/runtimes/linux-x64/native/." "$dest/lib/" ;;
   osx*)      cp -a "$tmp/pkg/runtimes/osx-arm64/native/." "$dest/lib/" ;;
 esac
+# Datei so nennen, wie die Bibliothek sich selbst nennt (Install-Name / SONAME)
+for f in "$dest"/lib/*.dylib "$dest"/lib/*.so; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    *.dylib) name="$(otool -D "$f" | tail -1)" ;;
+    *.so)    name="$(objdump -p "$f" | awk '/SONAME/{print $2}')" ;;
+  esac
+  name="$(basename "${name:-$f}")"
+  [ -e "$dest/lib/$name" ] || cp "$f" "$dest/lib/$name"
+done
 ls -la "$dest/lib"
 echo "ONNX Runtime $ver von NuGet"
