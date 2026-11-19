@@ -28,7 +28,7 @@ jobs:
           key: ki-test-kuielab-vocals-v1
       - name: ONNX Runtime und KI-Testdaten
         run: |
-          curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz | tar xz -C $HOME
+          tools/ci/fetch-ort.sh ${ORT_VERSION} linux-x64 $HOME/onnxruntime-linux-x64-${ORT_VERSION}
           mkdir -p ~/ki-test
           [ -f ~/ki-test/kuielab_a_vocals.onnx ] || curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o ~/ki-test/kuielab_a_vocals.onnx https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/kuielab_a_vocals.onnx
           [ -f ~/ki-test/song.mp3 ] || curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors -o ~/ki-test/song.mp3 https://raw.githubusercontent.com/deezer/spleeter/master/audio_example.mp3
@@ -98,7 +98,7 @@ jobs:
       - name: Abhängigkeiten
         run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json rtmidi
       - name: ONNX Runtime
-        run: curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz | tar xz -C $HOME
+        run: tools/ci/fetch-ort.sh ${ORT_VERSION} osx-universal2 $HOME/onnxruntime-osx-universal2-${ORT_VERSION}
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-osx-universal2-${ORT_VERSION} -DLOGGX_BUILD_NUMBER=${{ github.run_number }}
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
@@ -193,9 +193,20 @@ jobs:
       - name: ONNX Runtime
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$env:ORT_VERSION/onnxruntime-win-x64-$env:ORT_VERSION.zip" -OutFile ort.zip
-          Expand-Archive ort.zip -DestinationPath $env:RUNNER_TEMP
-          "ONNXRUNTIME_DIR=$env:RUNNER_TEMP\onnxruntime-win-x64-$env:ORT_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $dest = "$env:RUNNER_TEMP\onnxruntime-win-x64-$env:ORT_VERSION"
+          try {
+            Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$env:ORT_VERSION/onnxruntime-win-x64-$env:ORT_VERSION.zip" -OutFile ort.zip -MaximumRetryCount 4 -RetryIntervalSec 8
+            Expand-Archive ort.zip -DestinationPath $env:RUNNER_TEMP
+          } catch {
+            # Fallback: offizielles NuGet-Paket (gleiche Bibliotheken + Header)
+            Write-Host "GitHub-Download fehlgeschlagen – nehme NuGet"
+            Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/$env:ORT_VERSION" -OutFile ort.zip -MaximumRetryCount 6 -RetryIntervalSec 10
+            Expand-Archive ort.zip -DestinationPath ortpkg
+            New-Item -ItemType Directory -Force -Path "$dest\include", "$dest\lib" | Out-Null
+            Copy-Item ortpkg\build\native\include\* "$dest\include" -Recurse
+            Copy-Item ortpkg\runtimes\win-x64\native\* "$dest\lib" -Recurse
+          }
+          "ONNXRUNTIME_DIR=$dest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Konfigurieren
         shell: pwsh
         run: cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows "-DLOGGX_ONNXRUNTIME_DIR=$env:ONNXRUNTIME_DIR" -DLOGGX_BUILD_NUMBER=${{ github.run_number }}

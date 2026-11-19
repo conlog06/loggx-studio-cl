@@ -21,6 +21,21 @@ const char* const kH264Encoders[] = {"libx264", "h264_videotoolbox", "h264_nvenc
 const char* const kH265Encoders[] = {"libx265", "hevc_videotoolbox", "hevc_nvenc", "hevc_qsv",
                                      "hevc_amf", "hevc_mf"};
 
+// Pixelformate eines Encoders (FFmpeg 7.1+ ohne AVCodec::pix_fmts)
+std::vector<AVPixelFormat> supportedPixelFormats(const AVCodecContext* ctx, const AVCodec* codec) {
+    std::vector<AVPixelFormat> out;
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(61, 13, 100)
+    const void* configs = nullptr;
+    int count = 0;
+    if (avcodec_get_supported_config(ctx, codec, AV_CODEC_CONFIG_PIX_FORMAT, 0, &configs, &count) >= 0 && configs)
+        out.assign(static_cast<const AVPixelFormat*>(configs), static_cast<const AVPixelFormat*>(configs) + count);
+#else
+    (void)ctx;
+    for (const AVPixelFormat* p = codec->pix_fmts; p && *p != AV_PIX_FMT_NONE; ++p) out.push_back(*p);
+#endif
+    return out;
+}
+
 AVPixelFormat pickPixelFormat(const AVCodecContext* ctx, const AVCodec* codec) {
     const AVPixelFormat* list = nullptr;
     int count = 0;
@@ -185,11 +200,11 @@ struct Exporter::Impl {
             c->color_trc = AVCOL_TRC_ARIB_STD_B67;
             if (!prores) {
                 bool ten = false;
-                for (const AVPixelFormat* p = codec->pix_fmts; p && *p != AV_PIX_FMT_NONE; ++p)
-                    if (*p == AV_PIX_FMT_YUV420P10LE || *p == AV_PIX_FMT_P010LE) {
-                        c->pix_fmt = *p;
+                for (const AVPixelFormat pf : supportedPixelFormats(c, codec))
+                    if (pf == AV_PIX_FMT_YUV420P10LE || pf == AV_PIX_FMT_P010LE) {
+                        c->pix_fmt = pf;
                         ten = true;
-                        if (*p == AV_PIX_FMT_YUV420P10LE) break;
+                        if (pf == AV_PIX_FMT_YUV420P10LE) break;
                     }
                 if (!ten) {   // Encoder kann kein 10 Bit → nächsten versuchen
                     avcodec_free_context(&c);
