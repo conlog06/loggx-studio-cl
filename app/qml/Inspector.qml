@@ -527,14 +527,28 @@ Rectangle {
                     Layout.fillWidth: true
                     visible: root.hasClip && root.clip.maskShape > 0
                     spacing: 8
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Button {
+                            text: qsTr("Maske verfolgen (Tracking)")
+                            icon.name: "sparkles"
+                            enabled: !app.working
+                            onClicked: app.trackSelectedMask()
+                            ToolTip.text: qsTr("Folgt dem Inhalt unter der Maske ab dem Abspielkopf bis zum Clip-Ende und setzt Keyframes für die Position")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                        }
+                    }
                     ValueSlider {
                         Layout.fillWidth: true
+                        keyable: true
                         label: qsTr("Position X"); prop: "maskX"
                         value: root.hasClip ? root.clip.maskX : 0.5
                         resetValue: 0.5; displayFactor: 100; decimals: 0; suffix: " %"
                     }
                     ValueSlider {
                         Layout.fillWidth: true
+                        keyable: true
                         label: qsTr("Position Y"); prop: "maskY"
                         value: root.hasClip ? root.clip.maskY : 0.5
                         resetValue: 0.5; displayFactor: 100; decimals: 0; suffix: " %"

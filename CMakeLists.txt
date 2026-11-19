@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(LoggXStudio VERSION 0.12.0 LANGUAGES C CXX)
+project(LoggXStudio VERSION 0.13.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -99,7 +99,8 @@ add_library(loggx_engine STATIC
   engine/src/Parallel.cpp engine/src/Spectral.cpp engine/src/AiSeparation.cpp engine/src/Dj.cpp
   engine/src/DjSamples.cpp
   engine/src/StemsDsp.cpp
-  engine/src/Mastering.cpp)
+  engine/src/Mastering.cpp
+  engine/src/MaskTracking.cpp)
 target_include_directories(loggx_engine PUBLIC engine/include)
 target_link_libraries(loggx_engine PUBLIC loggx_core loggx_media)
 if(LOGGX_HAVE_RUBBERBAND)
@@ -150,7 +151,7 @@ if(LOGGX_BUILD_TESTS)
   add_test(NAME core COMMAND test_core)
 
   add_executable(test_render tests/test_render.cpp)
-  target_link_libraries(test_render PRIVATE loggx_engine)
+  target_link_libraries(test_render PRIVATE loggx_engine loggx_ffmpeg)
   add_test(NAME render COMMAND test_render)
 
   add_executable(test_mvp tests/test_mvp.cpp)

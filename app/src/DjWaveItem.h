@@ -3,6 +3,7 @@
 // Höhen weiß.
 #pragma once
 
+#include <QImage>
 #include <QPointer>
 #include <QQuickPaintedItem>
 
@@ -47,4 +48,14 @@ private:
     QColor m_accent{0x5b, 0x8c, 0xff};
     double m_dragX = 0, m_dragPos = 0;
     bool m_dragging = false;
+    // Leistung: nur neu zeichnen, wenn sich etwas sichtbar ändert; Wellenform
+    // direkt in ein Bild schreiben, Übersicht einmal zwischenspeichern
+    void onTick();
+    std::uint64_t signature() const;
+    std::uint64_t m_lastSig = 0;
+    QImage m_frame;                 // gezoomte Ansicht, wird wiederverwendet
+    QImage m_overviewImg, m_overviewDark;
+    const void* m_overviewTrack = nullptr;
+    int m_overviewStyle = -1;
+    void renderWave(QImage& img, double t0, double t1, double darkUntil) const;
 };

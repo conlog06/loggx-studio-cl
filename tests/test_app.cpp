@@ -817,6 +817,43 @@ int main(int argc, char** argv) {
             CHECK(dj.sampler().at(1).toMap().value("playing").toBool());
             midi.handle(0x98, 0x31, 0x7F);   // Shift: stoppen
             CHECK(!dj.sampler().at(1).toMap().value("playing").toBool());
+            // Pad FX (Seite 1/2): Effekt nur solange gedrückt, Beat-FX danach wie vorher
+            dj.setFx(0, 1.0, 0.5, 2);
+            dj.setFxOn(false);
+            midi.handle(0x97, 0x10, 0x7F);   // Pad FX 1, Pad 1: Slip Loop 1/8
+            CHECK(dj.mixer().fxOn() && dj.heldPadFx() == 0);
+            CHECK(dj.padFxSlots().at(0).toMap().value("active").toBool());
+            midi.handle(0x97, 0x10, 0x00);
+            CHECK(!dj.mixer().fxOn() && dj.heldPadFx() == -1 && dj.fxType() == 0);
+            midi.handle(0x97, 0x51, 0x7F);   // Pad FX 2 (Shift + Pad FX), Pad 2: Crush
+            CHECK(dj.heldPadFx() == 9 && dj.padFxSlots().at(9).toMap().value("type").toInt() == static_cast<int>(DjFx::Crush));
+            midi.handle(0x97, 0x51, 0x00);
+            CHECK(!dj.mixer().fxOn());
+            dj.setPadFxSlot(3, static_cast<int>(DjFx::Echo), 2.0, 0.4);
+            CHECK(dj.padFxSlots().at(3).toMap().value("value").toString() == "2");
+            dj.resetPadFx();
+            CHECK(dj.padFxSlots().at(3).toMap().value("type").toInt() == static_cast<int>(DjFx::Roll));
+            // Stems am FLX4 (Standard: Keyboard-Modus = Shift + HOT CUE)
+            dj.setStemPads(0);
+            midi.handle(0x97, 0x40, 0x7F);   // Pad 1: Gesang aus
+            CHECK(!dj.mixer().stem(0, DjStem::Vocals));
+            midi.handle(0x97, 0x40, 0x7F);   // nochmal: an
+            CHECK(dj.mixer().stem(0, DjStem::Vocals));
+            midi.handle(0x97, 0x45, 0x7F);   // Pad 6 halten: nur Schlagzeug
+            CHECK(dj.mixer().stem(0, DjStem::Drums) && !dj.mixer().stem(0, DjStem::Vocals) && !dj.mixer().stem(0, DjStem::Bass));
+            midi.handle(0x97, 0x45, 0x00);   // loslassen: alles wie vorher
+            CHECK(dj.mixer().stem(0, DjStem::Vocals) && dj.mixer().stem(0, DjStem::Bass) && dj.mixer().stem(0, DjStem::Inst));
+            dj.setStemPads(1);               // Stems auf Beat Loop
+            midi.handle(0x97, 0x61, 0x7F);
+            CHECK(!dj.mixer().stem(0, DjStem::Drums));
+            midi.handle(0x97, 0x61, 0x7F);
+            dj.setStemPads(0);
+            // Stems auf dem CFX-Regler: links Acapella, rechts Instrumental
+            dj.setStemFx(0, -1.0);
+            CHECK(dj.mixer().stemLevel(0, DjStem::Vocals) == 1.0 && dj.mixer().stemLevel(0, DjStem::Drums) == 0.0);
+            dj.setStemFx(0, 0.5);
+            CHECK(std::abs(dj.mixer().stemLevel(0, DjStem::Vocals) - 0.5) < 1e-6 && dj.mixer().stemLevel(0, DjStem::Bass) == 1.0);
+            dj.setStemFx(0, 0.0);
             const double z = dj.waveZoom();
             midi.handle(0xB6, 0x64, 0x01);   // Shift + Browse: Zoom
             CHECK(dj.waveZoom() < z);

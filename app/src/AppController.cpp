@@ -831,6 +831,7 @@ void AppController::setClipProperty(const QString& name, double value) {
             else if (key == "x" || key == "y") v = std::clamp(v, -2.0, 2.0);
             else if (key == "rotation") v = std::clamp(v, -360.0, 360.0);
             else if (key == "blur") v = std::clamp(v, 0.0, 0.05);
+            else if (key == "maskX" || key == "maskY") v = std::clamp(v, 0.0, 1.0);
             const auto it = c->keys.find(key);
             if (it != c->keys.end() && !it->second.empty())
                 return p.setKeyframe(id, key, std::clamp(t, c->start, c->end()), v);
@@ -841,6 +842,8 @@ void AppController::setClipProperty(const QString& name, double value) {
             else if (key == "y") c->y = v;
             else if (key == "rotation") c->rotation = v;
             else if (key == "blur") c->fx.blur = v;
+            else if (key == "maskX") c->mask.cx = v;
+            else if (key == "maskY") c->mask.cy = v;
             return true;
         }
         if (key == "pitch") c->pitch = std::clamp(value, -12.0, 12.0);
@@ -1132,7 +1135,7 @@ QString AppController::timecode(double seconds) const {
 
 // ------------------------------------------------------------- Export
 
-void AppController::exportVideo(const QUrl& url, int width, int height, int codec, int quality) {
+void AppController::exportVideo(const QUrl& url, int width, int height, int codec, int quality, bool hdr) {
     if (m_exportWorker) return;
     QString path = url.toLocalFile();
     if (path.isEmpty()) return;
@@ -1154,6 +1157,7 @@ void AppController::exportVideo(const QUrl& url, int width, int height, int code
                    : codec == 3 ? ExportSettings::Codec::ProRes4444
                                 : ExportSettings::Codec::H264;
     settings.quality = std::clamp(quality, 0, 3);
+    settings.hdr = hdr && codec >= 1;   // HDR (HLG) nur mit H.265 oder ProRes
     startExport(settings, ExportWorker::Video);
 }
 

@@ -151,6 +151,8 @@ double Clip::baseValue(const std::string& param) const {
     if (param == "scale") return scale;
     if (param == "rotation") return rotation;
     if (param == "blur") return fx.blur;
+    if (param == "maskX") return mask.cx;
+    if (param == "maskY") return mask.cy;
     return 0.0;
 }
 

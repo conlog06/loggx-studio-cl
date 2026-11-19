@@ -255,6 +255,7 @@ public:
     double workProgress() const { return m_workProgress; }
     QString workLabel() const { return m_workLabel; }
     Q_INVOKABLE bool analyzeSelected();                 // Tempo + Tonart der Quelle
+    Q_INVOKABLE bool trackSelectedMask();               // Maske ab Abspielkopf verfolgen
     Q_INVOKABLE void setClipKey(int tonic);             // per Tonhöhe (Halbtöne)
     Q_INVOKABLE void setClipBpm(double bpm);            // per Tempo (Time-Stretch)
     Q_INVOKABLE void matchClipTempo();                  // auf Projekt-Tempo
@@ -341,7 +342,7 @@ public:
 
     // ---- Export (codec: 0 H.264, 1 H.265; quality 0..3)
     Q_INVOKABLE void exportVideo(const QUrl& url, int width, int height, int codec = 0,
-                                 int quality = 1);
+                                 int quality = 1, bool hdr = false);
     Q_INVOKABLE void cancelExport();
 
 signals:

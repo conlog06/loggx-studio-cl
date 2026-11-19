@@ -165,6 +165,7 @@ DjController::DjController(AppController* app, QObject* parent) : QObject(parent
     m_range = {m_defaultRange, m_defaultRange};
     m_mixer.setHeadphones(m_headMix, m_headVolume);
     m_waveZoom = settings.value(QStringLiteral("dj/waveZoom"), 8.0).toDouble();
+    loadPadFx();
     m_mixer.setSamplerVolume(settings.value(QStringLiteral("dj/samplerVolume"), 0.8).toDouble());
     initSampler();
     loadLibrary();
@@ -963,10 +964,16 @@ QVariantMap DjController::deckInfo(int deck) const {
             cache.first = gf;
             cache.list.clear();
             static const char* names[] = {"Intro", "Up", "Chorus", "Down", "Outro"};
-            for (const DjPhrase& p : analyzeDjPhrases(*t, gb, gf))
+            int count[5] = {0, 0, 0, 0, 0};
+            for (const DjPhrase& p : analyzeDjPhrases(*t, gb, gf)) {
+                const int k = static_cast<int>(p.kind);
+                const QString name = QString::fromLatin1(names[k]);
+                // wie bei rekordbox nummeriert: INTRO 1, UP 1, UP 2, CHORUS 1 …
                 cache.list << QVariantMap{{QStringLiteral("start"), p.start / t->duration()},
                                           {QStringLiteral("end"), p.end / t->duration()},
-                                          {QStringLiteral("kind"), QString::fromLatin1(names[static_cast<int>(p.kind)])}};
+                                          {QStringLiteral("kind"), name},
+                                          {QStringLiteral("label"), QStringLiteral("%1 %2").arg(name.toUpper()).arg(++count[k])}};
+            }
         }
         m[QStringLiteral("phrases")] = cache.list;
     }

@@ -149,6 +149,7 @@ struct DjMixer::Deck {
     bool loop = false;
     double loopStart = 0, loopEnd = 0, loopBeats = 0;   // Samples / Schläge
     std::array<bool, 4> stemOn{true, true, true, true};
+    std::array<float, 4> stemLevel{1, 1, 1, 1};
     std::array<float, 4> stemGain{1, 1, 1, 1};
     double eq[3] = {0, 0, 0};
     double designedEq[3] = {1e9, 1e9, 1e9};
@@ -215,6 +216,8 @@ struct DjMixer::Deck {
 
 struct DjMixer::Fx {
     DjFx type = DjFx::Echo;
+    float crushHold[2] = {0, 0};
+    unsigned crushCount = 0;
     double beats = 0.75, wet = 0.5;
     int target = 2;
     bool on = false;
@@ -528,6 +531,16 @@ bool DjMixer::stem(int deck, DjStem stem) const {
     return DECK(deck).stemOn[static_cast<std::size_t>(stem)];
 }
 
+void DjMixer::setStemLevel(int deck, DjStem stem, double level) {
+    LOCK;
+    DECK(deck).stemLevel[static_cast<std::size_t>(stem)] = static_cast<float>(std::clamp(level, 0.0, 1.0));
+}
+
+double DjMixer::stemLevel(int deck, DjStem stem) const {
+    LOCK;
+    return DECK(deck).stemLevel[static_cast<std::size_t>(stem)];
+}
+
 void DjMixer::setEq(int deck, int band, double value) {
     LOCK;
     if (band >= 0 && band < 3) DECK(deck).eq[band] = std::clamp(value, -1.0, 1.0);
@@ -598,11 +611,17 @@ void DjMixer::setFx(DjFx type, double beats, double wet, int target) {
 
 void DjMixer::setFxOn(bool on) {
     LOCK;
-    if (on && !m_fx->on && m_fx->type == DjFx::Brake) {
-        // Bremse: Zieldeck über „beats“ Schläge zum Stillstand bringen
+    if (on && !m_fx->on && (m_fx->type == DjFx::Brake || m_fx->type == DjFx::Backspin)) {
+        // Bremse: Zieldeck über „beats“ Schläge zum Stillstand bringen;
+        // Backspin: erst schnell rückwärts, dann auslaufen
         Deck& d = DECK(m_fx->target == 2 ? m_master : m_fx->target);
         const double seconds = d.track && d.gridBpm > 0 ? m_fx->beats * 60.0 / d.bpm() : m_fx->beats * 0.5;
-        d.brakeStep = 1.0 / std::max(1.0, seconds * m_rate);
+        if (m_fx->type == DjFx::Brake) {
+            d.brakeStep = 1.0 / std::max(1.0, seconds * m_rate);
+        } else if (d.playing) {
+            d.brake = -3.0;
+            d.brakeStep = -3.0 / std::max(1.0, seconds * m_rate);
+        }
     }
     if (!on) {
         std::fill(m_fx->delay.begin(), m_fx->delay.end(), 0.0f);
@@ -769,7 +788,7 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
         // Stem-Lautstärken weich nachführen (kein Knacken)
         const std::array<float, 4> from = d.stemGain;
         std::array<float, 4> to{};
-        for (int s = 0; s < 4; ++s) to[static_cast<std::size_t>(s)] = d.stemOn[static_cast<std::size_t>(s)] ? 1.0f : 0.0f;
+        for (int s = 0; s < 4; ++s) to[static_cast<std::size_t>(s)] = d.stemOn[static_cast<std::size_t>(s)] ? d.stemLevel[static_cast<std::size_t>(s)] : 0.0f;
         const bool ramp = from != to;
 
         bool useStretch = false;
@@ -852,9 +871,10 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
                 buf[k * 2 + 1] = cr(r);
                 d.pos = std::max(0.0, d.pos + step);
                 if (d.loop && d.loopEnd > d.loopStart && d.pos >= d.loopEnd) d.pos -= d.loopEnd - d.loopStart;
-                if (d.brakeStep > 0.0) {
-                    d.brake = std::max(0.0, d.brake - d.brakeStep);
-                    if (d.brake <= 0.0) {
+                if (d.brakeStep != 0.0) {
+                    // Bremse: Faktor 1 → 0; Backspin: −3 → 0 (rückwärts auslaufen)
+                    d.brake -= d.brakeStep;
+                    if ((d.brakeStep > 0.0 && d.brake <= 0.0) || (d.brakeStep < 0.0 && d.brake >= 0.0)) {
                         d.playing = false;
                         d.brake = 1.0;
                         d.brakeStep = 0.0;
@@ -901,7 +921,7 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
             }
             if (!fx.on || fx.type != DjFx::Roll) fx.rollActive = false;
         }
-        if (!fx.on || fx.type == DjFx::Brake) return;
+        if (!fx.on || fx.type == DjFx::Brake || fx.type == DjFx::Backspin) return;
         const Deck& ref = *m_decks[static_cast<std::size_t>(fx.target == 2 ? m_master : fx.target)];
         const double bpm = ref.bpm() > 0 ? ref.bpm() : 120.0;
         const float wet = static_cast<float>(fx.wet);
@@ -1017,6 +1037,18 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
                     fx.noiseLp[c] += 0.2f * (n - fx.noiseLp[c]);
                     buf[k * 2 + c] += hp * 0.18f * wet;
                 }
+            }
+        } else if (fx.type == DjFx::Crush) {
+            // Bitcrusher: weniger Bits und Abtastrate halten (stärker mit „wet“)
+            const float levels = static_cast<float>(std::pow(2.0, 12.0 - 9.0 * fx.wet));
+            const int hold = 1 + static_cast<int>(fx.wet * 10.0);
+            for (std::size_t k = 0; k < frames; ++k) {
+                if (fx.crushCount++ % hold == 0) {
+                    fx.crushHold[0] = std::round(buf[k * 2] * levels) / levels;
+                    fx.crushHold[1] = std::round(buf[k * 2 + 1] * levels) / levels;
+                }
+                buf[k * 2] = buf[k * 2] * (1 - wet) + fx.crushHold[0] * wet;
+                buf[k * 2 + 1] = buf[k * 2 + 1] * (1 - wet) + fx.crushHold[1] * wet;
             }
         } else if (fx.type == DjFx::Reverb) {
             fx.mono.resize(frames);

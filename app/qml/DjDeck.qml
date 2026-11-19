@@ -19,6 +19,134 @@ Rectangle {
 
     signal askBpm(string path, int deck, real current)
 
+    // ---- Performance-Pads
+    readonly property var padModes: [qsTr("HOT CUE"), qsTr("PAD FX"), qsTr("BEAT JUMP"), qsTr("BEAT LOOP"), qsTr("KEY SHIFT"), qsTr("SAMPLER"), qsTr("STEMS")]
+    property int padMode: dj.savedPadMode(deck) % 10
+    property int fxPage: dj.savedPadMode(deck) >= 10 ? 1 : 0
+    onPadModeChanged: dj.savePadMode(deck, padMode, fxPage)
+    onFxPageChanged: dj.savePadMode(deck, padMode, fxPage)
+    property real loopLen: 4
+    readonly property var jumpPads: [-1, 1, -2, 2, -4, 4, -8, 8]
+    readonly property var loopPads: [0.25, 0.5, 1, 2, 4, 8, 16, 32]
+    readonly property var keyPads: [0, 1, 2, 3, 99, -1, -2, -3]
+    readonly property var stemPads: [{ t: "VOCAL", c: "#3cd96b", i: 0 }, { t: "DRUMS", c: "#2fc6ff", i: 1 }, { t: "BASS", c: "#ff5bd6", i: 2 }, { t: "INST", c: "#ff3b5c", i: 3 }]
+    Connections {
+        target: dj
+        function onPadModeHint(deck, mode) {
+            if (deck !== deckRoot.deck) return
+            deckRoot.padMode = mode % 10
+            if (mode % 10 === 1) deckRoot.fxPage = mode >= 10 ? 1 : 0
+        }
+    }
+    function beatText(b) { return b < 1 ? "1/" + Math.round(1 / b) : String(b) }
+    function padInfo(i, inf, fx, smp) {
+        const loaded = inf.loaded === true
+        switch (padMode) {
+        case 0: {
+            const set = loaded && inf.hot && inf.hot[i] >= 0
+            return { text: String.fromCharCode(65 + i), lit: set, color: hotColors[i], enabled: loaded,
+                     tip: set ? qsTr("Klick: springen · Rechtsklick: löschen") : qsTr("Klick: Hot Cue setzen") }
+        }
+        case 1: {
+            const f = fx[fxPage * 8 + i]
+            if (!f) return { text: "", enabled: false, color: Theme.border }
+            const colors = ["#2fc6ff", "#3cd96b", "#5b6cff", "#2fc6ff", "#1fb5a8", "#1fb5a8", "#24d0e8", "#24d0e8", "#1fb5a8", "#5b6cff", "#b05bff", "#5b6cff"]
+            return { text: (f.release ? "Ⓡ " : "") + f.name, value: f.value, lit: f.active, color: colors[f.type] || "#2fc6ff", enabled: loaded,
+                     tip: f.release ? qsTr("Halten: Effekt · Deck stoppt am Ende") : qsTr("Halten: Effekt, Loslassen: aus") }
+        }
+        case 2: return { text: (jumpPads[i] < 0 ? "◀ " : "▶ ") + Math.abs(jumpPads[i]), lit: false, color: "#3cd96b", enabled: loaded,
+                         tip: qsTr("%1 Schläge springen").arg(jumpPads[i]) }
+        case 3: return { text: qsTr("LOOP"), value: beatText(loopPads[i]), color: "#ff8c1a", enabled: loaded,
+                         lit: inf.looping === true && Math.abs((inf.loopBeats || 0) - loopPads[i]) < 1e-6 }
+        case 4: {
+            const v = keyPads[i]
+            return { text: v === 99 ? "KEY SYNC" : v === 0 ? qsTr("RESET") : (v > 0 ? "+" + v : String(v)), color: "#b05bff", enabled: loaded,
+                     lit: v !== 99 && loaded && (inf.keyShift || 0) === v }
+        }
+        case 5: {
+            const s = smp[i] || {}
+            return { text: s.name || "", lit: s.playing === true, color: "#ffd41a", enabled: true,
+                     tip: qsTr("Klick: abspielen · Rechtsklick: stoppen") }
+        }
+        default: {
+            const st = stemPads[i % 4]
+            const has = loaded && inf.hasStems === true
+            const on = has && inf.stems ? inf.stems[st.i] : false
+            return i < 4 ? { text: st.t, lit: on, color: st.c, enabled: has, tip: qsTr("Stem an/aus") }
+                         : { text: st.t + " SOLO", lit: false, color: st.c, enabled: has, tip: qsTr("Halten: nur dieser Stem") }
+        }
+        }
+    }
+    function padPress(i, down, alt) {
+        switch (padMode) {
+        case 0:
+            if (down) { if (alt) dj.clearHotCue(deck, i); else dj.hotCue(deck, i) }
+            break
+        case 1: dj.padFx(deck, fxPage * 8 + i, down); break
+        case 2: if (down) dj.beatJump(deck, jumpPads[i]); break
+        case 3: if (down) dj.setLoop(deck, loopPads[i]); break
+        case 4:
+            if (!down) break
+            if (keyPads[i] === 99) dj.keySync(deck)
+            else { if (keyPads[i] !== 0) dj.setKeyLock(deck, true); dj.setKeyShift(deck, keyPads[i]) }
+            break
+        case 5: if (down) { if (alt) dj.stopSample(i); else dj.triggerSample(i) } break
+        default:
+            if (i < 4) { if (down) dj.setStem(deck, stemPads[i].i, !(info.stems && info.stems[stemPads[i].i])) }
+            else dj.stemSolo(deck, stemPads[i - 4].i, down)
+        }
+    }
+
+    // Pad FX belegen (wie das Zahnrad bei rekordbox)
+    Dialog {
+        id: padFxEditor
+        title: qsTr("Pad FX belegen")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        standardButtons: Dialog.Close
+        width: 560
+        contentItem: ColumnLayout {
+            spacing: 6
+            Repeater {
+                model: 2
+                ColumnLayout {
+                    id: pageCol
+                    required property int index
+                    Label { text: qsTr("Seite %1").arg(pageCol.index + 1); font.bold: true; color: Theme.dim }
+                    GridLayout {
+                        columns: 4
+                        columnSpacing: 6
+                        rowSpacing: 4
+                        Repeater {
+                            model: 8
+                            ColumnLayout {
+                                id: slotCol
+                                required property int index
+                                readonly property int slot: pageCol.index * 8 + index
+                                readonly property var f: dj.padFxSlots[slot] || ({})
+                                spacing: 2
+                                ComboBox {
+                                    implicitWidth: 126
+                                    model: dj.fxNameList
+                                    currentIndex: slotCol.f.type || 0
+                                    onActivated: dj.setPadFxSlot(slotCol.slot, currentIndex, slotCol.f.beats, slotCol.f.wet)
+                                }
+                                ComboBox {
+                                    implicitWidth: 126
+                                    readonly property var beats: [0.125, 0.25, 0.5, 0.75, 1, 2, 4, 8]
+                                    model: ["1/8", "1/4", "1/2", "3/4", "1", "2", "4", "8"]
+                                    currentIndex: Math.max(0, beats.indexOf(slotCol.f.beats))
+                                    onActivated: dj.setPadFxSlot(slotCol.slot, slotCol.f.type, beats[currentIndex], slotCol.f.wet)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Button { text: qsTr("Standard wiederherstellen"); onClicked: dj.resetPadFx() }
+        }
+    }
+
     // Rechtsklick ins Deck
     MouseArea {
         anchors.fill: parent
@@ -151,7 +279,7 @@ Rectangle {
                         anchors.left: parent.left
                         anchors.leftMargin: 3
                         anchors.verticalCenter: parent.verticalCenter
-                        text: modelData.kind.toUpperCase()
+                        text: modelData.label || modelData.kind.toUpperCase()
                         visible: parent.width > 34
                         font.pixelSize: 8
                         font.bold: true
@@ -414,93 +542,197 @@ Rectangle {
             }
         }
 
-        // ------------------------------------------ Hot Cues
-        GridLayout {
+        // ------------------------------------------ Performance-Pads
+        // Modi wie bei rekordbox / am FLX4: Hot Cue, Pad FX (2 Seiten),
+        // Beat Jump, Beat Loop, Key Shift, Sampler, Stems
+        ColumnLayout {
             Layout.fillWidth: true
-            columns: 8
-            columnSpacing: 4
-            Repeater {
-                model: 8
+            spacing: 4
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                Button {
+                    id: modeButton
+                    flat: true
+                    implicitHeight: 24
+                    text: deckRoot.padModes[deckRoot.padMode] + "  ▾"
+                    font.bold: true
+                    font.pixelSize: 11
+                    onClicked: modeMenu.popup(modeButton, 0, modeButton.height)
+                    ToolTip.text: qsTr("Pad-Modus wählen (am FLX4: Pad-Mode-Tasten, mit Shift die zweite Belegung)")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                }
+                // Kompakte Loop-Box: Länge, halbieren/verdoppeln, an/aus
                 Rectangle {
-                    required property int index
-                    readonly property bool set: deckRoot.loaded && info.hot && info.hot[index] >= 0
-                    Layout.fillWidth: true
-                    implicitHeight: 30
-                    radius: 5
-                    color: set ? Theme.alpha(deckRoot.hotColors[index], hotMouse.pressed ? 0.7 : 0.45) : hotMouse.containsMouse ? Theme.hover : Theme.panel2
-                    border.color: set ? deckRoot.hotColors[index] : Theme.border
-                    Label { anchors.centerIn: parent; text: String.fromCharCode(65 + index); font.bold: true; color: parent.set ? "white" : Theme.dim }
-                    MouseArea {
-                        id: hotMouse
+                    implicitWidth: 104
+                    implicitHeight: 22
+                    radius: 4
+                    color: info.looping ? Theme.alpha(Theme.ok, 0.18) : Theme.panel2
+                    border.color: info.looping ? Theme.ok : Theme.border
+                    RowLayout {
                         anchors.fill: parent
-                        hoverEnabled: true
-                        acceptedButtons: Qt.LeftButton | Qt.RightButton
-                        onClicked: function (m) {
-                            if (m.button === Qt.RightButton || (m.modifiers & Qt.ShiftModifier)) dj.clearHotCue(deckRoot.deck, index)
-                            else dj.hotCue(deckRoot.deck, index)
+                        anchors.leftMargin: 4
+                        anchors.rightMargin: 2
+                        spacing: 0
+                        Icon { width: 13; height: 13; name: "loop"; color: info.looping ? Theme.ok : Theme.dim }
+                        Label {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: deckRoot.beatText(info.looping ? info.loopBeats : deckRoot.loopLen)
+                            font.bold: true
+                            font.pixelSize: 11
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: deckRoot.loaded
+                                onClicked: info.looping ? dj.exitLoop(deckRoot.deck) : dj.setLoop(deckRoot.deck, deckRoot.loopLen)
+                            }
+                        }
+                        Repeater {
+                            model: ["‹", "›"]
+                            Label {
+                                required property int index
+                                required property string modelData
+                                text: modelData
+                                font.pixelSize: 15
+                                leftPadding: 4
+                                rightPadding: 4
+                                color: Theme.dim
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        const cur = info.looping ? info.loopBeats : deckRoot.loopLen
+                                        const next = index === 0 ? Math.max(0.125, cur / 2) : Math.min(64, cur * 2)
+                                        deckRoot.loopLen = next
+                                        if (info.looping) dj.setLoop(deckRoot.deck, next)
+                                    }
+                                }
+                            }
                         }
                     }
-                    ToolTip.text: set ? qsTr("Klick: springen · Rechtsklick: löschen") : qsTr("Klick: Hot Cue setzen")
-                    ToolTip.visible: hotMouse.containsMouse
+                    ToolTip.text: qsTr("Loop: Zahl = an/aus · ‹ › halbieren/verdoppeln")
                     ToolTip.delay: 700
                 }
-            }
-        }
-
-        // ------------------------------------- Loops, Sprünge
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 4
-            Icon { width: 16; height: 16; name: "loop"; color: info.looping ? Theme.ok : Theme.dim }
-            Repeater {
-                model: [{ t: "½", b: 0.5 }, { t: "1", b: 1 }, { t: "2", b: 2 }, { t: "4", b: 4 }, { t: "8", b: 8 }, { t: "16", b: 16 }]
+                Menu {
+                    id: modeMenu
+                    Repeater {
+                        model: deckRoot.padModes
+                        MenuItem {
+                            required property int index
+                            required property string modelData
+                            text: modelData
+                            checkable: true
+                            checked: deckRoot.padMode === index
+                            onTriggered: deckRoot.padMode = index
+                        }
+                    }
+                }
+                Item { Layout.fillWidth: true }
+                // Stems (wie MUTE/DRUMS/VOCAL/INST bei rekordbox)
+                Repeater {
+                    model: deckRoot.loaded && info.hasStems ? [{ t: "VOCAL", c: "#3cd96b", i: 0 }, { t: "DRUMS", c: "#2fc6ff", i: 1 }, { t: "BASS", c: "#ff5bd6", i: 2 }, { t: "INST", c: "#ff3b5c", i: 3 }] : []
+                    Rectangle {
+                        required property var modelData
+                        readonly property bool on: info.stems ? info.stems[modelData.i] : true
+                        implicitWidth: 50
+                        implicitHeight: 20
+                        radius: 4
+                        color: on ? Theme.alpha(modelData.c, 0.18) : "transparent"
+                        border.color: on ? modelData.c : Theme.border
+                        Label { anchors.centerIn: parent; text: parent.modelData.t; font.bold: true; font.pixelSize: 9; color: parent.on ? parent.modelData.c : Theme.faint }
+                        MouseArea { anchors.fill: parent; onClicked: dj.setStem(deckRoot.deck, parent.modelData.i, !parent.on) }
+                    }
+                }
                 Button {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    implicitWidth: 34
-                    text: modelData.t
-                    checkable: true
-                    checked: info.looping === true && info.loopBeats === modelData.b
-                    highlighted: checked
-                    onClicked: dj.setLoop(deckRoot.deck, modelData.b)
+                    visible: deckRoot.loaded && !info.hasStems
+                    implicitHeight: 22
+                    font.pixelSize: 11
+                    text: qsTr("Stems trennen")
+                    icon.name: "sparkles"
+                    enabled: !dj.working
+                    onClicked: dj.prepareStems(info.path)
+                    ToolTip.text: dj.stemEngine === 1 && dj.aiAvailable ? qsTr("Gesang, Schlagzeug, Bass und Instrumente mit KI trennen")
+                                                                         : qsTr("Gesang, Schlagzeug, Bass und Instrumente trennen – eingebaute Engine, sofort, ohne Download")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 400
+                }
+                Repeater {
+                    model: deckRoot.padMode === 1 ? 2 : 0
+                    Rectangle {
+                        required property int index
+                        implicitWidth: 20
+                        implicitHeight: 18
+                        radius: 3
+                        color: deckRoot.fxPage === index ? "#2a6bff" : Theme.panel2
+                        border.color: Theme.border
+                        Label { anchors.centerIn: parent; text: index + 1; font.pixelSize: 10; color: "white" }
+                        MouseArea { anchors.fill: parent; onClicked: deckRoot.fxPage = index }
+                    }
+                }
+                IconButton {
+                    visible: deckRoot.padMode === 1
+                    iconName: "settings"
+                    tip: qsTr("Pad FX belegen")
+                    onClicked: padFxEditor.open()
                 }
             }
-            Divider { Layout.leftMargin: 4; Layout.rightMargin: 4 }
-            IconButton { iconName: "chevron-left"; tip: qsTr("4 Schläge zurück"); onClicked: dj.beatJump(deckRoot.deck, -4) }
-            IconButton { iconName: "chevron-right"; tip: qsTr("4 Schläge vor"); onClicked: dj.beatJump(deckRoot.deck, 4) }
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 4
+                columnSpacing: 4
+                rowSpacing: 4
+                Repeater {
+                    model: 8
+                    Rectangle {
+                        id: pad
+                        required property int index
+                        readonly property var p: deckRoot.padInfo(index, info, dj.padFxSlots, dj.sampler)
+                        Layout.fillWidth: true
+                        implicitHeight: 26
+                        radius: 5
+                        opacity: p.enabled ? 1 : 0.35
+                        color: p.lit ? Theme.alpha(p.color, padMouse.pressed ? 0.75 : 0.42) : padMouse.pressed ? Theme.alpha(p.color, 0.3)
+                               : padMouse.containsMouse ? Theme.hover : Theme.panel2
+                        border.color: p.lit ? p.color : Theme.border
+                        Rectangle { width: 3; height: parent.height - 10; radius: 1; x: 4; anchors.verticalCenter: parent.verticalCenter; color: pad.p.color; visible: deckRoot.padMode !== 0 }
+                        Label {
+                            anchors.left: parent.left
+                            anchors.leftMargin: deckRoot.padMode === 0 ? 0 : 11
+                            anchors.right: valueLabel.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            horizontalAlignment: deckRoot.padMode === 0 ? Text.AlignHCenter : Text.AlignLeft
+                            text: pad.p.text
+                            elide: Text.ElideRight
+                            font.bold: true
+                            font.pixelSize: deckRoot.padMode === 0 ? 13 : 10
+                            color: pad.p.lit ? "white" : Theme.dim
+                        }
+                        Label {
+                            id: valueLabel
+                            anchors.right: parent.right
+                            anchors.rightMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: pad.p.value || ""
+                            font.pixelSize: 10
+                            color: Theme.faint
+                        }
+                        MouseArea {
+                            id: padMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled: pad.p.enabled
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            onPressed: function (m) { deckRoot.padPress(pad.index, true, m.button === Qt.RightButton || (m.modifiers & Qt.ShiftModifier)) }
+                            onReleased: deckRoot.padPress(pad.index, false, false)
+                            onCanceled: deckRoot.padPress(pad.index, false, false)
+                        }
+                        ToolTip.text: pad.p.tip || ""
+                        ToolTip.visible: padMouse.containsMouse && ToolTip.text !== ""
+                        ToolTip.delay: 700
+                    }
+                }
+            }
         }
 
-        // ---------------------------------------- Stems
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 4
-            Repeater {
-                model: [{ t: "VOCAL", c: "#3cd96b", i: 0 }, { t: "INST", c: "#ff3b5c", i: 3 }, { t: "BASS", c: "#ff5bd6", i: 2 }, { t: "DRUMS", c: "#2fc6ff", i: 1 }]
-                Rectangle {
-                    required property var modelData
-                    readonly property bool on: deckRoot.loaded && info.stems ? info.stems[modelData.i] : true
-                    Layout.fillWidth: true
-                    implicitHeight: 28
-                    radius: 5
-                    enabled: info.hasStems === true
-                    opacity: enabled ? 1 : 0.35
-                    color: on ? Theme.alpha(modelData.c, 0.18) : "transparent"
-                    border.color: on ? modelData.c : Theme.border
-                    Label { anchors.centerIn: parent; text: parent.modelData.t; font.bold: true; font.pixelSize: 11; color: parent.on ? parent.modelData.c : Theme.faint }
-                    MouseArea { anchors.fill: parent; onClicked: dj.setStem(deckRoot.deck, parent.modelData.i, !parent.on) }
-                }
-            }
-            Button {
-                visible: deckRoot.loaded && !info.hasStems
-                text: qsTr("Stems")
-                icon.name: "sparkles"
-                enabled: !dj.working
-                onClicked: dj.prepareStems(info.path)
-                ToolTip.text: dj.stemEngine === 1 && dj.aiAvailable ? qsTr("Gesang, Schlagzeug, Bass und Instrumente mit KI trennen (Modelle einmalig ca. 90 MB)")
-                                                                     : qsTr("Gesang, Schlagzeug, Bass und Instrumente trennen – eingebaute Engine, sofort, ohne Download")
-                ToolTip.visible: hovered
-                ToolTip.delay: 400
-            }
-        }
     }
 }

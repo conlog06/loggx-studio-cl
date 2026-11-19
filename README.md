@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.11**: DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.13**: Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), Masken-Tracking, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -36,7 +36,9 @@ Dieses Repository enthält die **MVP-Vorschau 0.11**: DJ als eigener Modus mit *
 
 **DJ-Controller**
 - **Pioneer DDJ-FLX4** wird beim Einstecken automatisch erkannt (USB, ohne Einrichtung): Play/Cue, Shift+Cue (Anfang), Sync / Shift+Sync (Sync dauerhaft), Tempo-Fader (14 Bit), Tempo-Bereich, Jog-Räder (oben berührt = Scratchen, Rand = Pitch-Bend, Shift = schnell suchen), Kanalfader, Trim, 3-Band-EQ, CFX/Filter, Crossfader, Kopfhörer-CUE und -Mix, Browse-Regler + LOAD, Loop In/Out/Reloop, 4-Beat-Loop, Cue/Loop-Call (Loop halbieren/verdoppeln bzw. Beat-Sprung), Quantize
-- Pads: Hot Cue (Shift = löschen), Beat Loop (¼–32), Beat Jump (±1–8), **Sampler** (Shift = stoppen), Pad FX 1: Stems (Gesang, Drums, Bass, Rest) und Echo/Hall/Bremse solange gedrückt, **Key Shift** (1 = zurück, 2–4 = +1…+3, 5 = Key Sync, 6–8 = −1…−3); Shift+Browse = Wellenform-Zoom; Beat FX: an/aus, Auswahl, Länge, Level/Depth, Kanal
+- Pads wie in rekordbox: Hot Cue (Shift = löschen), **Pad FX 1 und 2** (Shift + PAD FX; 16 Effekte, solange gedrückt – Slip Loop, Hall, Echo, Flanger, V.Brake, Trans, Crush, Filter LFO, Backspin …, frei belegbar), Beat Jump (±1–8), Beat Loop (¼–32), **Sampler** (Shift = stoppen), **Key Shift** (1 = zurück, 2–4 = +1…+3, 5 = Key Sync, 6–8 = −1…−3); Shift+Browse = Wellenform-Zoom; Beat FX: an/aus, Auswahl, Länge, Level/Depth, Kanal
+- **Stems am FLX4** (Einstellungen → Controller): standardmäßig im Keyboard-Modus (Shift + HOT CUE) – Pads 1–4 Gesang/Schlagzeug/Bass/Instrumente an/aus, Pads 5–8 gedrückt halten = nur dieser Stem; wahlweise auf Beat Loop oder Sampler. Der **CFX-Regler** kann statt Filter die Stems steuern: links Acapella, rechts Instrumental
+- In der App: Pad-Modus-Menü am Deck (HOT CUE, PAD FX mit Seite 1/2 und Zahnrad zum Belegen, BEAT JUMP, BEAT LOOP, KEY SHIFT, SAMPLER, STEMS) – folgt dem Modus am FLX4; Phrasen nummeriert (INTRO 1, UP 2, CHORUS 1 …)
 - **LEDs** (Play, Cue blinkt wie am CDJ, Sync, CUE, Loop, Hot-Cue-Pads, Loop-Pads, Stems, Pegelanzeigen) und Keep-alive wie von rekordbox
 - **Kopfhörer am FLX4**: Einstellungen → Audio → Ausgang „DDJ-FLX4“, Kopfhörer „Kanäle 3/4“
 - **Andere Controller**: verbinden und per **MIDI-Learn** Tasten/Regler zuordnen (Einstellungen → Controller)
@@ -100,6 +102,8 @@ Dieses Repository enthält die **MVP-Vorschau 0.11**: DJ als eigener Modus mit *
 - **Lizenzen und Admin:** Free / Pro / Admin mit signierten Schlüsseln (Ed25519, offline prüfbar); Admin-Bereich mit Free-Simulation, Vorschau in voller Auflösung, Renderzeit und Systeminfos – siehe [license/README.md](license/README.md)
 - Projektdateien `.loggx` (JSON, Version 2; Dateien des Prototyps lassen sich weiter öffnen), Undo/Redo ohne Grenze
 - **Automatisches Sichern** jede Minute, Wiederherstellung nach einem Absturz
+- **HDR-Export (HLG)**: H.265 Main 10 oder ProRes, BT.2020, Transfer HLG (ARIB STD-B67); SDR-Weiß nach BT.2408 auf 75 % HLG – sieht auf HDR-Fernsehern, YouTube und iPhone richtig aus und auf normalen Bildschirmen weiterhin korrekt
+- **Masken-Tracking**: Maske auf den Clip legen, Abspielkopf auf den Startpunkt, „Maske verfolgen“ – der Inhalt unter der Maske wird bis zum Clip-Ende verfolgt (Vorlagenvergleich, grob → fein, geglättet) und als Keyframes für die Maskenposition gesetzt; Maskenposition ist auch von Hand animierbar
 - **Mastering-Assistent** beim Audio-Export: misst die Lautheit (LUFS nach ITU-R BS.1770 mit Gating), formt den Klang leicht (Rumpelfilter, Bass, Luft), bringt den Mix auf das Ziel (Streaming −14, Club −9, Podcast −16 LUFS) und begrenzt Spitzen mit einem Limiter (−1 dBFS, 5 ms Vorschau). „Lautheit messen“ zeigt den aktuellen Wert.
 - **Automatische Updates:** LXStudio prüft beim Start (höchstens alle 6 Stunden) die GitHub-Releases, zeigt oben ein Update-Symbol und installiert auf Klick (Windows still über den Installer, macOS tauscht die App aus); Prüfsumme (SHA-256) wird kontrolliert. Abschaltbar unter Einstellungen → Allgemein → Updates.
 - Kommandozeile: `loggx-render projekt.loggx ausgabe.mp4 [--size 1280x720] [--codec h265] [--quality 2]`
@@ -117,10 +121,10 @@ Dieses Repository enthält die **MVP-Vorschau 0.11**: DJ als eigener Modus mit *
 | Phase | Inhalt |
 | --- | --- |
 | MVP (Rest) | GPU-Rendering (Metal / DirectX 12) – bis dahin rechnet alles auf der CPU; Online-Konten und Lizenzprüfung über einen Server |
-| 1.0 | AV1, HDR, Masken-Tracking, KI-Freistellung, VST3/AU/CLAP, Web-Admin-Dashboard (braucht einen Server) |
+| 1.0 | AV1, HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), KI-Freistellung, VST3/AU/CLAP, Web-Admin-Dashboard (braucht einen Server) |
 | Ausbau | Auto-Reframe, Marktplatz (braucht einen Server), Multicam, RAW |
 
-Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
+Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), Masken-Tracking, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
 
 Bekannte Grenzen:
 

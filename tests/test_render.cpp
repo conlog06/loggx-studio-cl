@@ -8,6 +8,10 @@
 #include <vector>
 
 #include "check.h"
+extern "C" {
+#include <libavformat/avformat.h>
+#include <libavutil/pixdesc.h>
+}
 #include "loggx/engine/Engine.h"
 
 using namespace loggx;
@@ -83,6 +87,112 @@ void testProRes(const fs::path& dir) {
         CHECK(probeMedia(s.path, a));
         CHECK(a.hasVideo && a.hasAudio && a.width == kW && a.height == kH);
     }
+}
+
+// HDR (HLG): H.265 Main 10, BT.2020, Transfer ARIB STD-B67 im Container
+void testHdr(const fs::path& dir) {
+    ExportSettings s;
+    s.path = (dir / "hdr.mp4").string();
+    s.width = kW;
+    s.height = kH;
+    s.fpsNum = kFps;
+    s.sampleRate = kRate;
+    s.codec = ExportSettings::Codec::H265;
+    s.hdr = true;
+    Exporter e;
+    std::string error;
+    if (!e.open(s, &error)) {
+        std::printf("HDR übersprungen: %s\n", error.c_str());
+        return;
+    }
+    std::vector<std::uint8_t> image(static_cast<std::size_t>(kW) * kH * 4, 255);   // SDR-Weiß
+    std::vector<float> audio(static_cast<std::size_t>(kRate / kFps) * 2, 0.0f);
+    for (int i = 0; i < 10; ++i) {
+        CHECK(e.writeVideoFrame(image.data()));
+        CHECK(e.writeAudio(audio.data(), audio.size() / 2));
+    }
+    CHECK(e.finish(&error));
+    AVFormatContext* fmt = nullptr;
+    CHECK(avformat_open_input(&fmt, s.path.c_str(), nullptr, nullptr) == 0);
+    avformat_find_stream_info(fmt, nullptr);
+    bool found = false;
+    for (unsigned i = 0; i < fmt->nb_streams; ++i) {
+        const AVCodecParameters* p = fmt->streams[i]->codecpar;
+        if (p->codec_type != AVMEDIA_TYPE_VIDEO) continue;
+        found = true;
+        CHECK(p->color_trc == AVCOL_TRC_ARIB_STD_B67);
+        CHECK(p->color_primaries == AVCOL_PRI_BT2020);
+        const AVPixFmtDescriptor* d = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(p->format));
+        CHECK(d && d->comp[0].depth == 10);
+        std::printf("HDR: %s, %s, %s\n", e.videoEncoderName().c_str(), d ? d->name : "?", av_color_transfer_name(p->color_trc));
+    }
+    CHECK(found);
+    avformat_close_input(&fmt);
+    // H.264 + HDR wird abgelehnt
+    ExportSettings h264 = s;
+    h264.codec = ExportSettings::Codec::H264;
+    h264.path = (dir / "hdr264.mp4").string();
+    Exporter e2;
+    CHECK(!e2.open(h264, &error));
+}
+
+// Masken-Tracking: ein strukturiertes Quadrat wandert nach rechts unten
+void testMaskTracking(const fs::path& dir) {
+    const int w = 320, h = 180, fps = 25, frames = 40;
+    ExportSettings s;
+    s.path = (dir / "bewegung.mp4").string();
+    s.width = w;
+    s.height = h;
+    s.fpsNum = fps;
+    s.sampleRate = kRate;
+    s.audio = false;
+    s.quality = 3;
+    Exporter e;
+    std::string error;
+    CHECK(e.open(s, &error));
+    std::vector<std::uint8_t> img(static_cast<std::size_t>(w) * h * 4);
+    auto posAt = [&](int f) { return std::pair<double, double>{60.0 + f * 3.0, 50.0 + f * 1.5}; };
+    for (int f = 0; f < frames; ++f) {
+        const auto [ox, oy] = posAt(f);
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                std::uint8_t* p = &img[(static_cast<std::size_t>(y) * w + x) * 4];
+                const double lx = x - ox, ly = y - oy;
+                std::uint8_t v = 40;
+                if (std::abs(lx) < 18 && std::abs(ly) < 18) v = ((static_cast<int>(lx + 18) / 6 + static_cast<int>(ly + 18) / 6) % 2) ? 230 : 90;
+                p[0] = p[1] = p[2] = v;
+                p[3] = 255;
+            }
+        CHECK(e.writeVideoFrame(img.data()));
+    }
+    CHECK(e.finish(&error));
+    MediaAsset asset;
+    CHECK(probeMedia(s.path, asset, &error));
+    Project project = Project::createDefault();
+    project.width = w;
+    project.height = h;
+    project.fpsNum = fps;
+    const std::string assetId = project.addAsset(asset);
+    const std::string clipId = project.addClip(project.tracks[1].id, assetId, 0);
+    Clip* clip = project.findClip(clipId);
+    CHECK(clip != nullptr);
+    clip->mask.shape = MaskShape::Ellipse;
+    clip->mask.cx = posAt(0).first / w;
+    clip->mask.cy = posAt(0).second / h;
+    clip->mask.w = 40.0 / w;
+    clip->mask.h = 40.0 / h;
+    const MaskTrackResult r = trackMask(project, clipId, 0);
+    if (!r.error.empty()) std::fprintf(stderr, "Tracking: %s\n", r.error.c_str());
+    CHECK(r.error.empty() && r.frames >= frames - 3);
+    CHECK(!r.x.empty() && r.x.size() == r.y.size());
+    double maxErr = 0;
+    for (std::size_t i = 0; i < r.x.size(); ++i) {
+        const int f = static_cast<int>(std::lround(r.x[i].t / 1e6 * fps));
+        const auto [ex, ey] = posAt(f);
+        maxErr = std::max(maxErr, std::hypot(r.x[i].value * w - ex, r.y[i].value * h - ey));
+    }
+    std::printf("Masken-Tracking: %d Bilder, max. Abweichung %.1f px\n", r.frames, maxErr);
+    CHECK(maxErr < 5.0);
 }
 
 // Welcher der vier Testfarben ein Pixel am nächsten kommt.
@@ -341,6 +451,8 @@ int main() {
     fs::create_directories(dir);
     run(dir);
     testProRes(dir);
+    testHdr(dir);
+    testMaskTracking(dir);
     std::error_code ec;
     fs::remove_all(dir, ec);
     return finish("test_render");

@@ -1,3 +1,5 @@
+#include <array>
+#include <cmath>
 #include "loggx/media/Media.h"
 
 #include <algorithm>
@@ -100,6 +102,33 @@ struct Exporter::Impl {
     AVFrame* aframe = nullptr;
     AVPacket* pkt = nullptr;
     SwsContext* sws = nullptr;
+    // HDR: RGBA (BT.709, SDR) → RGB48 (BT.2020, HLG) vor der YUV-Umrechnung
+    bool hdr = false;
+    std::vector<std::uint16_t> rgb48;
+    std::array<float, 256> toLinear{};
+    std::vector<std::uint16_t> hlgLut;   // linear (0..1, 4096 Stufen) → HLG-Signal 16 Bit
+    void initHdr() {
+        for (int i = 0; i < 256; ++i) toLinear[static_cast<std::size_t>(i)] = static_cast<float>(std::pow(i / 255.0, 2.4));   // BT.1886
+        hlgLut.resize(4097);
+        const double a = 0.17883277, b = 1.0 - 4.0 * a, c = 0.5 - a * std::log(4.0 * a);
+        for (int i = 0; i <= 4096; ++i) {
+            // SDR-Weiß (1.0) → HLG 75 %: E = linear · 0.2647 (BT.2408)
+            const double e = i / 4096.0 * 0.26496256;
+            const double v = e <= 1.0 / 12.0 ? std::sqrt(3.0 * e) : a * std::log(12.0 * e - b) + c;
+            hlgLut[static_cast<std::size_t>(i)] = static_cast<std::uint16_t>(std::clamp(v, 0.0, 1.0) * 65535.0 + 0.5);
+        }
+    }
+    void convertHdr(const std::uint8_t* rgba, int w, int h) {
+        rgb48.resize(static_cast<std::size_t>(w) * h * 3);
+        // BT.709 → BT.2020 (lineare Primärfarben, BT.2087)
+        static const float m[9] = {0.6274f, 0.3293f, 0.0433f, 0.0691f, 0.9195f, 0.0114f, 0.0164f, 0.0880f, 0.8956f};
+        for (std::size_t i = 0, n = static_cast<std::size_t>(w) * h; i < n; ++i) {
+            const float r = toLinear[rgba[i * 4]], g = toLinear[rgba[i * 4 + 1]], bl = toLinear[rgba[i * 4 + 2]];
+            const float o[3] = {m[0] * r + m[1] * g + m[2] * bl, m[3] * r + m[4] * g + m[5] * bl, m[6] * r + m[7] * g + m[8] * bl};
+            for (int k = 0; k < 3; ++k)
+                rgb48[i * 3 + static_cast<std::size_t>(k)] = hlgLut[static_cast<std::size_t>(std::clamp(o[k], 0.0f, 1.0f) * 4096.0f + 0.5f)];
+        }
+    }
     std::int64_t videoFrames = 0;
     std::int64_t audioSamples = 0;
     std::vector<float> audioFifo;   // interleaved stereo
@@ -149,6 +178,25 @@ struct Exporter::Impl {
         c->colorspace = AVCOL_SPC_BT709;
         c->color_primaries = AVCOL_PRI_BT709;
         c->color_trc = AVCOL_TRC_BT709;
+        if (s.hdr) {
+            // HLG: Signalisierung im Datenstrom (VUI) und im Container
+            c->colorspace = AVCOL_SPC_BT2020_NCL;
+            c->color_primaries = AVCOL_PRI_BT2020;
+            c->color_trc = AVCOL_TRC_ARIB_STD_B67;
+            if (!prores) {
+                bool ten = false;
+                for (const AVPixelFormat* p = codec->pix_fmts; p && *p != AV_PIX_FMT_NONE; ++p)
+                    if (*p == AV_PIX_FMT_YUV420P10LE || *p == AV_PIX_FMT_P010LE) {
+                        c->pix_fmt = *p;
+                        ten = true;
+                        if (*p == AV_PIX_FMT_YUV420P10LE) break;
+                    }
+                if (!ten) {   // Encoder kann kein 10 Bit → nächsten versuchen
+                    avcodec_free_context(&c);
+                    return false;
+                }
+            }
+        }
         if (fmt->oformat->flags & AVFMT_GLOBALHEADER) c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
         AVDictionary* opts = nullptr;
@@ -167,8 +215,12 @@ struct Exporter::Impl {
             av_dict_set(&opts, "vendor", "apl0", 0);
             if (s.codec == ExportSettings::Codec::ProRes4444) av_dict_set(&opts, "alpha_bits", "16", 0);
         }
-        if (std::strcmp(name, "libx265") == 0)
-            av_dict_set(&opts, "x265-params", huge ? "log-level=error:rc-lookahead=8:frame-threads=2:lookahead-slices=4" : "log-level=error", 0);
+        if (std::strcmp(name, "libx265") == 0) {
+            std::string params = huge ? "log-level=error:rc-lookahead=8:frame-threads=2:lookahead-slices=4" : "log-level=error";
+            if (s.hdr) params += ":atc-sei=18";   // HLG-Kennung (alternative transfer) für Geräte
+            av_dict_set(&opts, "x265-params", params.c_str(), 0);
+            if (s.hdr) av_dict_set(&opts, "profile", "main10", 0);
+        }
         const int rc = avcodec_open2(c, codec, &opts);
         av_dict_free(&opts);
         if (rc < 0) {
@@ -319,6 +371,10 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         return false;
     }
     const bool hevc = s.codec == ExportSettings::Codec::H265;
+    if (s.video && s.hdr && s.codec == ExportSettings::Codec::H264) {
+        if (error) *error = "HDR geht nur mit H.265 oder ProRes";
+        return false;
+    }
     if (s.videoBitrate <= 0)
         s.videoBitrate = defaultBitrate(s.width, s.height, static_cast<double>(s.fpsNum) / s.fpsDen,
                                         s.quality, hevc);
@@ -346,7 +402,8 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         }
     }
     if (!ok) {
-        if (error) *error = hevc ? "Kein H.265-Encoder auf diesem Rechner verfügbar"
+        if (error) *error = hevc && s.hdr ? "Kein H.265-Encoder mit 10 Bit (HDR) verfügbar"
+                          : hevc ? "Kein H.265-Encoder auf diesem Rechner verfügbar"
                           : s.codec >= ExportSettings::Codec::ProRes422HQ ? "ProRes-Encoder (prores_ks) fehlt in dieser FFmpeg-Version"
                                  : "Kein Video-Encoder verfügbar";
         d->close();
@@ -380,7 +437,9 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
     d->vframe->format = d->venc->pix_fmt;
     d->vframe->width = s.width;
     d->vframe->height = s.height;
-    d->sws = sws_getContext(s.width, s.height, AV_PIX_FMT_RGBA, s.width, s.height,
+    d->hdr = s.hdr;
+    if (d->hdr) d->initHdr();
+    d->sws = sws_getContext(s.width, s.height, d->hdr ? AV_PIX_FMT_RGB48LE : AV_PIX_FMT_RGBA, s.width, s.height,
                             d->venc->pix_fmt, SWS_BILINEAR, nullptr, nullptr, nullptr);
     if (av_frame_get_buffer(d->vframe, 0) < 0 || !d->sws) {
         if (error) *error = "Kein Speicher für Video";
@@ -388,7 +447,7 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         return false;
     }
     // RGB (voller Bereich) nach BT.709 mit Videopegel umrechnen.
-    const int* coeffs = sws_getCoefficients(SWS_CS_ITU709);
+    const int* coeffs = sws_getCoefficients(d->hdr ? SWS_CS_BT2020 : SWS_CS_ITU709);
     sws_setColorspaceDetails(d->sws, sws_getCoefficients(SWS_CS_DEFAULT), 1, coeffs, 0, 0,
                              1 << 16, 1 << 16);
     }
@@ -422,7 +481,12 @@ bool Exporter::writeVideoFrame(const std::uint8_t* rgba) {
     if (!d->headerWritten || d->finished || !d->venc) return false;
     if (av_frame_make_writable(d->vframe) < 0) return false;
     const std::uint8_t* src[4] = {rgba, nullptr, nullptr, nullptr};
-    const int srcStride[4] = {d->s.width * 4, 0, 0, 0};
+    int srcStride[4] = {d->s.width * 4, 0, 0, 0};
+    if (d->hdr) {
+        d->convertHdr(rgba, d->s.width, d->s.height);
+        src[0] = reinterpret_cast<const std::uint8_t*>(d->rgb48.data());
+        srcStride[0] = d->s.width * 6;
+    }
     sws_scale(d->sws, src, srcStride, 0, d->s.height, d->vframe->data, d->vframe->linesize);
     d->vframe->pts = d->videoFrames++;
     if (avcodec_send_frame(d->venc, d->vframe) < 0) return false;

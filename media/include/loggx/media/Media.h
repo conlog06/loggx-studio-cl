@@ -72,6 +72,9 @@ struct ExportSettings {
     // ProRes: Schnittformat (MOV, 10 Bit, Ton als PCM); 4444 mit Alpha-Kanal
     enum class Codec { H264, H265, ProRes422HQ, ProRes4444 } codec = Codec::H264;
     int quality = 1;                 // 0 klein, 1 normal, 2 hoch, 3 sehr hoch
+    // HDR (HLG nach BT.2100/BT.2408): BT.2020, 10 Bit; SDR-Weiß = 75 % HLG.
+    // Nur H.265 und ProRes.
+    bool hdr = false;
     int audioBitrate = 192000;
     bool audio = true;
     // false = reine Audiodatei. Der Codec folgt dann der Dateiendung:

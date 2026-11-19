@@ -67,7 +67,7 @@ Rectangle {
         fileMode: FileDialog.SaveFile
         defaultSuffix: root.prores ? "mov" : "mp4"
         nameFilters: root.prores ? [qsTr("QuickTime (*.mov)")] : [qsTr("MP4-Video (*.mp4)"), qsTr("QuickTime (*.mov)"), qsTr("Matroska (*.mkv)")]
-        onAccepted: app.exportVideo(selectedFile, root.target.w, root.target.h, codecBox.currentIndex, qualityBox.currentIndex)
+        onAccepted: app.exportVideo(selectedFile, root.target.w, root.target.h, codecBox.currentIndex, qualityBox.currentIndex, hdrBox.checked && hdrBox.enabled)
     }
     FileDialog {
         id: audioDialog
@@ -189,6 +189,16 @@ Rectangle {
                         currentIndex: 1
                         model: [qsTr("Klein"), qsTr("Normal"), qsTr("Hoch"), qsTr("Sehr hoch")]
                         onActivated: presetBox.currentIndex = 0
+                    }
+                    Label { text: qsTr("HDR") }
+                    CheckBox {
+                        id: hdrBox
+                        enabled: codecBox.currentIndex >= 1
+                        text: qsTr("HDR (HLG, BT.2020, 10 Bit) – für HDR-Fernseher, YouTube, iPhone")
+                        ToolTip.text: enabled ? qsTr("SDR-Weiß wird nach BT.2408 auf 75 % HLG gelegt – auf normalen Bildschirmen sieht es weiter richtig aus")
+                                              : qsTr("HDR braucht H.265 oder ProRes")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
                     }
                     Item { width: 1 }
                     Label {

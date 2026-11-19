@@ -1055,6 +1055,7 @@ void testDjCueAndJog() {
     dj.setFader(0, 1.0);
     dj.play(0);
     for (int type = 3; type < kDjFxCount; ++type) {
+        if (type == static_cast<int>(DjFx::Backspin)) continue;   // eigener Test unten
         dj.setFxOn(false);
         dj.seek(0, 2.0);
         std::vector<float> dry(1024 * 2);
@@ -1076,6 +1077,17 @@ void testDjCueAndJog() {
         CHECK(energy(out) > 1e-6);
     }
     dj.setFxOn(false);
+    // Backspin: läuft rückwärts aus und stoppt das Deck
+    dj.seek(0, 4.0);
+    dj.play(0);
+    dj.setFx(DjFx::Backspin, 0.5, 1.0, 0);
+    dj.setFxOn(true);
+    dj.render(out.data(), 256);
+    CHECK(dj.position(0) < 4.0);
+    for (int i = 0; i < 80 && dj.playing(0); ++i) dj.render(out.data(), 1024);
+    CHECK(!dj.playing(0));
+    dj.setFxOn(false);
+    dj.play(0);
 }
 
 // Eingebaute Stem-Engine: Schlagzeug und Bass landen im richtigen Stem

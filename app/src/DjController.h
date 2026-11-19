@@ -86,9 +86,37 @@ class DjController : public QObject {
     Q_PROPERTY(double samplerVolume READ samplerVolume WRITE setSamplerVolume NOTIFY samplerChanged)
     // Sichtbare Sekunden der mitlaufenden Wellenformen (Zoom)
     Q_PROPERTY(double waveZoom READ waveZoom WRITE setWaveZoom NOTIFY waveZoomChanged)
+    // Performance-Pads: 16 Pad-FX (2 Seiten), Effektnamen
+    Q_PROPERTY(QVariantList padFxSlots READ padFxSlots NOTIFY padsChanged)
+    Q_PROPERTY(QStringList fxNameList READ fxNameList CONSTANT)
+    // FLX4: Stems auf Pads (0 Keyboard-Modus = Shift+Hot Cue, 1 Beat Loop, 2 Sampler, 3 aus)
+    Q_PROPERTY(int stemPads READ stemPads WRITE setStemPads NOTIFY settingsChanged)
+    // CFX-Regler: 0 Filter, 1 Stems (links Acapella, rechts Instrumental)
+    Q_PROPERTY(int cfxMode READ cfxMode WRITE setCfxMode NOTIFY settingsChanged)
 
 public:
+    static constexpr int kPadFxSlots = 16;
     explicit DjController(AppController* app, QObject* parent = nullptr);
+
+    // ---- Performance-Pads
+    static const QStringList& fxNames();
+    QStringList fxNameList() const;
+    QVariantList padFxSlots() const;
+    Q_INVOKABLE void setPadFxSlot(int slot, int type, double beats, double wet);
+    Q_INVOKABLE void resetPadFx();
+    Q_INVOKABLE void padFx(int deck, int slot, bool press);       // solange gedrückt
+    Q_INVOKABLE void stemSolo(int deck, int stem, bool press);    // nur diesen Stem, solange gedrückt
+    Q_INVOKABLE void setStemFx(int deck, double x);               // −1 Acapella … +1 Instrumental
+    Q_INVOKABLE double stemFx(int deck) const;
+    Q_INVOKABLE void showPadMode(int deck, int mode);             // Controller meldet Pad-Modus
+    int heldPadFx() const { return m_padFxHeld; }
+    Q_INVOKABLE int savedPadMode(int deck) const;
+    Q_INVOKABLE void savePadMode(int deck, int mode, int page);
+    bool stemsReady(int deck) const;
+    int stemPads() const { return m_stemPads; }
+    void setStemPads(int mode);
+    int cfxMode() const { return m_cfxMode; }
+    void setCfxMode(int mode);
     ~DjController() override;
 
     // ---- Bibliothek
@@ -293,6 +321,8 @@ signals:
     void sourcesChanged();
     void browseChanged();
     void waveZoomChanged();
+    void padsChanged();
+    void padModeHint(int deck, int mode);
 
 private:
     struct Entry {
@@ -372,6 +402,27 @@ private:
     QStringList m_columns;
     int m_rowSize = 1;
     double m_waveZoom = 8.0;
+    struct PadFx {
+        int type = 0;
+        double beats = 1, wet = 0.5;
+    };
+    std::array<PadFx, kPadFxSlots> m_padFx{};
+    int m_padFxHeld = -1;
+    struct {
+        int type = 0;
+        double beats = 1, wet = 0.5;
+        int target = 2;
+        bool on = false;
+    } m_padFxPrev;
+    struct StemSolo {
+        int stem = -1;
+        std::array<bool, 4> on{true, true, true, true};
+    };
+    std::array<StemSolo, 2> m_stemSolo{};
+    std::array<double, 2> m_stemFx{0, 0};
+    int m_stemPads = 0;
+    int m_cfxMode = 0;
+    void loadPadFx();
     std::array<QString, 8> m_samplePaths;     // leer = eingebauter Klang
     std::array<bool, 8> m_samplePlaying{};
     void initSampler();

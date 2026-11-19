@@ -349,8 +349,18 @@ bool DjMidi::handleFlx4(int status, int d1, int d2) {
         double v = 0;
         if (fine(0x1F, v)) { dj.setCrossfader(v * 2.0 - 1.0); return true; }
         if (fine(0x0C, v)) { dj.setHeadMix(v); return true; }
-        if (fine(0x17, v)) { dj.setFilter(0, std::abs(v - 0.5) < 0.015 ? 0.0 : v * 2.0 - 1.0); return true; }
-        if (fine(0x18, v)) { dj.setFilter(1, std::abs(v - 0.5) < 0.015 ? 0.0 : v * 2.0 - 1.0); return true; }
+        // CFX: Filter oder (Einstellung) Stems – links Acapella, rechts Instrumental
+        for (int deck = 0; deck < 2; ++deck) {
+            if (!fine(0x17 + deck, v)) continue;
+            const double x = std::abs(v - 0.5) < 0.015 ? 0.0 : v * 2.0 - 1.0;
+            if (dj.cfxMode() == 1 && (deck == 0 ? dj.deckA() : dj.deckB()).value(QStringLiteral("hasStems")).toBool()) {
+                dj.setFilter(deck, 0.0);
+                dj.setStemFx(deck, x);
+            } else {
+                dj.setFilter(deck, x);
+            }
+            return true;
+        }
         if (d1 == 0x40) {   // Browse-Regler (relativ)
             dj.moveCursor(d2 >= 64 ? d2 - 128 : d2);
             return true;
@@ -412,30 +422,51 @@ bool DjMidi::handleFlx4(int status, int d1, int d2) {
     if (ch >= 7 && ch <= 10) {   // Pads
         const int deck = ch <= 8 ? 0 : 1;
         const bool shift = ch == 8 || ch == 10;
-        if (d1 >= 0x44 && d1 <= 0x46) {   // Pad-FX: Effekt, solange gedrückt
-            dj.setFx(d1 - 0x44, dj.fxBeats(), dj.fxWet() > 0 ? dj.fxWet() : 0.5, deck);
-            dj.setFxOn(press);
+        const int base = d1 & 0x70, pad = d1 & 0x0F;
+        if (pad > 7) return false;
+        // Pad-Modus des Geräts auch in der App anzeigen
+        // (UI: 0 Hot Cue, 1 Pad FX, 2 Beat Jump, 3 Beat Loop, 4 Key Shift, 5 Sampler, 6 Stems)
+        const int stemBase = dj.stemPads() == 0 ? 0x40 : dj.stemPads() == 1 ? 0x60 : dj.stemPads() == 2 ? 0x30 : -1;
+        if (press) {
+            int mode = -1;
+            if (base == stemBase) mode = 6;
+            else if (base == 0x00) mode = 0;
+            else if (base == 0x10 || base == 0x50) mode = 1;
+            else if (base == 0x20) mode = 2;
+            else if (base == 0x60) mode = 3;
+            else if (base == 0x70) mode = 4;
+            else if (base == 0x30) mode = 5;
+            if (mode >= 0) dj.showPadMode(deck, mode + (base == 0x50 ? 10 : 0));   // +10: Pad-FX-Seite 2
+        }
+        if (base == stemBase) {
+            // Stems: Pads 1–4 an/aus (Gesang, Schlagzeug, Bass, Instrumente), 5–8 solo halten
+            static const int order[4] = {0, 1, 2, 3};
+            if (pad < 4) {
+                if (press) dj.setStem(deck, order[pad], !mx.stem(deck, static_cast<DjStem>(order[pad])));
+            } else {
+                dj.stemSolo(deck, order[pad - 4], press);
+            }
+            return true;
+        }
+        if (base == 0x10 || base == 0x50) {   // Pad FX 1/2: Effekt, solange gedrückt
+            dj.padFx(deck, (base == 0x50 ? 8 : 0) + pad, press);
             return true;
         }
         if (!press) return true;
-        if (d1 <= 0x07) {
-            if (shift) dj.clearHotCue(deck, d1);
-            else dj.hotCue(deck, d1);
-        } else if (d1 >= 0x20 && d1 <= 0x27) {
-            dj.beatJump(deck, kBeatJumpPads[d1 - 0x20]);
-        } else if (d1 >= 0x30 && d1 <= 0x37) {   // Sampler (Shift = stoppen)
-            if (shift) dj.stopSample(d1 - 0x30);
-            else dj.triggerSample(d1 - 0x30);
-        } else if (d1 >= 0x40 && d1 <= 0x43) {
-            dj.setStem(deck, d1 - 0x40, !mx.stem(deck, static_cast<DjStem>(d1 - 0x40)));
-        } else if (d1 == 0x47) {
-            dj.setFxOn(false);
-        } else if (d1 >= 0x60 && d1 <= 0x67) {
-            dj.setLoop(deck, kLoopPads[d1 - 0x60]);
-        } else if (d1 >= 0x70 && d1 <= 0x77) {
+        if (base == 0x00) {
+            if (shift) dj.clearHotCue(deck, pad);
+            else dj.hotCue(deck, pad);
+        } else if (base == 0x20) {
+            dj.beatJump(deck, kBeatJumpPads[pad]);
+        } else if (base == 0x30) {   // Sampler (Shift = stoppen)
+            if (shift) dj.stopSample(pad);
+            else dj.triggerSample(pad);
+        } else if (base == 0x60) {
+            dj.setLoop(deck, kLoopPads[pad]);
+        } else if (base == 0x70) {
             // Key Shift: 1 = zurücksetzen, 2–4 = +1…+3, 5 = Key Sync, 6–8 = −1…−3
             static const int shifts[8] = {0, 1, 2, 3, 99, -1, -2, -3};
-            const int v = shifts[d1 - 0x70];
+            const int v = shifts[pad];
             if (v == 99) dj.keySync(deck);
             else {
                 if (v != 0) dj.setKeyLock(deck, true);
@@ -499,10 +530,25 @@ void DjMidi::updateLeds(bool force) {
             const int on = mx.hotCue(deck, i) >= 0 ? 0x7F : 0;
             led(pads, i, on);
             led(pads + 1, i, on);
-            led(pads, 0x60 + i, mx.looping(deck) && std::abs(mx.loopBeats(deck) - kLoopPads[i]) < 1e-6 ? 0x7F : 0);
+            if (m_dj->stemPads() != 1)
+                led(pads, 0x60 + i, mx.looping(deck) && std::abs(mx.loopBeats(deck) - kLoopPads[i]) < 1e-6 ? 0x7F : 0);
         }
-        for (int s = 0; s < 4; ++s) led(pads, 0x40 + s, loaded && mx.stem(deck, static_cast<DjStem>(s)) ? 0x7F : 0);
-        for (int s = 0; s < 8; ++s) led(pads, 0x30 + s, mx.hasSample(s) && (!mx.samplePlaying(s) || blink) ? 0x7F : 0);
+        const int stemBase = m_dj->stemPads() == 0 ? 0x40 : m_dj->stemPads() == 1 ? 0x60 : m_dj->stemPads() == 2 ? 0x30 : -1;
+        if (stemBase != 0x30)
+            for (int s = 0; s < 8; ++s) led(pads, 0x30 + s, mx.hasSample(s) && (!mx.samplePlaying(s) || blink) ? 0x7F : 0);
+        if (stemBase >= 0) {
+            const bool has = loaded && m_dj->stemsReady(deck);
+            for (int s = 0; s < 4; ++s) {
+                led(pads, stemBase + s, has && mx.stem(deck, static_cast<DjStem>(s)) ? 0x7F : 0);
+                led(pads, stemBase + 4 + s, has ? 0x20 : 0);
+            }
+        }
+        // Pad FX: Seite 1 und 2 beleuchtet, gehaltener Effekt hell
+        const int held = m_dj->heldPadFx();
+        for (int i = 0; i < 8; ++i) {
+            led(pads, 0x10 + i, loaded ? (held == i ? 0x7F : 0x20) : 0);
+            led(pads, 0x50 + i, loaded ? (held == 8 + i ? 0x7F : 0x20) : 0);
+        }
         {
             static const int shifts[8] = {0, 1, 2, 3, 99, -1, -2, -3};
             for (int i = 0; i < 8; ++i)
@@ -519,7 +565,7 @@ void DjMidi::lightsOff() {
         for (int n : {0x0B, 0x0C, 0x58, 0x54, 0x10, 0x11, 0x4D}) send({static_cast<unsigned char>(kNote | deck), static_cast<unsigned char>(n), 0});
         const int pads = 0x97 + deck * 2;
         for (int i = 0; i < 8; ++i)
-            for (int base : {0x00, 0x30, 0x40, 0x60, 0x70}) {
+            for (int base : {0x00, 0x10, 0x30, 0x40, 0x50, 0x60, 0x70}) {
                 send({static_cast<unsigned char>(pads), static_cast<unsigned char>(base + i), 0});
                 send({static_cast<unsigned char>(pads + 1), static_cast<unsigned char>(base + i), 0});
             }

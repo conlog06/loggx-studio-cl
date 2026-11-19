@@ -388,6 +388,27 @@ Dialog {
                         hint: qsTr("Standard wie bei Pioneer: nach unten = schneller")
                         Switch { checked: djmidi.invertTempo; onToggled: djmidi.invertTempo = checked }
                     }
+                    Heading { text: qsTr("DDJ-FLX4: Stems") }
+                    Row2 {
+                        label: qsTr("Stems auf den Pads")
+                        hint: qsTr("Pads 1–4: Gesang, Schlagzeug, Bass, Instrumente an/aus · Pads 5–8: gedrückt halten = nur dieser Stem")
+                        ComboBox {
+                            implicitWidth: 260
+                            model: [qsTr("Keyboard-Modus (Shift + HOT CUE)"), qsTr("Beat Loop (Shift + BEAT JUMP)"), qsTr("Sampler (SAMPLER)"), qsTr("Aus")]
+                            currentIndex: dj.stemPads
+                            onActivated: dj.stemPads = currentIndex
+                        }
+                    }
+                    Row2 {
+                        label: qsTr("CFX-Regler")
+                        hint: qsTr("Stems: links = nur Gesang (Acapella), rechts = ohne Gesang (Instrumental). Ohne getrennte Stems bleibt es ein Filter.")
+                        ComboBox {
+                            implicitWidth: 260
+                            model: [qsTr("Filter"), qsTr("Stems (Acapella ↔ Instrumental)")]
+                            currentIndex: dj.cfxMode
+                            onActivated: dj.cfxMode = currentIndex
+                        }
+                    }
                     Heading { text: qsTr("MIDI-Learn (eigene Zuordnung)") }
                     RowLayout {
                         Layout.fillWidth: true

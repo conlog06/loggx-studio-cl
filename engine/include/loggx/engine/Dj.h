@@ -55,8 +55,8 @@ std::vector<DjPhrase> analyzeDjPhrases(const DjTrack& track, double bpm, double 
 std::string camelotKey(int tonic, bool minor);
 
 // Effekte (Beat FX): Zeitangaben in Schlägen des Master- bzw. Ziel-Decks
-enum class DjFx { Echo = 0, Reverb = 1, Brake = 2, PingPong = 3, Flanger = 4, Phaser = 5, Trans = 6, Roll = 7, Filter = 8, Noise = 9 };
-constexpr int kDjFxCount = 10;
+enum class DjFx { Echo = 0, Reverb = 1, Brake = 2, PingPong = 3, Flanger = 4, Phaser = 5, Trans = 6, Roll = 7, Filter = 8, Noise = 9, Crush = 10, Backspin = 11 };
+constexpr int kDjFxCount = 12;
 
 class DjMixer {
 public:
@@ -134,6 +134,9 @@ public:
 
     void setStem(int deck, DjStem stem, bool on);
     bool stem(int deck, DjStem stem) const;
+    // Stufenlose Stem-Lautstärke 0..1 (z. B. CFX-Regler); wirkt nur, wenn der Stem an ist
+    void setStemLevel(int deck, DjStem stem, double level);
+    double stemLevel(int deck, DjStem stem) const;
 
     // EQ und Filter: −1 … +1 (−1 = ausgeschaltet/Kill, 0 = neutral, +1 = +6 dB)
     void setEq(int deck, int band, double value); // 0 Tiefen, 1 Mitten, 2 Höhen

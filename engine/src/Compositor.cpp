@@ -394,6 +394,12 @@ void Compositor::drawClip(const Clip& clip, TimeUs t, int w, int h, std::vector<
     const double angle = clip.valueAt("rotation", t) * 3.14159265358979323846 / 180.0;
     const double outW = baseW * scale, outH = baseH * scale;
     const bool masked = clip.mask.shape != MaskShape::None;
+    // Maskenposition kann animiert sein (Keyframes oder Masken-Tracking)
+    Mask mask = clip.mask;
+    if (masked) {
+        mask.cx = clip.valueAt("maskX", t);
+        mask.cy = clip.valueAt("maskY", t);
+    }
     const float op = static_cast<float>(opacity);
     const std::uint8_t* layer = m_layer.data();
 
@@ -409,7 +415,7 @@ void Compositor::drawClip(const Clip& clip, TimeUs t, int w, int h, std::vector<
         parallelRows(y0, y1, [&](int ya, int yb) {
             std::vector<float> maskBuf;
             for (int y = ya; y < yb; ++y) {
-                if (masked) maskRow(clip.mask, y, w, h, maskBuf);
+                if (masked) maskRow(mask, y, w, h, maskBuf);
                 const std::uint8_t* src = layer + (static_cast<std::size_t>(y - oy) * lw + (x0 - ox)) * 4;
                 std::uint8_t* dst = rgba.data() + (static_cast<std::size_t>(y) * w + x0) * 4;
                 for (int x = x0; x < x1; ++x, src += 4, dst += 4) {
@@ -445,7 +451,7 @@ void Compositor::drawClip(const Clip& clip, TimeUs t, int w, int h, std::vector<
     parallelRows(by0, by1, [&](int ya, int yb) {
         std::vector<float> maskBuf;
         for (int y = ya; y < yb; ++y) {
-            if (masked) maskRow(clip.mask, y, w, h, maskBuf);
+            if (masked) maskRow(mask, y, w, h, maskBuf);
             std::uint8_t* dst = rgba.data() + (static_cast<std::size_t>(y) * w + bx0) * 4;
             const double dy = y + 0.5 - cy;
             for (int x = bx0; x < bx1; ++x, dst += 4) {

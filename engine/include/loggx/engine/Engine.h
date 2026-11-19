@@ -56,6 +56,18 @@ private:
     std::vector<std::uint8_t> m_bufA, m_bufB;   // Ebenen für Übergänge
 };
 
+// Masken-Tracking: verfolgt den Inhalt unter der Maske ab „from“ bis zum
+// Clip-Ende. Ergebnis: Keyframes (relativ zum Clip-Anfang) für maskX/maskY.
+// progress(0..1) gibt false zurück, um abzubrechen.
+struct MaskTrackResult {
+    std::vector<Keyframe> x, y;
+    int frames = 0;
+    bool lost = false, cancelled = false;
+    std::string error;
+};
+MaskTrackResult trackMask(const Project& project, const std::string& clipId, TimeUs from,
+                          const std::function<bool(double)>& progress = {});
+
 // Prüft, ob eine .cube-Datei als 3D-LUT lesbar ist.
 bool validateLut(const std::string& path, std::string* error = nullptr);
 

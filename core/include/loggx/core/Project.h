@@ -122,7 +122,7 @@ struct Keyframe {
 };
 
 // Parameter, die sich mit Keyframes animieren lassen.
-inline const char* const kKeyframeParams[] = {"opacity", "gainDb", "x", "y", "scale", "rotation", "blur"};
+inline const char* const kKeyframeParams[] = {"opacity", "gainDb", "x", "y", "scale", "rotation", "blur", "maskX", "maskY"};
 bool isKeyframeParam(const std::string& name);
 
 struct Clip {

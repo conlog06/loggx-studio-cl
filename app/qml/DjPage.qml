@@ -365,8 +365,7 @@ Rectangle {
             Label { text: "FX"; font.bold: true; color: "#b05bff" }
             ComboBox {
                 implicitWidth: 130
-                model: [qsTr("Echo"), qsTr("Hall"), qsTr("Bremse"), qsTr("Ping-Pong"), qsTr("Flanger"), qsTr("Phaser"),
-                        qsTr("Trans"), qsTr("Roll"), qsTr("Filter"), qsTr("Rauschen")]
+                model: dj.fxNameList
                 currentIndex: dj.fxType
                 onActivated: function (i) { dj.setFx(i, dj.fxBeats, dj.fxWet, dj.fxTarget) }
             }

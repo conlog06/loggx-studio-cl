@@ -338,3 +338,52 @@ void AppController::clearRecent() {
     QSettings().remove(QStringLiteral("recent"));
     emit recentChanged();
 }
+
+// ------------------------------------------------------------ Masken-Tracking
+
+bool AppController::trackSelectedMask() {
+    if (m_task) return false;
+    const Clip* c = m_project.findClip(str(m_selected));
+    if (!c || c->mask.shape == MaskShape::None) {
+        setStatus(tr("Erst eine Maske auf den Clip legen"));
+        return false;
+    }
+    const std::string id = c->id;
+    const TimeUs from = std::clamp(m_position, c->start, c->end() - 1);
+    auto snapshot = std::make_shared<const Project>(m_project);
+    auto result = std::make_shared<MaskTrackResult>();
+    runTask(tr("Verfolge Maske …"),
+            [snapshot, id, from, result](const std::function<void(double)>& progress, const std::atomic<bool>& cancel) {
+                *result = trackMask(*snapshot, id, from, [&](double p) {
+                    progress(p);
+                    return !cancel.load();
+                });
+            },
+            [this, id, from, result] {
+                if (!result->error.empty()) {
+                    setStatus(qstr(result->error));
+                    return;
+                }
+                if (result->x.size() < 2) {
+                    setStatus(tr("Nichts zu verfolgen"));
+                    return;
+                }
+                apply([&](Project& p) {
+                    Clip* clip = p.findClip(id);
+                    if (!clip) return false;
+                    // Keyframes ab dem Startpunkt ersetzen, davor behalten
+                    const TimeUs rel = from - clip->start;
+                    for (const char* param : {"maskX", "maskY"}) {
+                        auto& keys = clip->keys[param];
+                        keys.erase(std::remove_if(keys.begin(), keys.end(), [rel](const Keyframe& k) { return k.t >= rel; }), keys.end());
+                        const auto& add = std::string(param) == "maskX" ? result->x : result->y;
+                        keys.insert(keys.end(), add.begin(), add.end());
+                        std::sort(keys.begin(), keys.end(), [](const Keyframe& a, const Keyframe& b) { return a.t < b.t; });
+                    }
+                    return true;
+                });
+                setStatus(result->lost ? tr("Maske über %1 Bilder verfolgt – danach verloren (verdeckt oder Schnitt)").arg(result->frames)
+                                       : tr("Maske über %1 Bilder verfolgt").arg(result->frames));
+            });
+    return true;
+}
