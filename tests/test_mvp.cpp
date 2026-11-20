@@ -1129,6 +1129,13 @@ void testDjCueAndJog() {
 }
 
 // Eingebaute Stem-Engine: Schlagzeug und Bass landen im richtigen Stem
+// VST3-Klassen-Id wie aus der Suche (Byte-Reihenfolge ist je System verschieden)
+std::string vst3Id(const std::string& name) {
+    for (const auto& i : loggx::scanVst3(LOGGX_TEST_VST3))
+        if (i.name == name) return i.id;
+    return {};
+}
+
 void testPluginHost() {
     // CLAP und VST3: laden, Parameter, Verarbeitung, Zustand, Suche
     struct Case {
@@ -1139,12 +1146,13 @@ void testPluginHost() {
         double half;   // Parameterwert für Faktor 0,5
     };
     const Case cases[] = {{"clap", LOGGX_TEST_CLAP, "de.loggx.test.gain", "7", 0.5},
-                          {"vst3", LOGGX_TEST_VST3, "4C58544553544741494E303132333435", "3", 0.25}};
+                          {"vst3", LOGGX_TEST_VST3, "", "3", 0.25}};
     for (const Case& c : cases) {
         loggx::PluginInfo info;
         info.format = c.format;
         info.path = c.path;
-        info.id = c.id;
+        info.id = std::string(c.format) == "vst3" ? vst3Id("LX Test Gain VST3") : c.id;
+        CHECK(!info.id.empty());
         std::string err;
         auto p = loggx::loadPlugin(info, 48000, 512, &err);
         if (!p) std::fprintf(stderr, "%s: %s\n", c.format, err.c_str());
@@ -1216,7 +1224,7 @@ void testPluginHost() {
     }
     // Instrument-Plugins: Instrumentspur spielt ihre MIDI-Noten über das Plugin
     for (const auto& [format, path, id] : std::vector<std::tuple<std::string, std::string, std::string>>{
-             {"clap", LOGGX_TEST_CLAP, "de.loggx.test.synth"}, {"vst3", LOGGX_TEST_VST3, "4C585445535453594E54483132333435"}}) {
+             {"clap", LOGGX_TEST_CLAP, "de.loggx.test.synth"}, {"vst3", LOGGX_TEST_VST3, vst3Id("LX Test Synth VST3")}}) {
         loggx::Project proj = loggx::Project::createDefault();
         std::string inst;
         for (auto& t : proj.tracks)
