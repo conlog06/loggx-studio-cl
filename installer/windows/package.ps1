@@ -30,6 +30,11 @@ Copy-Item (Join-Path $appBin "LoggX Studio.exe") $app
 Copy-Item (Join-Path $appBin "*.dll") $app
 Copy-Item (Join-Path $BuildDir "$Config\loggx-render.exe") $app
 Copy-Item (Join-Path $BuildDir "$Config\*.dll") $app -ErrorAction SilentlyContinue
+# LibRaw (RAW-Fotos) sicherheitshalber direkt aus vcpkg
+if ($env:VCPKG_INSTALLATION_ROOT) {
+    Get-ChildItem (Join-Path $env:VCPKG_INSTALLATION_ROOT "installed\x64-windows\bin") -Filter "raw*.dll" -ErrorAction SilentlyContinue |
+        ForEach-Object { if (-not (Test-Path (Join-Path $app $_.Name))) { Copy-Item $_.FullName $app } }
+}
 
 # 2. Qt-Bibliotheken, Plugins und QML-Module
 & (Join-Path $QtDir "bin\windeployqt.exe") --release --qmldir app\qml --no-translations `
