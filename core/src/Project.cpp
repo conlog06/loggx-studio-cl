@@ -874,17 +874,19 @@ std::string Project::toJson(const std::string& baseDir) const {
         if (t.pan != 0.0) jt["pan"] = t.pan;
         if (t.kind == TrackKind::Instrument)
             jt["instrument"] = kInstrumentIds[static_cast<int>(t.instrument)];
+        auto pluginJson = [](const PluginRef& pl) {
+            json jp = {{"uid", pl.uid}, {"format", pl.format}, {"id", pl.pluginId}, {"path", pl.path},
+                       {"name", pl.name}, {"vendor", pl.vendor}};
+            if (pl.bypass) jp["bypass"] = true;
+            if (!pl.params.empty()) jp["params"] = pl.params;
+            if (!pl.state.empty()) jp["state"] = base64Encode(pl.state);
+            return jp;
+        };
         if (!t.plugins.empty()) {
             jt["plugins"] = json::array();
-            for (const auto& pl : t.plugins) {
-                json jp = {{"uid", pl.uid}, {"format", pl.format}, {"id", pl.pluginId}, {"path", pl.path},
-                           {"name", pl.name}, {"vendor", pl.vendor}};
-                if (pl.bypass) jp["bypass"] = true;
-                if (!pl.params.empty()) jp["params"] = pl.params;
-                if (!pl.state.empty()) jp["state"] = base64Encode(pl.state);
-                jt["plugins"].push_back(std::move(jp));
-            }
+            for (const auto& pl : t.plugins) jt["plugins"].push_back(pluginJson(pl));
         }
+        if (!t.instrumentPlugin.uid.empty()) jt["instrumentPlugin"] = pluginJson(t.instrumentPlugin);
         if (!t.fx.isNeutral())
             jt["effects"] = {{"eqLow", t.fx.eqLow}, {"eqMid", t.fx.eqMid},
                              {"eqHigh", t.fx.eqHigh}, {"compressor", t.fx.compressor},
@@ -980,6 +982,21 @@ bool Project::fromJson(const std::string& text, const std::string& baseDir, Proj
             const std::string inst = jt.value("instrument", "piano");
             for (int i = 0; i < kInstrumentCount; ++i)
                 if (inst == kInstrumentIds[i]) t.instrument = static_cast<InstrumentType>(i);
+            auto readPlugin = [](const json& jp) {
+                PluginRef pl;
+                pl.uid = jp.value("uid", "");
+                pl.format = jp.value("format", "");
+                pl.pluginId = jp.value("id", "");
+                pl.path = jp.value("path", "");
+                pl.name = jp.value("name", "");
+                pl.vendor = jp.value("vendor", "");
+                pl.bypass = jp.value("bypass", false);
+                if (jp.contains("params") && jp["params"].is_object())
+                    for (auto it = jp["params"].begin(); it != jp["params"].end(); ++it) pl.params[it.key()] = it.value().get<double>();
+                pl.state = base64Decode(jp.value("state", ""));
+                return pl;
+            };
+            if (jt.contains("instrumentPlugin")) t.instrumentPlugin = readPlugin(jt["instrumentPlugin"]);
             for (const auto& jp : jt.value("plugins", json::array())) {
                 PluginRef pl;
                 pl.uid = jp.value("uid", "");

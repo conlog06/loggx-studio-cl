@@ -8,6 +8,7 @@
 #include "pluginterfaces/vst/ivstmessage.h"
 #include "pluginterfaces/vst/ivstattributes.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
+#include "pluginterfaces/vst/ivstevents.h"
 
 namespace Steinberg {
 DEF_CLASS_IID(IPlugView)
@@ -23,5 +24,6 @@ DEF_CLASS_IID(IMessage)
 DEF_CLASS_IID(IAttributeList)
 DEF_CLASS_IID(IParameterChanges)
 DEF_CLASS_IID(IParamValueQueue)
+DEF_CLASS_IID(IEventList)
 }  // namespace Vst
 }  // namespace Steinberg

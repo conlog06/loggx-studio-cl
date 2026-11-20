@@ -144,6 +144,8 @@ struct AudioMixer::Source {
 struct AudioMixer::TrackState {
     TrackFxProcessor fx;
     std::vector<std::pair<std::shared_ptr<AudioPlugin>, bool>> plugins;   // Instanz, umgangen
+    std::shared_ptr<AudioPlugin> instrument;                              // Instrument-Plugin
+    std::int64_t lastEnd = -1;                                            // Sprung erkennen
 };
 
 AudioMixer::AudioMixer() = default;
@@ -172,8 +174,12 @@ std::map<std::string, std::string> AudioMixer::pluginErrors() const {
 void AudioMixer::syncPlugins(const Project& project) {
     std::lock_guard lock(m_pluginMutex);
     std::map<std::string, PluginSlot> next;
-    for (const Track& t : project.tracks)
-        for (const PluginRef& ref : t.plugins) {
+    for (const Track& t : project.tracks) {
+        std::vector<const PluginRef*> refs;
+        for (const PluginRef& r : t.plugins) refs.push_back(&r);
+        if (!t.instrumentPlugin.uid.empty() && t.kind == TrackKind::Instrument) refs.push_back(&t.instrumentPlugin);
+        for (const PluginRef* refp : refs) {
+            const PluginRef& ref = *refp;
             PluginSlot slot;
             auto old = m_plugins.find(ref.uid);
             if (old != m_plugins.end()) {
@@ -211,6 +217,7 @@ void AudioMixer::syncPlugins(const Project& project) {
             slot.applied = ref.params;
             next[ref.uid] = std::move(slot);
         }
+    }
     m_plugins = std::move(next);   // nicht mehr benutzte Instanzen werden freigegeben
 }
 
@@ -220,12 +227,14 @@ void AudioMixer::setProject(std::shared_ptr<const Project> project) {
     m_project = std::move(project);
     {
         std::lock_guard plock(m_pluginMutex);
-        for (auto& [id, st] : m_trackStates) st->plugins.clear();
+        for (auto& [id, st] : m_trackStates) st->plugins.clear(), st->instrument.reset();
         if (m_project)
             for (const Track& t : m_project->tracks) {
-                if (t.plugins.empty()) continue;
+                if (t.plugins.empty() && t.instrumentPlugin.uid.empty()) continue;
                 auto& st = m_trackStates[t.id];
                 if (!st) st = std::make_unique<TrackState>();
+                if (!t.instrumentPlugin.uid.empty() && t.kind == TrackKind::Instrument)
+                    if (auto it = m_plugins.find(t.instrumentPlugin.uid); it != m_plugins.end()) st->instrument = it->second.plugin;
                 for (const PluginRef& ref : t.plugins) {
                     auto it = m_plugins.find(ref.uid);
                     if (it != m_plugins.end()) st->plugins.emplace_back(it->second.plugin, ref.bypass);
@@ -382,8 +391,36 @@ void AudioMixer::render(std::int64_t position, float* interleaved, std::size_t f
         std::fill(m_trackBuf.begin(), m_trackBuf.end(), 0.0f);
         bool anything = false;
 
+        // Instrument-Plugin: Noten dieses Blocks sammeln und das Plugin spielen lassen
+        auto& instState = m_trackStates[track.id];
+        if (instState && instState->instrument) {
+            std::vector<NoteEvent> events;
+            for (const Clip& clip : track.clips) {
+                if (clip.kind != ClipKind::Midi || clip.audioOff) continue;
+                for (const Note& note : clip.notes) {
+                    if (note.start < clip.in || note.start >= clip.in + clip.duration) continue;
+                    const TimeUs onUs = clip.start + (note.start - clip.in);
+                    const TimeUs offUs = std::min(onUs + note.length, clip.end());
+                    const std::int64_t on = onUs * rate / kSecond;
+                    const std::int64_t off = std::max<std::int64_t>(on + 1, offUs * rate / kSecond);
+                    const int pitch = std::clamp(note.pitch + static_cast<int>(std::lround(clip.pitch)), 0, 127);
+                    if (on >= position && on < blockEnd) events.push_back({static_cast<std::uint32_t>(on - position), pitch, static_cast<float>(note.velocity), true});
+                    if (off >= position && off < blockEnd) events.push_back({static_cast<std::uint32_t>(off - position), pitch, 0.0f, false});
+                }
+            }
+            // Gleicher Zeitpunkt: erst loslassen, dann anschlagen
+            std::stable_sort(events.begin(), events.end(), [](const NoteEvent& a, const NoteEvent& b) {
+                return a.offset != b.offset ? a.offset < b.offset : (!a.on && b.on);
+            });
+            if (instState->lastEnd != position) instState->instrument->allNotesOff();   // Sprung/Stopp
+            instState->lastEnd = blockEnd;
+            instState->instrument->processNotes(m_trackBuf.data(), frames, events);
+            anything = true;
+        }
+
         for (const Clip& clip : track.clips) {
             if (clip.audioOff) continue;
+            if (clip.kind == ClipKind::Midi && instState && instState->instrument) continue;   // spielt das Plugin
             const std::int64_t clipStart = clip.start * rate / kSecond;
             const std::int64_t clipEnd = clip.end() * rate / kSecond;
 

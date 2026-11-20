@@ -405,6 +405,8 @@ QVariantList AppController::tracks() const {
                                    {QStringLiteral("vendor"), qstr(pl.vendor)}, {QStringLiteral("format"), qstr(pl.format)},
                                    {QStringLiteral("bypass"), pl.bypass}};
         m[QStringLiteral("plugins")] = plugins;
+        m[QStringLiteral("instrumentPlugin")] = qstr(t.instrumentPlugin.name);
+        m[QStringLiteral("instrumentUid")] = qstr(t.instrumentPlugin.uid);
         bool sound = t.kind != TrackKind::Video;
         for (const auto& c : t.clips)
             if (c.kind == ClipKind::Media)

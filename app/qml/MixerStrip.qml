@@ -161,7 +161,7 @@ Rectangle {
             font.pixelSize: 10
             color: root.master ? Theme.accent : root.track.kind === "instrument" ? "#d9822b" : root.track.kind === "audio" ? Theme.audio : Theme.video
             text: root.master ? qsTr("Summe + Limiter")
-                  : root.track.kind === "instrument" ? app.instrumentNames[root.track.instrument]
+                  : root.track.kind === "instrument" ? (root.track.instrumentPlugin || app.instrumentNames[root.track.instrument])
                   : root.track.kind === "audio" ? qsTr("Audio") : qsTr("Ton der Videospur")
         }
 

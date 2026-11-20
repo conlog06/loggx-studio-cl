@@ -56,10 +56,10 @@ void AppController::setSeparationMethod(int method) {
     emit workChanged();
 }
 
-void AppController::ensureModels(const QStringList& ids, std::function<void()> then) {
+void AppController::ensureModels(const QStringList& ids, std::function<void()> then, std::function<void(const QString&)> failed) {
     // Läuft schon ein Download (z. B. automatisch im Hintergrund): danach weiter
     if (m_models->busy()) {
-        QTimer::singleShot(1000, this, [this, ids, then] { ensureModels(ids, then); });
+        QTimer::singleShot(1000, this, [this, ids, then, failed] { ensureModels(ids, then, failed); });
         return;
     }
     for (const QString& id : ids) {
@@ -75,16 +75,17 @@ void AppController::ensureModels(const QStringList& ids, std::function<void()> t
             m_workProgress = total > 0 ? static_cast<double>(got) / static_cast<double>(total) : 0.0;
             emit workChanged();
         });
-        m_models->download(*model, [this, ids, then, conn](bool ok, const QString& error) {
+        m_models->download(*model, [this, ids, then, failed, conn](bool ok, const QString& error) {
             disconnect(*conn);
             m_downloading = false;
             emit workChanged();
             emit modelsChanged();
             if (!ok) {
                 setStatus(error);
+                if (failed) failed(error);
                 return;
             }
-            ensureModels(ids, then);   // nächstes fehlendes Modell
+            ensureModels(ids, then, failed);   // nächstes fehlendes Modell
         });
         return;
     }
@@ -242,6 +243,10 @@ bool AppController::separateSelected(bool keepVocals, int method) {
                                      : tr("Gesang entfernt – die Gesangsspur liegt stumm darunter (Gesangsanteil %1 %)")
                                            .arg(std::lround(result->vocalShare * 100)));
             });
+    }, [=, this](const QString& error) {
+        // KI-Modell nicht ladbar (offline, Server weg): ohne KI trennen
+        setStatus(tr("KI-Modell nicht verfügbar (%1) – trenne mit der eingebauten Engine").arg(error));
+        QTimer::singleShot(0, this, [=, this] { separateSelected(keepVocals, 2); });
     });
     return true;
 }

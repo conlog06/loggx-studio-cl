@@ -75,6 +75,7 @@ int main(int argc, char** argv) {
 
     // RAW-Fotos: entwickelte Bilder dauerhaft im Cache-Ordner der App ablegen
     loggx::setRawCacheDir((QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QStringLiteral("/raw")).toStdString());
+    AppController::enablePluginScanHelper();
     AppController controller;
     DjController dj(&controller);
     DjMidi djmidi(&dj);

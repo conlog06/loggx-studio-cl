@@ -85,14 +85,14 @@ Item {
             title: qsTr("Instrument")
             enabled: root.track !== null && root.track.kind === "instrument"
             Repeater {
-                model: app.instrumentNames
+                model: { app.availablePlugins; return app.instrumentChoices() }
                 MenuItem {
                     required property string modelData
                     required property int index
                     text: modelData
                     checkable: true
-                    checked: root.track !== null && root.track.instrument === index
-                    onTriggered: app.setTrackProperty(root.trackIndex, "instrument", index)
+                    checked: { app.tracks; return root.track !== null && app.instrumentChoice(root.trackIndex) === index }
+                    onTriggered: app.setInstrumentChoice(root.trackIndex, index)
                 }
             }
         }

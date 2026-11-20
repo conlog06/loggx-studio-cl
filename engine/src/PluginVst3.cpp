@@ -33,7 +33,7 @@ namespace loggx {
 namespace fs = std::filesystem;
 
 namespace {
-fs::path u8path(const std::string& s) { return fs::path(std::u8string(s.begin(), s.end())); }
+[[maybe_unused]] fs::path u8path(const std::string& s) { return fs::path(std::u8string(s.begin(), s.end())); }
 
 std::string fromU16(const char16* s) {
     std::string out;
@@ -171,6 +171,27 @@ public:
         q->points.clear();
         index = used++;
         return q;
+    }
+};
+
+class EventList final : public Unknown<IEventList> {
+public:
+    std::vector<Event> events;
+    tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
+        LX_QUERY(IEventList)
+        LX_QUERY(FUnknown)
+        *obj = nullptr;
+        return kNoInterface;
+    }
+    int32 PLUGIN_API getEventCount() override { return static_cast<int32>(events.size()); }
+    tresult PLUGIN_API getEvent(int32 i, Event& e) override {
+        if (i < 0 || i >= static_cast<int32>(events.size())) return kResultFalse;
+        e = events[static_cast<std::size_t>(i)];
+        return kResultOk;
+    }
+    tresult PLUGIN_API addEvent(Event& e) override {
+        events.push_back(e);
+        return kResultOk;
     }
 };
 
@@ -394,6 +415,10 @@ public:
     std::mutex queueMutex;
     std::vector<std::pair<ParamID, ParamValue>> queue;
     ParamChanges* changes = new ParamChanges;
+    EventList* noteList = new EventList;
+    bool hasInput = true, hasEvents = false;
+    std::vector<int> held;
+    std::atomic<bool> panic{false};
     std::vector<float> inL, inR, outL, outR;
     int maxBlock = 4096;
 
@@ -415,6 +440,7 @@ public:
             component->release();
         }
         changes->release();
+        noteList->release();
         handler->owner = nullptr;
         handler->release();
     }
@@ -424,7 +450,12 @@ public:
         queue.emplace_back(id, v);
     }
 
-    void process(float* io, std::size_t frames) override {
+    void process(float* io, std::size_t frames) override { processNotes(io, frames, {}); }
+
+    void allNotesOff() override { panic = true; }
+
+    void processNotes(float* io, std::size_t frames, const std::vector<NoteEvent>& notes) override {
+        std::size_t nextNote = 0;
         if (!processing.load()) {
             processor->setProcessing(true);
             processing = true;
@@ -446,6 +477,27 @@ public:
                     queue.clear();
                 }
             }
+            // Noten dieses Teilblocks
+            noteList->events.clear();
+            auto addNote = [&](int32 offset, int key, float vel, bool on) {
+                Event e{};
+                e.busIndex = 0;
+                e.sampleOffset = offset;
+                e.type = on ? Event::kNoteOnEvent : Event::kNoteOffEvent;
+                if (on) e.noteOn = {0, static_cast<int16>(key), 0.0f, vel, 0, -1};
+                else e.noteOff = {0, static_cast<int16>(key), vel, -1, 0.0f};
+                noteList->events.push_back(e);
+            };
+            if (panic.exchange(false)) {
+                for (int k : held) addNote(0, k, 0.0f, false);
+                held.clear();
+            }
+            for (; nextNote < notes.size() && notes[nextNote].offset < done + n; ++nextNote) {
+                const NoteEvent& ne = notes[nextNote];
+                addNote(static_cast<int32>(ne.offset >= done ? ne.offset - done : 0), ne.key, ne.velocity, ne.on);
+                if (ne.on) held.push_back(ne.key);
+                else if (auto it = std::find(held.begin(), held.end(), ne.key); it != held.end()) held.erase(it);
+            }
             float* ins[2] = {inL.data(), inR.data()};
             float* outs[2] = {outL.data(), outR.data()};
             AudioBusBuffers in{}, out{};
@@ -456,10 +508,12 @@ public:
             d.processMode = kRealtime;
             d.symbolicSampleSize = kSample32;
             d.numSamples = static_cast<int32>(n);
-            d.numInputs = d.numOutputs = 1;
-            d.inputs = &in;
+            d.numInputs = hasInput ? 1 : 0;
+            d.numOutputs = 1;
+            d.inputs = hasInput ? &in : nullptr;
             d.outputs = &out;
             d.inputParameterChanges = changes;
+            d.inputEvents = hasEvents ? noteList : nullptr;
             if (processor->process(d) == kResultOk)
                 for (std::size_t i = 0; i < n; ++i) p[i * 2] = outL[i], p[i * 2 + 1] = outR[i];
             done += n;
@@ -692,6 +746,12 @@ std::unique_ptr<AudioPlugin> loadVst3(const PluginInfo& info, int rate, int maxB
     p->processor->setBusArrangements(nIn > 0 ? &st : nullptr, nIn > 0 ? 1 : 0, &st, 1);
     if (nIn > 0) p->component->activateBus(kAudio, kInput, 0, true);
     p->component->activateBus(kAudio, kOutput, 0, true);
+    p->hasInput = nIn > 0;
+    // Instrumente: Noten-Eingang
+    if (p->component->getBusCount(kEvent, kInput) > 0) {
+        p->component->activateBus(kEvent, kInput, 0, true);
+        p->hasEvents = true;
+    }
     ProcessSetup setup{kRealtime, kSample32, maxBlock, static_cast<SampleRate>(rate)};
     if (p->processor->setupProcessing(setup) != kResultOk || p->component->setActive(true) != kResultOk) {
         if (error) *error = "VST3: Plugin lässt sich nicht einrichten";

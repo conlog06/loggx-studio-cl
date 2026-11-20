@@ -56,6 +56,78 @@ QVariantList AppController::availablePlugins() const {
     return list;
 }
 
+namespace {
+QVariantList cachedInstruments() {
+    QVariantList list;
+    const QJsonArray arr = QJsonDocument::fromJson(QSettings().value(QStringLiteral("plugins/cache")).toByteArray()).array();
+    for (const auto& v : arr)
+        if (v.toObject().value(QStringLiteral("instrument")).toBool()) list << v.toObject().toVariantMap();
+    return list;
+}
+}  // namespace
+
+QStringList AppController::instrumentChoices() const {
+    QStringList out = instrumentNames();
+    for (const QVariant& v : cachedInstruments()) {
+        const QVariantMap m = v.toMap();
+        out << m.value(QStringLiteral("name")).toString() + QStringLiteral(" (") + m.value(QStringLiteral("format")).toString().toUpper() + QLatin1Char(')');
+    }
+    return out;
+}
+
+int AppController::instrumentChoice(int trackIndex) const {
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_project.tracks.size())) return 0;
+    const Track& t = m_project.tracks[static_cast<std::size_t>(trackIndex)];
+    if (t.instrumentPlugin.uid.empty()) return static_cast<int>(t.instrument);
+    const QVariantList inst = cachedInstruments();
+    for (int i = 0; i < inst.size(); ++i) {
+        const QVariantMap m = inst[i].toMap();
+        if (m.value(QStringLiteral("format")).toString() == qstr(t.instrumentPlugin.format) &&
+            m.value(QStringLiteral("id")).toString() == qstr(t.instrumentPlugin.pluginId))
+            return static_cast<int>(instrumentNames().size()) + i;
+    }
+    return static_cast<int>(t.instrument);
+}
+
+QString AppController::instrumentPluginUid(int trackIndex) const {
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_project.tracks.size())) return {};
+    return qstr(m_project.tracks[static_cast<std::size_t>(trackIndex)].instrumentPlugin.uid);
+}
+
+bool AppController::setInstrumentChoice(int trackIndex, int choice) {
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(m_project.tracks.size())) return false;
+    const int builtIn = static_cast<int>(instrumentNames().size());
+    const QString oldUid = instrumentPluginUid(trackIndex);
+    if (choice < builtIn) {
+        if (!oldUid.isEmpty()) closePluginEditor(oldUid);
+        return apply([&](Project& p) {
+            Track& t = p.tracks[static_cast<std::size_t>(trackIndex)];
+            t.instrumentPlugin = {};
+            t.instrument = static_cast<InstrumentType>(choice);
+            return true;
+        });
+    }
+    const QVariantList inst = cachedInstruments();
+    if (choice - builtIn >= inst.size()) return false;
+    const PluginInfo info = infoFromMap(inst[choice - builtIn].toMap());
+    PluginRef ref;
+    ref.uid = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    ref.format = info.format;
+    ref.pluginId = info.id;
+    ref.path = info.path;
+    ref.name = info.name;
+    ref.vendor = info.vendor;
+    if (!oldUid.isEmpty()) closePluginEditor(oldUid);
+    const bool ok = apply([&](Project& p) {
+        p.tracks[static_cast<std::size_t>(trackIndex)].instrumentPlugin = ref;
+        return true;
+    });
+    const auto errors = m_mixer.pluginErrors();
+    if (auto it = errors.find(ref.uid); it != errors.end()) setStatus(tr("%1: %2").arg(qstr(ref.name), qstr(it->second)));
+    else if (ok) setStatus(tr("Instrument: %1 – Doppelklick in der Spur oder „Oberfläche öffnen“ zeigt das Plugin").arg(qstr(ref.name)));
+    return ok;
+}
+
 QStringList AppController::pluginFolders() const { return QSettings().value(QStringLiteral("plugins/dirs")).toStringList(); }
 
 void AppController::setPluginFolders(const QStringList& dirs) {
@@ -69,18 +141,22 @@ QStringList AppController::defaultPluginFolders() const {
     return out;
 }
 
+// Nur die echte App kennt „--scan-plugins“ (Tests und andere Programme nicht)
+static bool g_scanHelper = false;
+void AppController::enablePluginScanHelper() { g_scanHelper = true; }
+
 bool AppController::scanPluginsNow() {
     if (m_task) return false;
     std::vector<std::string> extra;
     for (const QString& d : pluginFolders()) extra.push_back(d.toStdString());
     auto found = std::make_shared<std::vector<PluginInfo>>();
     auto crashed = std::make_shared<QStringList>();
-    const QString exe = QCoreApplication::applicationFilePath();
+    const QString exe = g_scanHelper ? QCoreApplication::applicationFilePath() : QString();
     runTask(tr("Suche Plugins …"),
             [extra, found, crashed, exe](const std::function<void(double)>&, const std::atomic<bool>& cancel) {
                 // In einem eigenen Prozess: stürzt ein Plugin ab, wird es übersprungen
                 QTemporaryDir tmp;
-                for (int attempt = 0; attempt < 12 && !cancel.load(); ++attempt) {
+                for (int attempt = 0; attempt < 12 && !cancel.load() && !exe.isEmpty(); ++attempt) {
                     QStringList args{QStringLiteral("--scan-plugins"), tmp.filePath(QStringLiteral("plugins.json"))};
                     for (const auto& d : extra) args << QStringLiteral("--plugin-dir") << QString::fromStdString(d);
                     for (const QString& c : *crashed) args << QStringLiteral("--plugin-skip") << c;
@@ -218,8 +294,12 @@ bool AppController::setPluginParam(int trackIndex, const QString& uid, const QSt
 // und nach Änderungen in der Plugin-Oberfläche) – ohne Rückgängig-Schritt
 void AppController::capturePluginStates() {
     bool changed = false;
-    for (auto& t : m_project.tracks)
-        for (auto& r : t.plugins) {
+    for (auto& t : m_project.tracks) {
+        std::vector<PluginRef*> refs;
+        for (auto& r : t.plugins) refs.push_back(&r);
+        if (!t.instrumentPlugin.uid.empty()) refs.push_back(&t.instrumentPlugin);
+        for (PluginRef* rp : refs) {
+            PluginRef& r = *rp;
             auto pl = m_mixer.plugin(r.uid);
             if (!pl) continue;
             std::string st = pl->saveState();
@@ -228,6 +308,7 @@ void AppController::capturePluginStates() {
             r.params.clear();   // der Zustand enthält alle Werte
             changed = true;
         }
+    }
     if (changed) {
         m_shared = std::make_shared<const Project>(m_project);
         m_mixer.setProject(m_shared);   // gleicher Zustand → kein Neuladen

@@ -1,6 +1,7 @@
 // Test-Plugin (VST3): Verstärkung mit einem Parameter, Komponente und
 // Controller in einem Objekt, Zustand speicherbar.
 #include <atomic>
+#include <cmath>
 #include <cstring>
 
 #include "pluginterfaces/base/ibstream.h"
@@ -9,6 +10,7 @@
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
+#include "pluginterfaces/vst/ivstevents.h"
 
 using namespace Steinberg;
 using namespace Steinberg::Vst;
@@ -20,6 +22,7 @@ DEF_CLASS_IID(IAudioProcessor)
 DEF_CLASS_IID(IEditController)
 DEF_CLASS_IID(IParameterChanges)
 DEF_CLASS_IID(IParamValueQueue)
+DEF_CLASS_IID(IEventList)
 }  // namespace Vst
 }  // namespace Steinberg
 
@@ -132,6 +135,56 @@ public:
     IPlugView* PLUGIN_API createView(FIDString) override { return nullptr; }
 };
 
+// ---- Test-Instrument (VST3): Sinus, Noten über den Event-Eingang
+const TUID kSynthCid = INLINE_UID(0x4C585445, 0x53545359, 0x4E544831, 0x32333435);
+class Synth : public Gain {
+public:
+    double rate = 48000, phase = 0, freq = 0, amp = 0;
+    int key = -1;
+    int32 PLUGIN_API getBusCount(MediaType t, BusDirection d) override {
+        if (t == kEvent) return d == kInput ? 1 : 0;
+        return d == kOutput ? 1 : 0;
+    }
+    tresult PLUGIN_API getBusInfo(MediaType t, BusDirection d, int32 i, BusInfo& b) override {
+        if (i != 0) return kResultFalse;
+        if (t == kEvent && d == kInput) {
+            b.mediaType = kEvent;
+            b.direction = kInput;
+            b.channelCount = 1;
+            copy16(b.name, "Noten");
+            b.busType = kMain;
+            b.flags = BusInfo::kDefaultActive;
+            return kResultOk;
+        }
+        if (t == kAudio && d == kOutput) return Gain::getBusInfo(t, d, i, b);
+        return kResultFalse;
+    }
+    tresult PLUGIN_API setupProcessing(ProcessSetup& s) override { return rate = s.sampleRate, kResultOk; }
+    tresult PLUGIN_API process(ProcessData& d) override {
+        int32 ev = 0;
+        const int32 nev = d.inputEvents ? d.inputEvents->getEventCount() : 0;
+        for (int32 i = 0; i < d.numSamples; ++i) {
+            for (; ev < nev; ++ev) {
+                Event e{};
+                d.inputEvents->getEvent(ev, e);
+                if (e.sampleOffset > i) break;
+                if (e.type == Event::kNoteOnEvent) {
+                    key = e.noteOn.pitch;
+                    freq = 440.0 * std::pow(2.0, (key - 69) / 12.0);
+                    amp = 0.5 * e.noteOn.velocity;
+                } else if (e.type == Event::kNoteOffEvent && e.noteOff.pitch == key) {
+                    amp = 0;
+                    key = -1;
+                }
+            }
+            const float v = static_cast<float>(amp * std::sin(phase));
+            phase += 2 * 3.14159265358979 * freq / rate;
+            d.outputs[0].channelBuffers32[0][i] = d.outputs[0].channelBuffers32[1][i] = v;
+        }
+        return kResultOk;
+    }
+};
+
 class Factory : public IPluginFactory {
 public:
     tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
@@ -149,19 +202,21 @@ public:
         std::strcpy(i->vendor, "LoggX");
         return kResultOk;
     }
-    int32 PLUGIN_API countClasses() override { return 1; }
+    int32 PLUGIN_API countClasses() override { return 2; }
     tresult PLUGIN_API getClassInfo(int32 index, PClassInfo* i) override {
-        if (index != 0) return kResultFalse;
+        if (index != 0 && index != 1) return kResultFalse;
         std::memset(i, 0, sizeof *i);
-        std::memcpy(i->cid, kCid, sizeof(TUID));
+        std::memcpy(i->cid, index == 0 ? kCid : kSynthCid, sizeof(TUID));
         i->cardinality = PClassInfo::kManyInstances;
         std::strcpy(i->category, kVstAudioEffectClass);
-        std::strcpy(i->name, "LX Test Gain VST3");
+        std::strcpy(i->name, index == 0 ? "LX Test Gain VST3" : "LX Test Synth VST3");
         return kResultOk;
     }
     tresult PLUGIN_API createInstance(FIDString cid, FIDString iid, void** obj) override {
-        if (!FUnknownPrivate::iidEqual(cid, kCid)) return *obj = nullptr, kResultFalse;
-        auto* g = new Gain;
+        Gain* g = nullptr;
+        if (FUnknownPrivate::iidEqual(cid, kCid)) g = new Gain;
+        else if (FUnknownPrivate::iidEqual(cid, kSynthCid)) g = new Synth;
+        else return *obj = nullptr, kResultFalse;
         const tresult r = g->queryInterface(iid, obj);
         g->release();
         return r;

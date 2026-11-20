@@ -143,9 +143,15 @@ Rectangle {
                 visible: root.hasClip && root.clip.isMidi
                 ComboBox {
                     Layout.fillWidth: true
-                    model: app.instrumentNames
-                    currentIndex: root.hasClip && root.clip.isMidi ? root.clip.instrument : 0
-                    onActivated: function (i) { app.setTrackProperty(root.clip.trackIndex, "instrument", i) }
+                    model: { app.availablePlugins; return app.instrumentChoices() }
+                    currentIndex: { app.tracks; return root.hasClip && root.clip.isMidi ? app.instrumentChoice(root.clip.trackIndex) : 0 }
+                    onActivated: function (i) { app.setInstrumentChoice(root.clip.trackIndex, i) }
+                }
+                Button {
+                    readonly property string uid: { app.tracks; return root.hasClip && root.clip.isMidi ? app.instrumentPluginUid(root.clip.trackIndex) : "" }
+                    visible: uid !== ""
+                    text: qsTr("Oberfläche des Instruments öffnen")
+                    onClicked: app.openPluginEditor(uid)
                 }
                 Button {
                     text: qsTr("Noten bearbeiten …")

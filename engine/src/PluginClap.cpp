@@ -60,12 +60,19 @@ bool hasFeature(const clap_plugin_descriptor_t* d, const char* f) {
     return false;
 }
 
-// Ereignisliste für Parameteränderungen
+// Ereignisliste: erst Parameter (Zeit 0), dann Noten (nach Zeit sortiert)
 struct EventList {
     std::vector<clap_event_param_value_t> events;
-    clap_input_events_t in{this, [](const clap_input_events_t* l) { return static_cast<uint32_t>(static_cast<EventList*>(l->ctx)->events.size()); },
+    std::vector<clap_event_note_t> notes;
+    clap_input_events_t in{this,
+                           [](const clap_input_events_t* l) {
+                               auto* e = static_cast<EventList*>(l->ctx);
+                               return static_cast<uint32_t>(e->events.size() + e->notes.size());
+                           },
                            [](const clap_input_events_t* l, uint32_t i) -> const clap_event_header_t* {
-                               return &static_cast<EventList*>(l->ctx)->events[i].header;
+                               auto* e = static_cast<EventList*>(l->ctx);
+                               if (i < e->events.size()) return &e->events[i].header;
+                               return &e->notes[i - e->events.size()].header;
                            }};
 };
 clap_output_events_t g_nullOut{nullptr, [](const clap_output_events_t*, const clap_event_header_t*) { return true; }};
@@ -97,10 +104,40 @@ public:
 
     uint32_t maxBlock = 4096;
 
-    void process(float* io, std::size_t frames) override {
+    uint32_t audioInputs = 1;
+    std::vector<int> held;          // klingende Tasten
+    std::atomic<bool> panic{false};
+
+    void process(float* io, std::size_t frames) override { processNotes(io, frames, {}); }
+
+    void allNotesOff() override { panic = true; }
+
+    void processNotes(float* io, std::size_t frames, const std::vector<NoteEvent>& notes) override {
         // In Blöcken bis zur beim Aktivieren genannten Größe
+        std::size_t next = 0;
         for (std::size_t done = 0; done < frames;) {
             const std::size_t n = std::min<std::size_t>(frames - done, maxBlock);
+            events.notes.clear();
+            auto addNote = [&](uint32_t time, int key, double vel, bool on) {
+                clap_event_note_t e{};
+                e.header = {sizeof e, time, CLAP_CORE_EVENT_SPACE_ID, static_cast<uint16_t>(on ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF), 0};
+                e.note_id = -1;
+                e.port_index = 0;
+                e.channel = 0;
+                e.key = static_cast<int16_t>(key);
+                e.velocity = vel;
+                events.notes.push_back(e);
+            };
+            if (panic.exchange(false)) {
+                for (int k : held) addNote(0, k, 0.0, false);
+                held.clear();
+            }
+            for (; next < notes.size() && notes[next].offset < done + n; ++next) {
+                const NoteEvent& ne = notes[next];
+                addNote(static_cast<uint32_t>(ne.offset >= done ? ne.offset - done : 0), ne.key, ne.velocity, ne.on);
+                if (ne.on) held.push_back(ne.key);
+                else if (auto it = std::find(held.begin(), held.end(), ne.key); it != held.end()) held.erase(it);
+            }
             processBlock(io + done * 2, n);
             done += n;
         }
@@ -134,9 +171,10 @@ public:
         clap_process_t p{};
         p.steady_time = -1;
         p.frames_count = static_cast<uint32_t>(frames);
-        p.audio_inputs = &inBuf;
+        p.audio_inputs = audioInputs > 0 ? &inBuf : nullptr;
         p.audio_outputs = &outBuf;
-        p.audio_inputs_count = p.audio_outputs_count = 1;
+        p.audio_inputs_count = audioInputs > 0 ? 1 : 0;
+        p.audio_outputs_count = 1;
         p.in_events = &events.in;
         p.out_events = &g_nullOut;
         if (plugin->process(plugin, &p) == CLAP_PROCESS_ERROR) return;
@@ -322,6 +360,8 @@ std::unique_ptr<AudioPlugin> loadClap(const PluginInfo& info, int rate, int maxB
         return nullptr;
     }
     p->maxBlock = static_cast<uint32_t>(maxBlock);
+    if (const auto* ports = static_cast<const clap_plugin_audio_ports_t*>(p->plugin->get_extension(p->plugin, CLAP_EXT_AUDIO_PORTS)))
+        p->audioInputs = ports->count(p->plugin, true);
     p->paramsExt = static_cast<const clap_plugin_params_t*>(p->plugin->get_extension(p->plugin, CLAP_EXT_PARAMS));
     p->stateExt = static_cast<const clap_plugin_state_t*>(p->plugin->get_extension(p->plugin, CLAP_EXT_STATE));
     p->guiExt = static_cast<const clap_plugin_gui_t*>(p->plugin->get_extension(p->plugin, CLAP_EXT_GUI));

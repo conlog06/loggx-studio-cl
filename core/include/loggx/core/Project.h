@@ -205,6 +205,7 @@ struct Track {
     InstrumentType instrument = InstrumentType::Piano;
     TrackEffects fx;
     std::vector<PluginRef> plugins;   // nach den eingebauten Effekten, in dieser Reihenfolge
+    PluginRef instrumentPlugin;       // Instrumentspur: Plugin statt eingebautem Klang (uid leer = eingebaut)
     std::vector<Clip> clips;   // immer nach start sortiert, überlappungsfrei
 
     bool hasSound() const { return kind != TrackKind::Video; }

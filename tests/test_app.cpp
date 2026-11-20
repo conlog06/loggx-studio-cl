@@ -83,6 +83,34 @@ int main(int argc, char** argv) {
     CHECK(app.addAssetToTimeline(asset));
     CHECK(std::abs(app.duration() - 4.0) < 0.2);
 
+    // Plugins: Suche (Test-Plugins über CLAP_PATH), Effekt einsetzen, Instrument wählen
+    {
+        qputenv("CLAP_PATH", QByteArray(LOGGX_TEST_PLUGDIR));
+        CHECK(app.scanPluginsNow());
+        CHECK(waitFor([&] { return !app.working(); }, 20000));
+        const QStringList choices = app.instrumentChoices();
+        const int builtIn = app.instrumentNames().size();
+        int synthChoice = -1;
+        for (int i = builtIn; i < choices.size(); ++i)
+            if (choices[i].startsWith("LX Test Synth (CLAP)")) synthChoice = i;
+        CHECK(synthChoice >= builtIn);
+        bool gain = false;
+        for (const auto& v : app.availablePlugins()) gain = gain || v.toMap().value("name").toString() == "LX Test Gain";
+        CHECK(gain);
+        int instTrack = -1;
+        for (int i = 0; i < static_cast<int>(app.project().tracks.size()); ++i)
+            if (app.project().tracks[static_cast<std::size_t>(i)].kind == loggx::TrackKind::Instrument) instTrack = i;
+        if (instTrack >= 0) {
+            CHECK(app.setInstrumentChoice(instTrack, synthChoice));
+            CHECK(app.instrumentChoice(instTrack) == synthChoice && !app.instrumentPluginUid(instTrack).isEmpty());
+            CHECK(app.pluginError(app.instrumentPluginUid(instTrack)).isEmpty());
+            CHECK(app.setInstrumentChoice(instTrack, 0) && app.instrumentPluginUid(instTrack).isEmpty());
+            app.undo();
+            CHECK(!app.instrumentPluginUid(instTrack).isEmpty());
+            app.undo();
+        }
+    }
+
     // Eigene Vorlagen: speichern (mit Medien + Vorschau), als Paket teilen, einlesen
     {
         for (const auto& t : app.templates()) app.deleteTemplate(t.toMap().value("dir").toString());

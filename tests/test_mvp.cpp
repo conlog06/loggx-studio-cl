@@ -1,3 +1,4 @@
+#include <tuple>
 // Tests der MVP-Funktionen der Engine: Transformation, Farbe, LUT,
 // Effekte, Blenden, Keyframes, Titel, Instrumente, Mixer und H.265.
 #include <atomic>
@@ -1213,11 +1214,49 @@ void testPluginHost() {
         CHECK(pr.params.at("7") == 0.5 && pr.bypass && pr.path == LOGGX_TEST_CLAP && pr.state == proj.findTrack(inst)->plugins[0].state);
         std::printf("Plugin im Mix: %.3f → %.3f\n", plain, withPlugin);
     }
+    // Instrument-Plugins: Instrumentspur spielt ihre MIDI-Noten über das Plugin
+    for (const auto& [format, path, id] : std::vector<std::tuple<std::string, std::string, std::string>>{
+             {"clap", LOGGX_TEST_CLAP, "de.loggx.test.synth"}, {"vst3", LOGGX_TEST_VST3, "4C585445535453594E54483132333435"}}) {
+        loggx::Project proj = loggx::Project::createDefault();
+        std::string inst;
+        for (auto& t : proj.tracks)
+            if (t.kind == loggx::TrackKind::Instrument) inst = t.id;
+        const std::string mid = proj.addMidiClip(inst, 0, 2 * kSecond);
+        proj.findClip(mid)->notes.push_back({69, 100'000, 400'000, 1.0});   // A4 = 440 Hz, 0,1–0,5 s
+        loggx::PluginRef ref;
+        ref.uid = "inst-" + format;
+        ref.format = format;
+        ref.pluginId = id;
+        ref.path = path;
+        ref.name = "Synth";
+        proj.findTrack(inst)->instrumentPlugin = ref;
+        loggx::AudioMixer mx;
+        mx.setProject(std::make_shared<const loggx::Project>(proj));
+        std::vector<float> out(48000 * 2);
+        for (int b = 0; b < 48000; b += 512) mx.render(b, out.data() + b * 2, std::min(512, 48000 - b));   // in Blöcken wie live
+        auto rms = [&](int a, int e) {
+            double sum = 0;
+            for (int i = a; i < e; ++i) sum += out[static_cast<std::size_t>(i) * 2] * out[static_cast<std::size_t>(i) * 2];
+            return std::sqrt(sum / (e - a));
+        };
+        int crossings = 0;
+        for (int i = 9600; i < 19200; ++i) crossings += (out[static_cast<std::size_t>(i - 1) * 2] < 0) != (out[static_cast<std::size_t>(i) * 2] < 0);
+        const double hz = crossings / 2.0 / 0.2;
+        std::printf("Instrument-Plugin %s: vorher %.4f, Note %.3f (%.0f Hz), danach %.5f\n", format.c_str(), rms(0, 4000), rms(6000, 22000), hz, rms(26000, 48000));
+        CHECK(mx.pluginErrors().empty());
+        CHECK(rms(0, 4000) < 1e-4 && rms(6000, 22000) > 0.05 && rms(26000, 48000) < 1e-4);
+        CHECK(std::abs(hz - 440.0) < 6.0);
+        // Speichern/Laden behält das Instrument
+        loggx::Project q;
+        std::string e;
+        CHECK(loggx::Project::fromJson(proj.toJson(), {}, q, &e) && q.findTrack(inst)->instrumentPlugin.pluginId == id);
+    }
     const auto found = loggx::scanPlugins({LOGGX_TEST_PLUGDIR});
     int clap = 0, vst3 = 0;
     for (const auto& f : found) {
         if (f.format == "clap" && f.id == "de.loggx.test.gain") ++clap;
         if (f.format == "vst3" && f.name == "LX Test Gain VST3") ++vst3;
+        if (f.name == "LX Test Synth") CHECK(f.instrument);   // VST3: nur über PClassInfo2 (hat das Test-Plugin nicht)
     }
     std::printf("Plugins: %zu gefunden (Test-CLAP %d, Test-VST3 %d)\n", found.size(), clap, vst3);
     CHECK(clap == 1 && vst3 == 1);

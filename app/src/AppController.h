@@ -275,7 +275,13 @@ public:
     QStringList pluginFolders() const;
     void setPluginFolders(const QStringList& dirs);
     Q_INVOKABLE QStringList defaultPluginFolders() const;
+    // Instrumente: eingebaute Klänge + gefundene Instrument-Plugins in einer Liste
+    Q_INVOKABLE QStringList instrumentChoices() const;
+    Q_INVOKABLE int instrumentChoice(int trackIndex) const;
+    Q_INVOKABLE bool setInstrumentChoice(int trackIndex, int choice);
+    Q_INVOKABLE QString instrumentPluginUid(int trackIndex) const;
     Q_INVOKABLE bool scanPluginsNow();
+    static void enablePluginScanHelper();
     Q_INVOKABLE bool addPlugin(int trackIndex, const QVariantMap& plugin);
     Q_INVOKABLE bool removePlugin(int trackIndex, const QString& uid);
     Q_INVOKABLE bool setPluginBypass(int trackIndex, const QString& uid, bool bypass);
@@ -323,7 +329,7 @@ public:
     void setSeparationMethod(int method);
     class ModelManager* models() const { return m_models; }
     // Fehlende KI-Modelle laden (mit Fortschritt), danach then() aufrufen.
-    void ensureModels(const QStringList& ids, std::function<void()> then);
+    void ensureModels(const QStringList& ids, std::function<void()> then, std::function<void(const QString&)> failed = {});
     Q_INVOKABLE void cancelWork();
     Q_INVOKABLE QStringList keyNames(bool minor) const;
     // ---- ganzer Song

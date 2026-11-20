@@ -159,6 +159,8 @@ if(LOGGX_BUILD_TESTS)
     src/MidiInput.cpp src/MidiInput.h)
   target_include_directories(test_app PRIVATE src ../tests)
   target_link_libraries(test_app PRIVATE loggx_engine loggx_rtmidi Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Network)
+  target_compile_definitions(test_app PRIVATE LOGGX_TEST_PLUGDIR="${CMAKE_BINARY_DIR}/testplugins")
+  add_dependencies(test_app lx_test_clap lx_test_vst3)
   add_test(NAME app COMMAND test_app)
 endif()
 

@@ -586,7 +586,7 @@ void DjController::prepareStems(const QString& path) {
     }
     const bool ai = m_stemEngine == 1 && aiSeparationAvailable();
     // Läuft im Hintergrund; danach Decks mit Stems neu laden
-    auto run = [this, path, dir, ai] {
+    auto run = [this, path, dir](bool ai) {
         m_working = true;
         m_workProgress = 0;
         m_workLabel = (ai ? tr("KI trennt Stems: %1") : tr("Stems werden getrennt: %1")).arg(QFileInfo(path).completeBaseName());
@@ -634,8 +634,14 @@ void DjController::prepareStems(const QString& path) {
         });
         thread->start();
     };
-    if (ai) m_app->ensureModels({QStringLiteral("vocals"), QStringLiteral("drums"), QStringLiteral("bass")}, run);
-    else run();
+    if (ai)
+        m_app->ensureModels({QStringLiteral("vocals"), QStringLiteral("drums"), QStringLiteral("bass")}, [run] { run(true); },
+                            [this, run](const QString& error) {
+                                // KI-Modelle nicht ladbar: eingebaute Engine nehmen
+                                setStatus(tr("KI-Modelle nicht verfügbar (%1) – Stems mit der eingebauten Engine").arg(error));
+                                run(false);
+                            });
+    else run(false);
 }
 
 void DjController::setStemEngine(int engine) {

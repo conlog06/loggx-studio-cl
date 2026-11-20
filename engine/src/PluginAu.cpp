@@ -48,14 +48,37 @@ public:
         return noErr;
     }
 
-    void process(float* io, std::size_t frames) override {
-        std::size_t done = 0;
+    bool instrument = false;
+    std::vector<int> held;
+    bool panic = false;
+
+    void allNotesOff() override { panic = true; }
+
+    void process(float* io, std::size_t frames) override { processNotes(io, frames, {}); }
+
+    void processNotes(float* io, std::size_t frames, const std::vector<NoteEvent>& notes) override {
+        std::size_t done = 0, nextNote = 0;
         std::vector<float> outL, outR;
         while (done < frames) {
             const std::size_t n = std::min<std::size_t>(frames - done, static_cast<std::size_t>(maxBlock));
             inL.resize(n), inR.resize(n), outL.assign(n, 0.0f), outR.assign(n, 0.0f);
             float* p = io + done * 2;
             for (std::size_t i = 0; i < n; ++i) inL[i] = p[i * 2], inR[i] = p[i * 2 + 1];
+            if (instrument) {
+                if (panic) {
+                    for (int k : held) MusicDeviceMIDIEvent(unit, 0x80, static_cast<UInt32>(k), 0, 0);
+                    held.clear();
+                    panic = false;
+                }
+                for (; nextNote < notes.size() && notes[nextNote].offset < done + n; ++nextNote) {
+                    const NoteEvent& ne = notes[nextNote];
+                    const UInt32 off = static_cast<UInt32>(ne.offset >= done ? ne.offset - done : 0);
+                    const UInt32 vel = static_cast<UInt32>(std::clamp(ne.velocity * 127.0f, 1.0f, 127.0f));
+                    MusicDeviceMIDIEvent(unit, ne.on ? 0x90 : 0x80, static_cast<UInt32>(ne.key), ne.on ? vel : 0, off);
+                    if (ne.on) held.push_back(ne.key);
+                    else if (auto it = std::find(held.begin(), held.end(), ne.key); it != held.end()) held.erase(it);
+                }
+            }
             struct {
                 AudioBufferList list;
                 AudioBuffer second;
@@ -134,7 +157,7 @@ public:
 
 std::vector<PluginInfo> scanAudioUnits() {
     std::vector<PluginInfo> out;
-    for (OSType type : {kAudioUnitType_Effect, kAudioUnitType_MusicEffect}) {
+    for (OSType type : {kAudioUnitType_Effect, kAudioUnitType_MusicEffect, kAudioUnitType_MusicDevice}) {
         AudioComponentDescription d{type, 0, 0, 0, 0};
         AudioComponent c = nullptr;
         while ((c = AudioComponentFindNext(c, &d))) {
@@ -146,6 +169,7 @@ std::vector<PluginInfo> scanAudioUnits() {
             if (name) CFRelease(name);
             PluginInfo info;
             info.format = "au";
+            info.instrument = type == kAudioUnitType_MusicDevice;
             info.id = fourcc(cd.componentType) + ":" + fourcc(cd.componentSubType) + ":" + fourcc(cd.componentManufacturer);
             // Name ist „Hersteller: Plugin“
             const auto colon = full.find(": ");
@@ -173,10 +197,11 @@ std::unique_ptr<AudioPlugin> loadAudioUnit(const PluginInfo& info, int rate, int
         return nullptr;
     }
     p->maxBlock = maxBlock;
+    p->instrument = d.componentType == kAudioUnitType_MusicDevice;
     AudioStreamBasicDescription fmt{};
     fmt.mSampleRate = rate;
     fmt.mFormatID = kAudioFormatLinearPCM;
-    fmt.mFormatFlags = kAudioFormatFlagsNativeFloatPacked | kAudioFormatFlagIsNonInterleaved;
+    fmt.mFormatFlags = static_cast<AudioFormatFlags>(kAudioFormatFlagsNativeFloatPacked) | static_cast<AudioFormatFlags>(kAudioFormatFlagIsNonInterleaved);
     fmt.mBytesPerPacket = fmt.mBytesPerFrame = sizeof(float);
     fmt.mFramesPerPacket = 1;
     fmt.mChannelsPerFrame = 2;
@@ -185,8 +210,10 @@ std::unique_ptr<AudioPlugin> loadAudioUnit(const PluginInfo& info, int rate, int
     AudioUnitSetProperty(p->unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &fmt, sizeof fmt);
     UInt32 frames = static_cast<UInt32>(maxBlock);
     AudioUnitSetProperty(p->unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &frames, sizeof frames);
-    AURenderCallbackStruct cb{&AuPlugin::input, p.get()};
-    AudioUnitSetProperty(p->unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &cb, sizeof cb);
+    if (!p->instrument) {
+        AURenderCallbackStruct cb{&AuPlugin::input, p.get()};
+        AudioUnitSetProperty(p->unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &cb, sizeof cb);
+    }
     if (AudioUnitInitialize(p->unit) != noErr) {
         if (error) *error = "AU: Plugin lässt sich nicht starten";
         return nullptr;

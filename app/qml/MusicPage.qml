@@ -271,9 +271,9 @@ FocusScope {
                                     Label { text: qsTr("Instrument"); color: Theme.dim }
                                     ComboBox {
                                         Layout.fillWidth: true
-                                        model: app.instrumentNames
-                                        currentIndex: root.midi ? root.clip.instrument : 0
-                                        onActivated: function (i) { app.setTrackProperty(root.clip.trackIndex, "instrument", i) }
+                                        model: { app.availablePlugins; return app.instrumentChoices() }
+                                        currentIndex: { app.tracks; return root.midi ? app.instrumentChoice(root.clip.trackIndex) : 0 }
+                                        onActivated: function (i) { app.setInstrumentChoice(root.clip.trackIndex, i) }
                                     }
                                     Label { text: qsTr("Raster"); color: Theme.dim }
                                     ComboBox {

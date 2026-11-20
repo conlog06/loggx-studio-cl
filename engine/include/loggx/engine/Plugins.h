@@ -1,6 +1,7 @@
 #pragma once
 // Audio-Plugins: CLAP, VST3 und (macOS) Audio Units als Effekte auf Spuren.
 // Alles im Prozess; Verarbeitung Stereo, 32 Bit Float.
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -24,6 +25,14 @@ struct PluginParam {
     std::string unit;
 };
 
+// Note für Instrument-Plugins (Versatz in Abtastwerten innerhalb des Blocks)
+struct NoteEvent {
+    std::uint32_t offset = 0;
+    int key = 60;
+    float velocity = 0.8f;
+    bool on = true;
+};
+
 class AudioPlugin {
 public:
     virtual ~AudioPlugin() = default;
@@ -31,6 +40,13 @@ public:
     void setInfo(const PluginInfo& i) { m_info = i; }
     // Audio-Thread: Stereo, verschachtelt, an Ort und Stelle
     virtual void process(float* interleaved, std::size_t frames) = 0;
+    // Instrumente: Noten im Block (nach offset sortiert); Standard: ohne Noten
+    virtual void processNotes(float* interleaved, std::size_t frames, const std::vector<NoteEvent>& notes) {
+        (void)notes;
+        process(interleaved, frames);
+    }
+    // Alle klingenden Noten beenden (Stopp, Sprung)
+    virtual void allNotesOff() {}
     // Haupt-Thread
     virtual std::vector<PluginParam> params() = 0;
     virtual void setParam(const std::string& id, double value) = 0;
