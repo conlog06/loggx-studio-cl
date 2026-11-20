@@ -8,3 +8,9 @@ race:av_buffer_pool_get
 race:av_buffer_pool_uninit
 mutex:libswscale
 race:libswscale
+# SVT-AV1 (AV1-Export) und libaom: eigene Thread-Bibliotheken
+called_from_lib:libSvtAv1Enc.so
+mutex:libSvtAv1Enc
+race:libSvtAv1Enc
+deadlock:libSvtAv1Enc
+called_from_lib:libaom.so
