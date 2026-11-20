@@ -10,8 +10,10 @@ Rectangle {
     id: root
     property bool clipNavigation: false     // ◀ Clip / Clip ▶ (Farbe)
     property string rightText: app.timecode(app.duration)
-    implicitHeight: 48
+    implicitHeight: mcRow.visible ? 84 : 48
     color: Theme.bg
+    // Multicam: aktuelle Gruppe (wird beim Abspielen neu gelesen)
+    readonly property var mc: { app.position; return app.multicam }
 
     FileDialog {
         id: stillDialog
@@ -22,8 +24,58 @@ Rectangle {
         onAccepted: app.exportStill(selectedFile)
     }
 
+    // Multicam-Kameras: Klick oder Taste 1–9 schneidet am Abspielkopf um
     RowLayout {
-        anchors.fill: parent
+        id: mcRow
+        visible: root.mc.angles !== undefined
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: 12
+        anchors.rightMargin: 12
+        anchors.topMargin: 4
+        height: 32
+        spacing: 6
+        Label { text: (root.mc.name || "") + ":"; color: Theme.dim; font.pixelSize: 12 }
+        Repeater {
+            model: root.mc.angles || []
+            Rectangle {
+                required property int index
+                required property var modelData
+                readonly property bool active: root.mc.current === index
+                Layout.preferredWidth: 120
+                Layout.preferredHeight: 28
+                radius: 5
+                opacity: modelData.available ? 1 : 0.4
+                color: active ? Theme.alpha("#ff3b5c", 0.25) : mcMouse.containsMouse ? Theme.hover : Theme.panel2
+                border.color: active ? "#ff3b5c" : Theme.border
+                Label {
+                    anchors.centerIn: parent
+                    text: (parent.index + 1) + "  " + parent.modelData.name
+                    font.bold: parent.active
+                    font.pixelSize: 12
+                    color: parent.active ? "white" : Theme.dim
+                }
+                MouseArea {
+                    id: mcMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    enabled: parent.modelData.available
+                    onClicked: app.switchAngle(parent.index)
+                }
+                ToolTip.text: modelData.file + qsTr(" – Taste %1").arg(index + 1)
+                ToolTip.visible: mcMouse.containsMouse
+                ToolTip.delay: 500
+            }
+        }
+        Item { Layout.fillWidth: true }
+    }
+
+    RowLayout {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 48
         anchors.leftMargin: 12
         anchors.rightMargin: 12
         spacing: 4

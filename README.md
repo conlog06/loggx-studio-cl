@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), Masken-Tracking, KI-Freistellung, Auto-Reframe, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -105,6 +105,11 @@ Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Video
 - **KI-Freistellung** (Inspector → Effekte): Person/Objekt wird erkannt, der Hintergrund wird durchsichtig – ohne Greenscreen; darunterliegende Videospur scheint durch. Modelle: U²-Net small (4,6 MB, in der Vollversion enthalten) oder U²-Net Personen (176 MB, beste Qualität, Download bei Bedarf), beide Apache-2.0; Regler „Kante“ weich ↔ hart. Findet das Modell kein Motiv, bleibt das Bild sichtbar
 - **AV1-Videos** (z. B. YouTube-Downloads) werden über dav1d dekodiert; lässt sich ein Video-Codec nicht dekodieren, meldet der Import das, statt schwarz zu bleiben
 - **HDR-Export (HLG)**: H.265 Main 10 oder ProRes, BT.2020, Transfer HLG (ARIB STD-B67); SDR-Weiß nach BT.2408 auf 75 % HLG – sieht auf HDR-Fernsehern, YouTube und iPhone richtig aus und auf normalen Bildschirmen weiterhin korrekt
+- **Audio-Plugins (CLAP, VST3, Audio Units auf dem Mac)** als Effekte auf jeder Spur: im Mixer bei PLUGINS auf „+“ – Suche nach Name/Hersteller, Reihenfolge, Bypass, eigene Oberfläche des Plugins im eigenen Fenster (Windows/macOS) oder Parameter-Regler, Zustand wird im Projekt gespeichert und beim Export mitgerechnet. Gesucht wird in den Standardordnern (+ eigene Ordner und `CLAP_PATH`/`VST3_PATH`); die Suche läuft in einem eigenen Prozess – ein abstürzendes Plugin wird übersprungen statt LXStudio mitzureißen. Der Host ist direkt gegen die offiziellen Schnittstellen geschrieben (CLAP 1.2 und Steinberg VST3 pluginterfaces 3.8, beide MIT) und wird mit eigenen Test-Plugins geprüft
+- **Multicam**: mehrere Kameras derselben Szene wählen („Multicam …“) – LXStudio richtet sie über den Ton aus (Kreuzkorrelation, auf die Millisekunde), legt eine Programmspur und eine Tonspur der Hauptkamera an. Geschnitten wird mit den Tasten 1–9 oder den Kamera-Knöpfen unter der Vorschau – auch live beim Abspielen; gleiche Kameras nebeneinander werden zusammengefasst
+- **RAW-Fotos** (CR2/CR3, NEF, ARW, DNG, RAF, ORF, RW2, PEF, …) über LibRaw: beim Import einmal entwickelt (Kamera-Weißabgleich, 16 Bit) und zwischengespeichert; beschädigte Dateien werden gemeldet
+- **AV1-Export**: SVT-AV1 (sonst libaom) oder die Grafikkarte (NVIDIA RTX 40+, Intel Arc, AMD RX 7000+), auch mit HDR
+- **Eigene Vorlagen**: „Als Vorlage speichern …“ (Kopfzeile) nimmt Spuren, Clips, Titel, Effekte, Plugins und Kopien der Medien mit, samt Vorschaubild. Auf dem Startbildschirm: neues Projekt daraus, als `.lxpack` weitergeben, Pakete importieren (auch per Drag & Drop) – Pfade im Paket werden geprüft
 - **Auto-Reframe**: Video in ein anderes Format bringen (Hochkant 9:16 für Reels/TikTok/Shorts, 4:5, 1:1, 16:9) – Projektformat → Auto-Reframe → „Umwandeln“ oder im Inspektor pro Clip „Motiv folgen“. Das Motiv wird alle 0,25 s gesucht (mit KI-Freistellung, sonst über Bewegung und Kanten), der Schwenk geglättet wie bei einem ruhigen Kameramann (Totzone, ohne Verzögerung) und als Zoom + Keyframes gesetzt – alles rückgängig machbar und von Hand nachjustierbar
 - **Masken-Tracking**: Maske auf den Clip legen, Abspielkopf auf den Startpunkt, „Maske verfolgen“ – der Inhalt unter der Maske wird bis zum Clip-Ende verfolgt (Vorlagenvergleich, grob → fein, geglättet) und als Keyframes für die Maskenposition gesetzt; Maskenposition ist auch von Hand animierbar
 - **Mastering-Assistent** beim Audio-Export: misst die Lautheit (LUFS nach ITU-R BS.1770 mit Gating), formt den Klang leicht (Rumpelfilter, Bass, Luft), bringt den Mix auf das Ziel (Streaming −14, Club −9, Podcast −16 LUFS) und begrenzt Spitzen mit einem Limiter (−1 dBFS, 5 ms Vorschau). „Lautheit messen“ zeigt den aktuellen Wert.
@@ -124,10 +129,10 @@ Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Video
 | Phase | Inhalt |
 | --- | --- |
 | MVP (Rest) | GPU-Rendering (Metal / DirectX 12) – bis dahin rechnet alles auf der CPU; Online-Konten und Lizenzprüfung über einen Server |
-| 1.0 | AV1-Export, HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), VST3/AU/CLAP, Web-Admin-Dashboard (braucht einen Server) |
-| Ausbau | Marktplatz (braucht einen Server), Multicam, RAW |
+| 1.0 | HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), Plugin-Instrumente (VSTi/CLAP-Synths), Web-Admin-Dashboard (braucht einen Server) |
+| Ausbau | Online-Marktplatz (braucht einen Server – Vorlagen-Pakete gehen schon offline), RAW-Video (BRAW/R3D brauchen Hersteller-SDKs) |
 
-Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), Masken-Tracking, KI-Freistellung, Auto-Reframe, KI-Freistellung, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
+Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
 
 Bekannte Grenzen:
 

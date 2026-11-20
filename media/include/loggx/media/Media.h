@@ -70,7 +70,7 @@ struct ExportSettings {
     int sampleRate = 48000;
     std::int64_t videoBitrate = 0;   // 0 = automatisch aus Auflösung und Qualität
     // ProRes: Schnittformat (MOV, 10 Bit, Ton als PCM); 4444 mit Alpha-Kanal
-    enum class Codec { H264, H265, ProRes422HQ, ProRes4444 } codec = Codec::H264;
+    enum class Codec { H264, H265, ProRes422HQ, ProRes4444, AV1 } codec = Codec::H264;
     int quality = 1;                 // 0 klein, 1 normal, 2 hoch, 3 sehr hoch
     // HDR (HLG nach BT.2100/BT.2408): BT.2020, 10 Bit; SDR-Weiß = 75 % HLG.
     // Nur H.265 und ProRes.
@@ -89,6 +89,13 @@ struct ExportSettings {
 
 // Für die Systeminfo: FFmpeg-Version und verfügbare Encoder.
 std::string ffmpegVersion();
+// RAW-Fotos: Endung erkennen, mit LibRaw einmal zu 16-Bit-TIFF entwickeln
+// (Zwischenspeicher). probeMedia() macht das automatisch.
+bool rawSupported();
+bool isRawPhoto(const std::string& path);
+void setRawCacheDir(const std::string& dir);
+std::string developRaw(const std::string& path, std::string* error = nullptr);
+
 std::vector<std::string> availableEncoders();
 
 // Schreibt eine MP4/MOV/MKV-Datei (Container nach Dateiendung) mit H.264

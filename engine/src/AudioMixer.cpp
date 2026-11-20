@@ -1,4 +1,5 @@
 #include "loggx/engine/Engine.h"
+#include "loggx/engine/Plugins.h"
 
 #include "AudioFx.h"
 
@@ -142,6 +143,7 @@ struct AudioMixer::Source {
 
 struct AudioMixer::TrackState {
     TrackFxProcessor fx;
+    std::vector<std::pair<std::shared_ptr<AudioPlugin>, bool>> plugins;   // Instanz, umgangen
 };
 
 AudioMixer::AudioMixer() = default;
@@ -155,9 +157,81 @@ bool AudioMixer::hasStretcher() {
 #endif
 }
 
+std::shared_ptr<AudioPlugin> AudioMixer::plugin(const std::string& uid) const {
+    std::lock_guard lock(m_pluginMutex);
+    auto it = m_plugins.find(uid);
+    return it == m_plugins.end() ? nullptr : it->second.plugin;
+}
+
+std::map<std::string, std::string> AudioMixer::pluginErrors() const {
+    std::lock_guard lock(m_pluginMutex);
+    return m_pluginErrors;
+}
+
+// Plugins laden/abgleichen – außerhalb der Audio-Sperre (Laden kann dauern)
+void AudioMixer::syncPlugins(const Project& project) {
+    std::lock_guard lock(m_pluginMutex);
+    std::map<std::string, PluginSlot> next;
+    for (const Track& t : project.tracks)
+        for (const PluginRef& ref : t.plugins) {
+            PluginSlot slot;
+            auto old = m_plugins.find(ref.uid);
+            if (old != m_plugins.end()) {
+                slot = std::move(old->second);
+                m_plugins.erase(old);
+            } else if (!m_pluginErrors.count(ref.uid)) {
+                PluginInfo info;
+                info.format = ref.format;
+                info.id = ref.pluginId;
+                info.path = ref.path;
+                info.name = ref.name;
+                info.vendor = ref.vendor;
+                std::string error;
+                slot.plugin = loadPlugin(info, project.sampleRate, 4096, &error);
+                if (!slot.plugin) {
+                    m_pluginErrors[ref.uid] = error.empty() ? "Plugin nicht gefunden" : error;
+                    continue;
+                }
+                if (!ref.state.empty()) slot.plugin->loadState(ref.state);
+                slot.appliedState = ref.state;
+            } else {
+                continue;
+            }
+            if (!slot.plugin) continue;
+            // Zustand aus dem Projekt (z. B. Rückgängig) – nur wenn er sich geändert hat
+            if (ref.state != slot.appliedState) {
+                if (!ref.state.empty()) slot.plugin->loadState(ref.state);
+                slot.appliedState = ref.state;
+                slot.applied.clear();
+            }
+            for (const auto& [id, v] : ref.params) {
+                auto a = slot.applied.find(id);
+                if (a == slot.applied.end() || a->second != v) slot.plugin->setParam(id, v);
+            }
+            slot.applied = ref.params;
+            next[ref.uid] = std::move(slot);
+        }
+    m_plugins = std::move(next);   // nicht mehr benutzte Instanzen werden freigegeben
+}
+
 void AudioMixer::setProject(std::shared_ptr<const Project> project) {
+    if (project) syncPlugins(*project);
     std::lock_guard<std::mutex> lock(m_mutex);
     m_project = std::move(project);
+    {
+        std::lock_guard plock(m_pluginMutex);
+        for (auto& [id, st] : m_trackStates) st->plugins.clear();
+        if (m_project)
+            for (const Track& t : m_project->tracks) {
+                if (t.plugins.empty()) continue;
+                auto& st = m_trackStates[t.id];
+                if (!st) st = std::make_unique<TrackState>();
+                for (const PluginRef& ref : t.plugins) {
+                    auto it = m_plugins.find(ref.uid);
+                    if (it != m_plugins.end()) st->plugins.emplace_back(it->second.plugin, ref.bypass);
+                }
+            }
+    }
     for (auto it = m_sources.begin(); it != m_sources.end();) {
         const Clip* clip = m_project ? m_project->findClip(it->first) : nullptr;
         const MediaAsset* asset =
@@ -309,6 +383,7 @@ void AudioMixer::render(std::int64_t position, float* interleaved, std::size_t f
         bool anything = false;
 
         for (const Clip& clip : track.clips) {
+            if (clip.audioOff) continue;
             const std::int64_t clipStart = clip.start * rate / kSecond;
             const std::int64_t clipEnd = clip.end() * rate / kSecond;
 
@@ -376,9 +451,11 @@ void AudioMixer::render(std::int64_t position, float* interleaved, std::size_t f
         if (!state) state = std::make_unique<TrackState>();
         if (jumped) state->fx.reset();
         // Effekte laufen auch ohne Clip weiter, damit Hall und Echo ausklingen.
-        if (!anything && track.fx.reverb <= 0.0 && track.fx.delay <= 0.0) continue;
+        if (!anything && track.fx.reverb <= 0.0 && track.fx.delay <= 0.0 && state->plugins.empty()) continue;
         if (!track.fx.isNeutral())
             state->fx.process(m_trackBuf.data(), frames, track.fx, project.bpm, rate);
+        for (auto& [pl, bypass] : state->plugins)
+            if (!bypass) pl->process(m_trackBuf.data(), frames);
 
         // Lautstärke und Panorama (gleiche Leistung)
         const double angle = (std::clamp(track.pan, -1.0, 1.0) + 1.0) * 0.25 * 3.14159265358979323846;

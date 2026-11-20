@@ -663,6 +663,8 @@ json clipToJson(const Clip& c) {
     if (c.kind != ClipKind::Media) jc["kind"] = clipKindName(c.kind);
     if (c.kind == ClipKind::Media) jc["asset"] = c.assetId;
     if (c.speed != 1.0) jc["speed"] = c.speed;
+    if (!c.multicam.empty()) jc["multicam"] = {{"group", c.multicam}, {"angle", c.angle}};
+    if (c.audioOff) jc["audioOff"] = true;
     if (c.gain != 1.0) jc["gain"] = c.gain;
     if (c.pitch != 0.0) jc["pitch"] = c.pitch;
     if (c.opacity != 1.0) jc["opacity"] = c.opacity;
@@ -728,6 +730,11 @@ Clip clipFromJson(const json& jc) {
     c.in = jc.value("in", TimeUs{0});
     c.duration = jc.value("duration", TimeUs{0});
     c.speed = jc.value("speed", 1.0);
+    if (jc.contains("multicam")) {
+        c.multicam = jc["multicam"].value("group", "");
+        c.angle = jc["multicam"].value("angle", -1);
+    }
+    c.audioOff = jc.value("audioOff", false);
     c.gain = jc.value("gain", 1.0);
     c.pitch = jc.value("pitch", 0.0);
     c.opacity = jc.value("opacity", 1.0);
@@ -841,6 +848,7 @@ std::string Project::toJson(const std::string& baseDir) const {
                    {"duration", a.duration}, {"width", a.width},   {"height", a.height},
                    {"fps", a.fps},       {"hasVideo", a.hasVideo}, {"hasAudio", a.hasAudio},
                    {"isStill", a.isStill}};
+        if (!a.sourcePath.empty()) ja["sourcePath"] = a.sourcePath;
         if (a.bpm > 0.0 || a.key >= 0)
             ja["analysis"] = {{"bpm", a.bpm}, {"firstBeat", a.firstBeat}, {"key", a.key}, {"minor", a.keyMinor}};
         if (!baseDir.empty()) {
@@ -851,6 +859,13 @@ std::string Project::toJson(const std::string& baseDir) const {
         j["assets"].push_back(std::move(ja));
     }
 
+    j["multicams"] = json::array();
+    for (const auto& g : multicams) {
+        json jg = {{"id", g.id}, {"name", g.name}, {"start", g.start}, {"programTrack", g.programTrack}, {"audioTrack", g.audioTrack}};
+        jg["angles"] = json::array();
+        for (const auto& a : g.angles) jg["angles"].push_back({{"asset", a.assetId}, {"offset", a.offset}, {"name", a.name}});
+        j["multicams"].push_back(std::move(jg));
+    }
     j["tracks"] = json::array();
     for (const auto& t : tracks) {
         json jt = {{"id", t.id}, {"name", t.name}, {"kind", kindName(t.kind)},
@@ -859,6 +874,17 @@ std::string Project::toJson(const std::string& baseDir) const {
         if (t.pan != 0.0) jt["pan"] = t.pan;
         if (t.kind == TrackKind::Instrument)
             jt["instrument"] = kInstrumentIds[static_cast<int>(t.instrument)];
+        if (!t.plugins.empty()) {
+            jt["plugins"] = json::array();
+            for (const auto& pl : t.plugins) {
+                json jp = {{"uid", pl.uid}, {"format", pl.format}, {"id", pl.pluginId}, {"path", pl.path},
+                           {"name", pl.name}, {"vendor", pl.vendor}};
+                if (pl.bypass) jp["bypass"] = true;
+                if (!pl.params.empty()) jp["params"] = pl.params;
+                if (!pl.state.empty()) jp["state"] = base64Encode(pl.state);
+                jt["plugins"].push_back(std::move(jp));
+            }
+        }
         if (!t.fx.isNeutral())
             jt["effects"] = {{"eqLow", t.fx.eqLow}, {"eqMid", t.fx.eqMid},
                              {"eqHigh", t.fx.eqHigh}, {"compressor", t.fx.compressor},
@@ -906,6 +932,7 @@ bool Project::fromJson(const std::string& text, const std::string& baseDir, Proj
             a.id = ja.at("id").get<std::string>();
             a.name = ja.value("name", "");
             a.path = ja.value("path", "");
+            a.sourcePath = ja.value("sourcePath", "");
             a.duration = ja.value("duration", TimeUs{0});
             a.width = ja.value("width", 0);
             a.height = ja.value("height", 0);
@@ -930,6 +957,17 @@ bool Project::fromJson(const std::string& text, const std::string& baseDir, Proj
             p.assets.push_back(std::move(a));
         }
 
+        for (const auto& jg : j.value("multicams", json::array())) {
+            MulticamGroup g;
+            g.id = jg.value("id", "");
+            g.name = jg.value("name", "");
+            g.start = jg.value("start", TimeUs{0});
+            g.programTrack = jg.value("programTrack", "");
+            g.audioTrack = jg.value("audioTrack", "");
+            for (const auto& ja : jg.value("angles", json::array()))
+                g.angles.push_back({ja.value("asset", ""), ja.value("offset", TimeUs{0}), ja.value("name", "")});
+            if (!g.id.empty()) p.multicams.push_back(std::move(g));
+        }
         for (const auto& jt : j.value("tracks", json::array())) {
             Track t;
             t.id = jt.at("id").get<std::string>();
@@ -942,6 +980,20 @@ bool Project::fromJson(const std::string& text, const std::string& baseDir, Proj
             const std::string inst = jt.value("instrument", "piano");
             for (int i = 0; i < kInstrumentCount; ++i)
                 if (inst == kInstrumentIds[i]) t.instrument = static_cast<InstrumentType>(i);
+            for (const auto& jp : jt.value("plugins", json::array())) {
+                PluginRef pl;
+                pl.uid = jp.value("uid", "");
+                pl.format = jp.value("format", "");
+                pl.pluginId = jp.value("id", "");
+                pl.path = jp.value("path", "");
+                pl.name = jp.value("name", "");
+                pl.vendor = jp.value("vendor", "");
+                pl.bypass = jp.value("bypass", false);
+                if (jp.contains("params") && jp["params"].is_object())
+                    for (auto it = jp["params"].begin(); it != jp["params"].end(); ++it) pl.params[it.key()] = it.value().get<double>();
+                pl.state = base64Decode(jp.value("state", ""));
+                if (!pl.uid.empty() && !pl.format.empty()) t.plugins.push_back(std::move(pl));
+            }
             if (jt.contains("effects")) {
                 const auto& f = jt["effects"];
                 t.fx.eqLow = f.value("eqLow", 0.0);
@@ -1017,6 +1069,207 @@ bool Project::loadFile(const std::string& path, Project& out, std::string* error
     std::stringstream ss;
     ss << f.rdbuf();
     return fromJson(ss.str(), u8(fs::absolute(file).parent_path()), out, error);
+}
+
+}  // namespace loggx
+
+// ------------------------------------------------------------------ Multicam
+
+namespace loggx {
+
+const MulticamGroup* Project::findMulticam(const std::string& id) const {
+    for (const auto& g : multicams)
+        if (g.id == id) return &g;
+    return nullptr;
+}
+
+std::string Project::createMulticam(const std::string& groupName, const std::vector<MulticamAngle>& angles, TimeUs at) {
+    if (angles.size() < 2) return {};
+    // Bezug: Gruppe beginnt so, dass die früheste Kamera bei „at“ startet
+    TimeUs minOffset = 0, groupEnd = 0;
+    std::vector<TimeUs> durs;
+    for (const auto& a : angles) {
+        const MediaAsset* asset = findAsset(a.assetId);
+        if (!asset || !asset->hasVideo || asset->isStill || asset->duration <= 0) return {};
+        minOffset = std::min(minOffset, a.offset);
+        durs.push_back(asset->duration);
+    }
+    MulticamGroup g;
+    g.id = "m" + std::to_string(nextId++);
+    g.name = groupName;
+    g.start = std::max<TimeUs>(0, at) - minOffset;
+    g.angles = angles;
+    for (std::size_t i = 0; i < angles.size(); ++i) {
+        if (g.angles[i].name.empty()) g.angles[i].name = "Kamera " + std::to_string(i + 1);
+        groupEnd = std::max(groupEnd, g.start + angles[i].offset + durs[i]);
+    }
+    // Neue Spuren ganz oben: Programm (Bild) und Ton der Hauptkamera
+    const std::string prog = addTrack(TrackKind::Video, groupName);
+    const std::string audio = addTrack(TrackKind::Audio, groupName + " – Ton");
+    auto moveTo = [&](const std::string& id, std::size_t index) {
+        auto it = std::find_if(tracks.begin(), tracks.end(), [&](const Track& t) { return t.id == id; });
+        Track t = std::move(*it);
+        tracks.erase(it);
+        tracks.insert(tracks.begin() + static_cast<std::ptrdiff_t>(std::min(index, tracks.size())), std::move(t));
+    };
+    moveTo(prog, 0);
+    std::size_t firstAudio = 0;
+    while (firstAudio < tracks.size() && tracks[firstAudio].kind == TrackKind::Video) ++firstAudio;
+    moveTo(audio, firstAudio);
+    g.programTrack = prog;
+    g.audioTrack = audio;
+
+    // Programm: Abschnitte zwischen allen Anfängen/Enden, je die erste vorhandene Kamera
+    std::vector<TimeUs> cuts;
+    for (std::size_t i = 0; i < angles.size(); ++i) {
+        cuts.push_back(g.start + angles[i].offset);
+        cuts.push_back(g.start + angles[i].offset + durs[i]);
+    }
+    std::sort(cuts.begin(), cuts.end());
+    cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
+    Track* pt = findTrack(prog);
+    for (std::size_t s = 0; s + 1 < cuts.size(); ++s) {
+        const TimeUs a = cuts[s], b = cuts[s + 1];
+        int pick = -1;
+        for (std::size_t i = 0; i < angles.size() && pick < 0; ++i)
+            if (g.start + angles[i].offset <= a && g.start + angles[i].offset + durs[i] >= b) pick = static_cast<int>(i);
+        if (pick < 0) continue;
+        if (!pt->clips.empty() && pt->clips.back().angle == pick && pt->clips.back().end() == a) {
+            pt->clips.back().duration += b - a;
+            continue;
+        }
+        Clip c;
+        c.id = "c" + std::to_string(nextId++);
+        c.assetId = angles[static_cast<std::size_t>(pick)].assetId;
+        c.start = a;
+        c.duration = b - a;
+        c.in = a - g.start - angles[static_cast<std::size_t>(pick)].offset;
+        c.multicam = g.id;
+        c.angle = pick;
+        c.audioOff = true;
+        pt->clips.push_back(c);
+    }
+    // Ton: Hauptkamera
+    Track* at2 = findTrack(audio);
+    Clip snd;
+    snd.id = "c" + std::to_string(nextId++);
+    snd.assetId = angles[0].assetId;
+    snd.start = g.start + angles[0].offset;
+    snd.duration = durs[0];
+    at2->clips.push_back(snd);
+    multicams.push_back(std::move(g));
+    return multicams.back().id;
+}
+
+int Project::angleAt(const std::string& groupId, TimeUs t) const {
+    const MulticamGroup* g = findMulticam(groupId);
+    const Track* pt = g ? findTrack(g->programTrack) : nullptr;
+    if (!pt) return -1;
+    for (const Clip& c : pt->clips)
+        if (c.multicam == groupId && c.start <= t && t < c.end()) return c.angle;
+    return -1;
+}
+
+bool Project::switchAngle(const std::string& groupId, int angle, TimeUs t, std::string* error) {
+    const MulticamGroup* g = findMulticam(groupId);
+    Track* pt = g ? findTrack(g->programTrack) : nullptr;
+    if (!pt || angle < 0 || angle >= static_cast<int>(g->angles.size())) return false;
+    const MulticamAngle& a = g->angles[static_cast<std::size_t>(angle)];
+    const MediaAsset* asset = findAsset(a.assetId);
+    const TimeUs aStart = g->start + a.offset, aEnd = aStart + (asset ? asset->duration : 0);
+    if (t < aStart || t >= aEnd) {
+        if (error) *error = a.name + " hat an dieser Stelle keine Aufnahme";
+        return false;
+    }
+    auto it = std::find_if(pt->clips.begin(), pt->clips.end(), [&](const Clip& c) { return c.start <= t && t < c.end(); });
+    if (it == pt->clips.end() || it->multicam != groupId) {
+        if (error) *error = "Hier liegt kein Multicam-Clip";
+        return false;
+    }
+    if (it->angle == angle) return true;
+    std::string id = it->id;
+    // Am Abspielkopf schneiden (ganz am Anfang: ganzen Clip umschalten)
+    if (it->end() - t < kMinClipDuration) return true;
+    if (t - it->start >= kMinClipDuration) {
+        id = splitClip(id, t);
+        if (id.empty()) return false;
+    }
+    // Nicht über das Ende der neuen Kamera hinaus: Rest behält die alte Kamera
+    Clip* c = findClip(id);
+    if (c->end() > aEnd) splitClip(id, aEnd);
+    c = findClip(id);
+    c->assetId = a.assetId;
+    c->angle = angle;
+    c->in = c->start - g->start - a.offset;
+    c->audioOff = true;
+    // Gleiche Kamera direkt davor → zusammenfassen
+    Track* tr = nullptr;
+    findClip(id, &tr);
+    sortClips(*tr);
+    auto pos = std::find_if(tr->clips.begin(), tr->clips.end(), [&](const Clip& x) { return x.id == id; });
+    if (pos != tr->clips.begin()) {
+        auto prev = std::prev(pos);
+        if (prev->multicam == groupId && prev->angle == angle && std::abs(prev->end() - pos->start) <= 1000) {
+            prev->duration = pos->end() - prev->start;
+            tr->clips.erase(pos);
+            pos = std::find_if(tr->clips.begin(), tr->clips.end(), [&](const Clip& x) { return x.id == prev->id; });
+        }
+    }
+    // … und direkt danach ebenso
+    auto next = std::next(pos);
+    if (next != tr->clips.end() && next->multicam == groupId && next->angle == angle && std::abs(pos->end() - next->start) <= 1000) {
+        pos->duration = next->end() - pos->start;
+        tr->clips.erase(next);
+    }
+    return true;
+}
+
+}  // namespace loggx
+
+namespace loggx {
+
+std::string base64Encode(const std::string& data) {
+    static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((data.size() + 2) / 3 * 4);
+    std::size_t i = 0;
+    for (; i + 2 < data.size(); i += 3) {
+        const unsigned v = (static_cast<unsigned char>(data[i]) << 16) | (static_cast<unsigned char>(data[i + 1]) << 8) | static_cast<unsigned char>(data[i + 2]);
+        out += t[v >> 18], out += t[(v >> 12) & 63], out += t[(v >> 6) & 63], out += t[v & 63];
+    }
+    if (i + 1 == data.size()) {
+        const unsigned v = static_cast<unsigned char>(data[i]) << 16;
+        out += t[v >> 18], out += t[(v >> 12) & 63], out += "==";
+    } else if (i + 2 == data.size()) {
+        const unsigned v = (static_cast<unsigned char>(data[i]) << 16) | (static_cast<unsigned char>(data[i + 1]) << 8);
+        out += t[v >> 18], out += t[(v >> 12) & 63], out += t[(v >> 6) & 63], out += '=';
+    }
+    return out;
+}
+
+std::string base64Decode(const std::string& text) {
+    auto val = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    std::string out;
+    unsigned buf = 0;
+    int bits = 0;
+    for (char c : text) {
+        const int v = val(c);
+        if (v < 0) continue;
+        buf = (buf << 6) | static_cast<unsigned>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out += static_cast<char>((buf >> bits) & 0xFF);
+        }
+    }
+    return out;
 }
 
 }  // namespace loggx

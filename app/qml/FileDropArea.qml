@@ -29,6 +29,13 @@ DropArea {
             return
         }
         if (!drop.hasUrls) return
+        // Vorlagenpakete
+        const packs = drop.urls.filter(u => u.toString().toLowerCase().endsWith(".lxpack"))
+        if (packs.length > 0) {
+            for (const u of packs) app.importTemplatePack(u)
+            drop.accept(Qt.CopyAction)
+            if (packs.length === drop.urls.length) return
+        }
         let track = area.importOnly ? -2 : -1
         let seconds = -1
         if (area.timeline && !area.importOnly) {

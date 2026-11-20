@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(LoggXStudio VERSION 0.15.0 LANGUAGES C CXX)
+project(LoggXStudio VERSION 0.16.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -89,9 +89,32 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/license/public_key.txt)
   string(STRIP "${LOGGX_LICENSE_PUBKEY}" LOGGX_LICENSE_PUBKEY)
 endif()
 
-add_library(loggx_media STATIC media/src/Readers.cpp media/src/Exporter.cpp)
+add_library(loggx_media STATIC media/src/Readers.cpp media/src/Exporter.cpp media/src/Raw.cpp)
 target_include_directories(loggx_media PUBLIC media/include)
 target_link_libraries(loggx_media PUBLIC loggx_core PRIVATE loggx_ffmpeg)
+
+# ------------------------------------------------ LibRaw (optional, RAW-Fotos)
+set(LOGGX_HAVE_LIBRAW OFF)
+if(PkgConfig_FOUND)
+  pkg_check_modules(LOGGX_LIBRAW IMPORTED_TARGET libraw_r)
+endif()
+if(TARGET PkgConfig::LOGGX_LIBRAW)
+  target_link_libraries(loggx_media PRIVATE PkgConfig::LOGGX_LIBRAW)
+  set(LOGGX_HAVE_LIBRAW ON)
+else()
+  find_package(libraw CONFIG QUIET)
+  if(TARGET libraw::raw_r)
+    target_link_libraries(loggx_media PRIVATE libraw::raw_r)
+    set(LOGGX_HAVE_LIBRAW ON)
+  elseif(TARGET libraw::raw)
+    target_link_libraries(loggx_media PRIVATE libraw::raw)
+    set(LOGGX_HAVE_LIBRAW ON)
+  endif()
+endif()
+if(LOGGX_HAVE_LIBRAW)
+  target_compile_definitions(loggx_media PRIVATE LOGGX_HAVE_LIBRAW)
+endif()
+message(STATUS "LibRaw (RAW-Fotos): ${LOGGX_HAVE_LIBRAW}")
 
 add_library(loggx_engine STATIC
   engine/src/Compositor.cpp engine/src/AudioMixer.cpp engine/src/Render.cpp
@@ -102,9 +125,28 @@ add_library(loggx_engine STATIC
   engine/src/Mastering.cpp
   engine/src/MaskTracking.cpp
   engine/src/Reframe.cpp
+  engine/src/Multicam.cpp
+  engine/src/PluginHost.cpp
+  engine/src/PluginClap.cpp
+  engine/src/PluginVst3.cpp
+  engine/src/Vst3Iids.cpp
+  third_party/vst3/pluginterfaces/base/funknown.cpp
+  third_party/vst3/pluginterfaces/base/coreiids.cpp
   engine/src/Cutout.cpp)
 target_include_directories(loggx_engine PUBLIC engine/include)
-target_link_libraries(loggx_engine PUBLIC loggx_core loggx_media)
+target_include_directories(loggx_engine PRIVATE third_party/vst3)
+target_link_libraries(loggx_engine PUBLIC loggx_core loggx_media ${CMAKE_DL_LIBS})
+if(WIN32)
+  target_link_libraries(loggx_engine PRIVATE ole32)   # VST3: FUID (CoCreateGuid)
+endif()
+if(APPLE)
+  target_sources(loggx_engine PRIVATE engine/src/PluginAu.cpp)
+  target_link_libraries(loggx_engine PUBLIC "-framework AudioToolbox" "-framework CoreFoundation" "-framework CoreAudio")
+endif()
+# VST3-Schnittstellen erwarten diese Kennzeichnung
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_definitions(loggx_engine PRIVATE RELEASE=1)
+endif()
 if(LOGGX_HAVE_RUBBERBAND)
   target_link_libraries(loggx_engine PRIVATE loggx_rubberband)
   target_compile_definitions(loggx_engine PRIVATE LOGGX_WITH_RUBBERBAND)
@@ -157,9 +199,38 @@ if(LOGGX_BUILD_TESTS)
   target_compile_definitions(test_render PRIVATE LOGGX_TEST_DATA="${CMAKE_SOURCE_DIR}/tests/data")
   add_test(NAME render COMMAND test_render)
 
+  # Test-Plugins (CLAP und VST3), damit der Plugin-Host echt geprüft wird
+  set(LX_PLUGDIR ${CMAKE_BINARY_DIR}/testplugins)
+  add_library(lx_test_clap MODULE tests/plugins/clap_gain.cpp)
+  target_include_directories(lx_test_clap PRIVATE third_party/clap/include)
+  set_target_properties(lx_test_clap PROPERTIES PREFIX "" SUFFIX ".clap" OUTPUT_NAME "LXTestGain"
+    LIBRARY_OUTPUT_DIRECTORY ${LX_PLUGDIR} LIBRARY_OUTPUT_DIRECTORY_RELEASE ${LX_PLUGDIR} LIBRARY_OUTPUT_DIRECTORY_DEBUG ${LX_PLUGDIR})
+  add_library(lx_test_vst3 MODULE tests/plugins/vst3_gain.cpp
+    third_party/vst3/pluginterfaces/base/funknown.cpp third_party/vst3/pluginterfaces/base/coreiids.cpp)
+  target_include_directories(lx_test_vst3 PRIVATE third_party/vst3)
+  if(WIN32)
+    target_link_libraries(lx_test_vst3 PRIVATE ole32)
+  endif()
+  if(APPLE)
+    set_target_properties(lx_test_vst3 PROPERTIES BUNDLE TRUE BUNDLE_EXTENSION vst3 OUTPUT_NAME "LXTestGain"
+      LIBRARY_OUTPUT_DIRECTORY ${LX_PLUGDIR})
+    target_link_libraries(lx_test_vst3 PRIVATE "-framework CoreFoundation")
+    set(LX_TEST_VST3 "$<TARGET_BUNDLE_DIR:lx_test_vst3>")
+  elseif(WIN32)
+    set_target_properties(lx_test_vst3 PROPERTIES PREFIX "" SUFFIX ".vst3" OUTPUT_NAME "LXTestGain"
+      LIBRARY_OUTPUT_DIRECTORY ${LX_PLUGDIR} LIBRARY_OUTPUT_DIRECTORY_RELEASE ${LX_PLUGDIR} LIBRARY_OUTPUT_DIRECTORY_DEBUG ${LX_PLUGDIR})
+    set(LX_TEST_VST3 "$<TARGET_FILE:lx_test_vst3>")
+  else()
+    set_target_properties(lx_test_vst3 PROPERTIES PREFIX "" OUTPUT_NAME "LXTestGain"
+      LIBRARY_OUTPUT_DIRECTORY ${LX_PLUGDIR}/LXTestGain.vst3/Contents/x86_64-linux)
+    set(LX_TEST_VST3 "${LX_PLUGDIR}/LXTestGain.vst3")
+  endif()
+
   add_executable(test_mvp tests/test_mvp.cpp)
   target_link_libraries(test_mvp PRIVATE loggx_engine)
   target_include_directories(test_mvp PRIVATE engine/src)
+  add_dependencies(test_mvp lx_test_clap lx_test_vst3)
+  target_compile_definitions(test_mvp PRIVATE LOGGX_TEST_CLAP="$<TARGET_FILE:lx_test_clap>" LOGGX_TEST_VST3="${LX_TEST_VST3}" LOGGX_TEST_PLUGDIR="${LX_PLUGDIR}")
   add_test(NAME mvp COMMAND test_mvp)
 endif()
 

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import LoggX 1.0
 import LoggXStyle
 
@@ -222,6 +223,82 @@ Rectangle {
                         onClicked: app.showStart = false
                     }
                 }
+
+                // ---------------------------------------- eigene Vorlagen
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Icon { width: 16; height: 16; name: "layers"; color: Theme.dim }
+                        Label { text: qsTr("Eigene Vorlagen"); font.bold: true; font.pixelSize: 16; Layout.fillWidth: true }
+                        Button { text: qsTr("Paket importieren …"); flat: true; icon.name: "import"; onClicked: packDialog.open() }
+                    }
+                    Label {
+                        visible: app.templates.length === 0
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.faint
+                        text: qsTr("Speichere ein Projekt über das Menü „Als Vorlage speichern …“ (mit Medien, Effekten und Titeln) oder importiere ein .lxpack-Paket von anderen.")
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Repeater {
+                            model: app.templates
+                            Rectangle {
+                                id: tcard
+                                required property var modelData
+                                width: 180
+                                height: 150
+                                radius: 10
+                                color: tMouse.containsMouse ? Theme.hover : Theme.panel
+                                border.color: Theme.border
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 4
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 92
+                                        radius: 6
+                                        color: "#0a0b0e"
+                                        clip: true
+                                        Image {
+                                            anchors.fill: parent
+                                            source: tcard.modelData.preview
+                                            fillMode: Image.PreserveAspectFit
+                                            asynchronous: true
+                                        }
+                                        Icon { anchors.centerIn: parent; width: 24; height: 24; visible: !tcard.modelData.preview; name: tcard.modelData.music ? "music" : "film"; color: Theme.faint }
+                                    }
+                                    Label { text: tcard.modelData.name; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    Label { text: tcard.modelData.format + (tcard.modelData.author ? " · " + tcard.modelData.author : ""); color: Theme.dim; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                }
+                                MouseArea {
+                                    id: tMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    onClicked: function (m) {
+                                        if (m.button === Qt.RightButton) tMenu.popup()
+                                        else app.newFromUserTemplate(tcard.modelData.dir)
+                                    }
+                                }
+                                Menu {
+                                    id: tMenu
+                                    MenuItem { text: qsTr("Neues Projekt daraus"); onTriggered: app.newFromUserTemplate(tcard.modelData.dir) }
+                                    MenuItem { text: qsTr("Als Paket teilen (.lxpack) …"); onTriggered: { shareDialog.dir = tcard.modelData.dir; shareDialog.currentFile = ""; shareDialog.open() } }
+                                    MenuSeparator {}
+                                    MenuItem { text: qsTr("Löschen"); onTriggered: app.deleteTemplate(tcard.modelData.dir) }
+                                }
+                                ToolTip.text: tcard.modelData.description || qsTr("Klick: neues Projekt · Rechtsklick: teilen/löschen")
+                                ToolTip.visible: tMouse.containsMouse
+                                ToolTip.delay: 600
+                            }
+                        }
+                    }
+                }
             }
 
             // ------------------------------------------- rechts: zuletzt
@@ -333,5 +410,21 @@ Rectangle {
                 }
             }
         }
+    }
+
+    FileDialog {
+        id: packDialog
+        title: qsTr("Vorlagenpaket importieren")
+        nameFilters: [qsTr("LXStudio-Vorlage (*.lxpack)")]
+        onAccepted: app.importTemplatePack(selectedFile)
+    }
+    FileDialog {
+        id: shareDialog
+        property string dir
+        title: qsTr("Vorlage als Paket speichern")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "lxpack"
+        nameFilters: [qsTr("LXStudio-Vorlage (*.lxpack)")]
+        onAccepted: app.exportTemplate(dir, selectedFile)
     }
 }

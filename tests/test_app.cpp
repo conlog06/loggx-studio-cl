@@ -82,6 +82,54 @@ int main(int argc, char** argv) {
 
     CHECK(app.addAssetToTimeline(asset));
     CHECK(std::abs(app.duration() - 4.0) < 0.2);
+
+    // Eigene Vorlagen: speichern (mit Medien + Vorschau), als Paket teilen, einlesen
+    {
+        for (const auto& t : app.templates()) app.deleteTemplate(t.toMap().value("dir").toString());
+        CHECK(app.saveAsTemplate(QStringLiteral("Intro / Logo"), QStringLiteral("Test"), QStringLiteral("Constantin")));
+        const auto list = app.templates();
+        CHECK(list.size() == 1);
+        const QVariantMap t = list.first().toMap();
+        const QString tdir = t.value("dir").toString();
+        CHECK(t.value("name").toString() == "Intro / Logo" && !t.value("preview").toString().isEmpty());
+        CHECK(QDir(tdir + "/media").entryList(QDir::Files).size() == 1);
+        const QString pack = dir.filePath("vorlage.lxpack");
+        CHECK(app.exportTemplate(tdir, QUrl::fromLocalFile(pack)));
+        CHECK(app.deleteTemplate(tdir) && app.templates().isEmpty());
+        CHECK(app.importTemplatePack(QUrl::fromLocalFile(pack)));
+        CHECK(app.templates().size() == 1);
+        const QString imported = app.templates().first().toMap().value("dir").toString();
+        // Paket mit "../" im Pfad wird abgelehnt
+        {
+            QFile evil(dir.filePath("boese.lxpack"));
+            CHECK(evil.open(QIODevice::WriteOnly));
+            // gespeicherter ZIP-Eintrag "../boese.txt"
+            const QByteArray name = "../boese.txt", data = "x";
+            auto le16 = [](QByteArray& b, quint16 v) { b.append(char(v & 0xFF)).append(char(v >> 8)); };
+            auto le32 = [&](QByteArray& b, quint32 v) { le16(b, quint16(v & 0xFFFF)), le16(b, quint16(v >> 16)); };
+            QByteArray z;
+            le32(z, 0x04034b50), le16(z, 20), le16(z, 0), le16(z, 0), le16(z, 0), le16(z, 0), le32(z, 0x8cdc1683), le32(z, 1), le32(z, 1),
+                le16(z, quint16(name.size())), le16(z, 0);
+            z += name + data;
+            const quint32 cd = quint32(z.size());
+            le32(z, 0x02014b50), le16(z, 20), le16(z, 20), le16(z, 0), le16(z, 0), le16(z, 0), le16(z, 0), le32(z, 0x8cdc1683), le32(z, 1), le32(z, 1),
+                le16(z, quint16(name.size())), le16(z, 0), le16(z, 0), le16(z, 0), le16(z, 0), le32(z, 0), le32(z, 0);
+            z += name;
+            const quint32 cdSize = quint32(z.size()) - cd;
+            le32(z, 0x06054b50), le16(z, 0), le16(z, 0), le16(z, 1), le16(z, 1), le32(z, cdSize), le32(z, cd), le16(z, 0);
+            evil.write(z);
+        }
+        CHECK(!app.importTemplatePack(QUrl::fromLocalFile(dir.filePath("boese.lxpack"))));
+        CHECK(app.templates().size() == 1);
+        // Neues Projekt aus der Vorlage: Medien zeigen in den Vorlagenordner
+        CHECK(app.newFromUserTemplate(imported));
+        CHECK(app.project().assets.size() == 1 && QFileInfo::exists(QString::fromStdString(app.project().assets[0].path)));
+        CHECK(QString::fromStdString(app.project().assets[0].path).startsWith(imported));
+        CHECK(std::abs(app.duration() - 4.0) < 0.2);
+        app.newProject();
+        app.importMedia({QUrl::fromLocalFile(source)});
+        CHECK(app.addAssetToTimeline(app.assets().first().toMap().value("id").toString()));
+    }
     CHECK(!app.selectedClipId().isEmpty());
     const QString first = app.selectedClipId();
     // Solange die Datei benutzt wird, lässt sie sich nicht entfernen.

@@ -17,7 +17,7 @@ qt_add_executable(loggx-studio
   src/DjLibraryImport.cpp
   src/DjSources.cpp
   src/Updater.cpp src/Updater.h
-  src/DjMidi.cpp src/DjMidi.h src/DjPads.cpp
+  src/DjMidi.cpp src/DjMidi.h src/DjPads.cpp src/AppControllerPlugins.cpp src/AppControllerTemplates.cpp
   src/DjWaveItem.cpp src/DjWaveItem.h
   src/MicRecorder.cpp src/MicRecorder.h
   src/MidiInput.cpp src/MidiInput.h
@@ -154,7 +154,7 @@ if(LOGGX_BUILD_TESTS)
     src/DjLibraryImport.cpp
     src/DjSources.cpp
     src/Updater.cpp src/Updater.h
-    src/DjMidi.cpp src/DjMidi.h src/DjPads.cpp
+    src/DjMidi.cpp src/DjMidi.h src/DjPads.cpp src/AppControllerPlugins.cpp src/AppControllerTemplates.cpp
     src/MicRecorder.cpp src/MicRecorder.h
     src/MidiInput.cpp src/MidiInput.h)
   target_include_directories(test_app PRIVATE src ../tests)

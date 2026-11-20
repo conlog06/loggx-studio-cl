@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <fstream>
 // End-to-End-Test der Medien- und Render-Engine. Erzeugt sein Testmaterial
 // selbst (kein ffmpeg-Programm nötig): vier Sekunden Video, jede Sekunde
 // eine andere Farbe, dazu ein 440-Hz-Ton.
@@ -87,6 +89,106 @@ void testProRes(const fs::path& dir) {
         CHECK(probeMedia(s.path, a));
         CHECK(a.hasVideo && a.hasAudio && a.width == kW && a.height == kH);
     }
+}
+
+// Multicam: drei Aufnahmen desselben Tons, zu verschiedenen Zeiten gestartet
+void testAudioSync(const fs::path& dir) {
+    const int rate = 48000;
+    const double total = 40.0;
+    std::vector<float> src(static_cast<std::size_t>(total * rate));
+    std::uint32_t seed = 7;
+    auto rnd = [&] { seed = seed * 1664525u + 1013904223u; return (seed >> 8) / 16777216.0; };
+    for (double t = 0.2; t < total; t += 0.15 + rnd() * 0.5) {   // Schläge/Silben in zufälligem Abstand
+        const double amp = 0.2 + rnd() * 0.6, f = 150 + rnd() * 900;
+        for (int k = 0; k < rate / 8; ++k) {
+            const std::size_t i = static_cast<std::size_t>(t * rate) + k;
+            if (i < src.size()) src[i] += static_cast<float>(amp * std::exp(-k / (rate * 0.03)) * std::sin(2 * 3.14159265 * f * k / rate));
+        }
+    }
+    auto write = [&](const std::string& name, double startAt, double len, float noise) {
+        ExportSettings s;
+        s.path = (dir / name).string();
+        s.video = false;
+        s.sampleRate = rate;
+        Exporter e;
+        std::string error;
+        CHECK(e.open(s, &error));
+        std::vector<float> st(static_cast<std::size_t>(len * rate) * 2);
+        for (std::size_t i = 0; i < st.size() / 2; ++i) {
+            const long j = static_cast<long>(i) + static_cast<long>(startAt * rate);
+            const float v = (j >= 0 && j < static_cast<long>(src.size()) ? src[static_cast<std::size_t>(j)] * 0.8f : 0.0f) + noise * static_cast<float>(rnd() - 0.5);
+            st[i * 2] = st[i * 2 + 1] = v;
+        }
+        CHECK(e.writeAudio(st.data(), st.size() / 2));
+        CHECK(e.finish(&error));
+        return s.path;
+    };
+    const std::string a = write("kamera1.wav", 5.0, 30.0, 0.01f);
+    const std::string b = write("kamera2.wav", 5.0 + 3.217, 25.0, 0.03f);   // startet 3,217 s später
+    const std::string c = write("kamera3.wav", 5.0 - 1.5, 28.0, 0.05f);     // startet 1,5 s früher
+    const auto r = syncByAudio({a, b, c});
+    CHECK(r.size() == 3 && r[0].ok && r[1].ok && r[2].ok);
+    std::printf("Multicam-Sync: %+.4f s (Güte %.2f), %+.4f s (Güte %.2f)\n", r[1].offset / 1e6, r[1].confidence, r[2].offset / 1e6, r[2].confidence);
+    CHECK(std::abs(r[1].offset - 3'217'000) < 2'000);   // < 2 ms
+    CHECK(std::abs(r[2].offset + 1'500'000) < 2'000);
+}
+
+// RAW-Foto: Endungen, Entwicklung (Beispieldatei über LOGGX_TEST_RAW)
+void testRaw(const fs::path& dir) {
+    CHECK(isRawPhoto("/x/IMG_0001.CR2") && isRawPhoto("a.nef") && isRawPhoto("b.dng") && !isRawPhoto("c.jpg"));
+    // Kaputte RAW-Datei: verständlicher Fehler statt Absturz
+    const fs::path bad = dir / "kaputt.nef";
+    std::ofstream(bad) << "kein raw";
+    MediaAsset a;
+    std::string error;
+    CHECK(!probeMedia(bad.string(), a, &error) && !error.empty());
+    const char* sample = std::getenv("LOGGX_TEST_RAW");
+    if (!sample || !rawSupported()) {
+        std::printf("RAW: %s\n", rawSupported() ? "LibRaw da (keine Beispieldatei)" : "ohne LibRaw gebaut");
+        return;
+    }
+    setRawCacheDir((dir / "raw").string());
+    CHECK(probeMedia(sample, a, &error));
+    CHECK(a.isStill && a.width > 1000 && a.sourcePath == sample);
+    VideoReader r;
+    std::vector<std::uint8_t> px;
+    CHECK(r.open(a.path) && r.frameAt(0, 160, 120, px));
+    double mean = 0;
+    for (std::size_t i = 0; i < px.size(); i += 4) mean += px[i] + px[i + 1] + px[i + 2];
+    mean /= px.size() / 4 * 3;
+    std::printf("RAW: %s → %dx%d, Helligkeit %.0f\n", a.name.c_str(), a.width, a.height, mean);
+    CHECK(mean > 15 && mean < 240);
+    // zweiter Import kommt aus dem Zwischenspeicher
+    MediaAsset b;
+    CHECK(probeMedia(sample, b, &error) && b.path == a.path);
+}
+
+// AV1: SVT-AV1/libaom/Grafikkarte – übersprungen, wenn kein Encoder da ist
+void testAv1(const fs::path& dir) {
+    ExportSettings s;
+    s.path = (dir / "av1.mp4").string();
+    s.width = kW;
+    s.height = kH;
+    s.fpsNum = kFps;
+    s.sampleRate = kRate;
+    s.codec = ExportSettings::Codec::AV1;
+    Exporter e;
+    std::string error;
+    if (!e.open(s, &error)) {
+        std::printf("AV1 übersprungen: %s\n", error.c_str());
+        return;
+    }
+    std::vector<std::uint8_t> image(static_cast<std::size_t>(kW) * kH * 4, 128);
+    std::vector<float> audio(static_cast<std::size_t>(kRate / kFps) * 2, 0.0f);
+    for (int i = 0; i < 10; ++i) {
+        CHECK(e.writeVideoFrame(image.data()));
+        CHECK(e.writeAudio(audio.data(), audio.size() / 2));
+    }
+    CHECK(e.finish(&error));
+    MediaAsset a;
+    CHECK(probeMedia(s.path, a, &error));
+    CHECK(a.hasVideo && a.width == kW);
+    std::printf("AV1: %s\n", e.videoEncoderName().c_str());
 }
 
 // HDR (HLG): H.265 Main 10, BT.2020, Transfer ARIB STD-B67 im Container
@@ -512,6 +614,9 @@ int main() {
     run(dir);
     testProRes(dir);
     testHdr(dir);
+    testAv1(dir);
+    testRaw(dir);
+    testAudioSync(dir);
     testMaskTracking(dir);
     testAutoReframe(dir);
     testAv1();

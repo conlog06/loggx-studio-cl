@@ -487,3 +487,82 @@ bool AppController::autoReframe(int width, int height, bool onlySelected) {
             });
     return true;
 }
+
+// ------------------------------------------------------------ Multicam
+
+bool AppController::createMulticam(const QStringList& assetIds) {
+    if (m_task) return false;
+    std::vector<std::string> ids, paths;
+    for (const QString& id : assetIds) {
+        const MediaAsset* a = m_project.findAsset(str(id));
+        if (!a || !a->hasVideo || a->isStill) continue;
+        ids.push_back(a->id);
+        paths.push_back(a->path);
+    }
+    if (ids.size() < 2) {
+        setStatus(tr("Für Multicam mindestens zwei Videos wählen"));
+        return false;
+    }
+    auto results = std::make_shared<std::vector<AudioSyncResult>>();
+    runTask(tr("Synchronisiere Kameras über den Ton …"),
+            [paths, results](const std::function<void(double)>& progress, const std::atomic<bool>& cancel) {
+                *results = syncByAudio(paths, 10 * 60 * kSecond, [&](double p) {
+                    progress(p);
+                    return !cancel.load();
+                });
+            },
+            [this, ids, results] {
+                if (results->size() != ids.size()) return;
+                std::vector<MulticamAngle> angles;
+                int unsynced = 0;
+                for (std::size_t i = 0; i < ids.size(); ++i) {
+                    const auto& r = (*results)[i];
+                    if (!r.ok) ++unsynced;
+                    angles.push_back({ids[i], r.ok ? r.offset : 0, {}});
+                }
+                std::string groupId;
+                const int n = static_cast<int>(m_project.multicams.size()) + 1;
+                apply([&](Project& p) {
+                    groupId = p.createMulticam(str(tr("Multicam %1").arg(n)), angles, m_position);
+                    return !groupId.empty();
+                });
+                emit multicamChanged();
+                setStatus(groupId.empty() ? tr("Multicam konnte nicht angelegt werden")
+                          : unsynced > 0 ? tr("Multicam mit %1 Kameras – %2 ohne passenden Ton (bei 0 angelegt, bitte prüfen). Tasten 1–9 schalten um.").arg(ids.size()).arg(unsynced)
+                                         : tr("Multicam mit %1 Kameras synchronisiert. Tasten 1–9 schalten um – auch beim Abspielen.").arg(ids.size()));
+            });
+    return true;
+}
+
+QVariantMap AppController::multicam() const {
+    QVariantMap m;
+    if (m_project.multicams.empty()) return m;
+    const MulticamGroup* g = &m_project.multicams.front();
+    for (const auto& grp : m_project.multicams)
+        if (m_project.angleAt(grp.id, m_position) >= 0) g = &grp;
+    QVariantList angles;
+    for (std::size_t i = 0; i < g->angles.size(); ++i) {
+        const MediaAsset* a = m_project.findAsset(g->angles[i].assetId);
+        const TimeUs s = g->start + g->angles[i].offset, e = s + (a ? a->duration : 0);
+        angles << QVariantMap{{QStringLiteral("name"), qstr(g->angles[i].name)},
+                              {QStringLiteral("file"), a ? qstr(a->name) : QString()},
+                              {QStringLiteral("available"), m_position >= s && m_position < e}};
+    }
+    m[QStringLiteral("id")] = qstr(g->id);
+    m[QStringLiteral("name")] = qstr(g->name);
+    m[QStringLiteral("angles")] = angles;
+    m[QStringLiteral("current")] = m_project.angleAt(g->id, m_position);
+    return m;
+}
+
+bool AppController::switchAngle(int angle) {
+    const QVariantMap mc = multicam();
+    if (mc.isEmpty()) return false;
+    std::string error;
+    const std::string gid = str(mc.value(QStringLiteral("id")).toString());
+    const TimeUs at = m_position;
+    const bool ok = apply([&](Project& p) { return p.switchAngle(gid, angle, at, &error); });
+    if (!ok && !error.empty()) setStatus(qstr(error));
+    emit multicamChanged();
+    return ok;
+}

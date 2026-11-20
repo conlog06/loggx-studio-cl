@@ -178,7 +178,8 @@ Rectangle {
                         id: codecBox
                         Layout.fillWidth: true
                         model: [qsTr("H.264 (überall abspielbar)"), qsTr("H.265 / HEVC (kleinere Dateien)"),
-                                qsTr("Apple ProRes 422 HQ (Schnitt, .mov)"), qsTr("Apple ProRes 4444 (mit Alpha, .mov)")]
+                                qsTr("Apple ProRes 422 HQ (Schnitt, .mov)"), qsTr("Apple ProRes 4444 (mit Alpha, .mov)"),
+                                qsTr("AV1 (am kleinsten, YouTube/Web)")]
                         onActivated: presetBox.currentIndex = 0
                     }
                     Label { text: qsTr("Qualität") }
@@ -196,7 +197,7 @@ Rectangle {
                         enabled: codecBox.currentIndex >= 1
                         text: qsTr("HDR (HLG, BT.2020, 10 Bit) – für HDR-Fernseher, YouTube, iPhone")
                         ToolTip.text: enabled ? qsTr("SDR-Weiß wird nach BT.2408 auf 75 % HLG gelegt – auf normalen Bildschirmen sieht es weiter richtig aus")
-                                              : qsTr("HDR braucht H.265 oder ProRes")
+                                              : qsTr("HDR braucht H.265, ProRes oder AV1")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                     }

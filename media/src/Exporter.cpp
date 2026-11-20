@@ -1,5 +1,6 @@
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include "loggx/media/Media.h"
 
 #include <algorithm>
@@ -20,6 +21,8 @@ const char* const kH264Encoders[] = {"libx264", "h264_videotoolbox", "h264_nvenc
                                      "h264_amf", "h264_mf", "libopenh264", "mpeg4"};
 const char* const kH265Encoders[] = {"libx265", "hevc_videotoolbox", "hevc_nvenc", "hevc_qsv",
                                      "hevc_amf", "hevc_mf"};
+// AV1: Software (SVT-AV1, sonst libaom) oder Grafikkarte (NVIDIA RTX 40+, Intel Arc, AMD RX 7000+)
+const char* const kAv1Encoders[] = {"libsvtav1", "av1_nvenc", "av1_qsv", "av1_amf", "libaom-av1"};
 
 // Pixelformate eines Encoders (FFmpeg 7.1+ ohne AVCodec::pix_fmts)
 std::vector<AVPixelFormat> supportedPixelFormats(const AVCodecContext* ctx, const AVCodec* codec) {
@@ -100,7 +103,8 @@ std::string ffmpegVersion() { return av_version_info(); }
 std::vector<std::string> availableEncoders() {
     std::vector<std::string> out;
     for (const char* n : {"libx264", "libx265", "h264_videotoolbox", "hevc_videotoolbox", "h264_nvenc", "hevc_nvenc",
-                          "h264_qsv", "hevc_qsv", "h264_amf", "hevc_amf", "h264_mf", "hevc_mf", "aac", "libmp3lame",
+                          "h264_qsv", "hevc_qsv", "h264_amf", "hevc_amf", "h264_mf", "hevc_mf", "libsvtav1", "av1_nvenc",
+                          "av1_qsv", "av1_amf", "libaom-av1", "aac", "libmp3lame",
                           "mp3_mf", "flac", "libvorbis", "libopus"})
         if (avcodec_find_encoder_by_name(n)) out.push_back(n);
     return out;
@@ -229,6 +233,21 @@ struct Exporter::Impl {
             av_dict_set(&opts, "profile", s.codec == ExportSettings::Codec::ProRes4444 ? "4" : "3", 0);
             av_dict_set(&opts, "vendor", "apl0", 0);
             if (s.codec == ExportSettings::Codec::ProRes4444) av_dict_set(&opts, "alpha_bits", "16", 0);
+        }
+        if (std::strcmp(name, "libsvtav1") == 0) {
+            // Nur Warnungen ausgeben (sonst schreibt SVT-AV1 viele Info-Zeilen)
+#ifdef _WIN32
+            _putenv_s("SVT_LOG", "2");
+#else
+            setenv("SVT_LOG", "2", 0);
+#endif
+            av_dict_set(&opts, "preset", huge ? "10" : "8", 0);   // 8 = zügig bei guter Qualität
+            av_dict_set(&opts, "svtav1-params", "tune=0", 0);
+        }
+        if (std::strcmp(name, "libaom-av1") == 0) {
+            av_dict_set(&opts, "cpu-used", "8", 0);
+            av_dict_set(&opts, "row-mt", "1", 0);
+            av_dict_set(&opts, "usage", "realtime", 0);
         }
         if (std::strcmp(name, "libx265") == 0) {
             std::string params = huge ? "log-level=error:rc-lookahead=8:frame-threads=2:lookahead-slices=4" : "log-level=error";
@@ -392,7 +411,7 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
     }
     if (s.videoBitrate <= 0)
         s.videoBitrate = defaultBitrate(s.width, s.height, static_cast<double>(s.fpsNum) / s.fpsDen,
-                                        s.quality, hevc);
+                                        s.quality, hevc || s.codec == ExportSettings::Codec::AV1);
 
     int rc = avformat_alloc_output_context2(&d->fmt, nullptr, nullptr, s.path.c_str());
     if (rc < 0 || !d->fmt) {
@@ -408,7 +427,10 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
     } else if (s.codec == ExportSettings::Codec::ProRes422HQ || s.codec == ExportSettings::Codec::ProRes4444) {
         ok = d->openVideoEncoder("prores_ks");
     } else {
-        if (hevc) {
+        if (s.codec == ExportSettings::Codec::AV1) {
+            for (const char* name : kAv1Encoders)
+                if ((ok = d->openVideoEncoder(name))) break;
+        } else if (hevc) {
             for (const char* name : kH265Encoders)
                 if ((ok = d->openVideoEncoder(name))) break;
         } else {
@@ -417,9 +439,10 @@ bool Exporter::open(const ExportSettings& settings, std::string* error) {
         }
     }
     if (!ok) {
-        if (error) *error = hevc && s.hdr ? "Kein H.265-Encoder mit 10 Bit (HDR) verfügbar"
+        if (error) *error = s.codec == ExportSettings::Codec::AV1 ? "Kein AV1-Encoder auf diesem Rechner verfügbar"
+                          : hevc && s.hdr ? "Kein H.265-Encoder mit 10 Bit (HDR) verfügbar"
                           : hevc ? "Kein H.265-Encoder auf diesem Rechner verfügbar"
-                          : s.codec >= ExportSettings::Codec::ProRes422HQ ? "ProRes-Encoder (prores_ks) fehlt in dieser FFmpeg-Version"
+                          : s.codec == ExportSettings::Codec::ProRes422HQ || s.codec == ExportSettings::Codec::ProRes4444 ? "ProRes-Encoder (prores_ks) fehlt in dieser FFmpeg-Version"
                                  : "Kein Video-Encoder verfügbar";
         d->close();
         return false;

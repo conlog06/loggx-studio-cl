@@ -7,6 +7,7 @@ import LoggXStyle
 Item {
     id: root
     signal importRequested()
+    signal multicamRequested()
 
     RowLayout {
         anchors.fill: parent
@@ -20,6 +21,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 Label { text: qsTr("Medien"); font.pixelSize: 22; font.bold: true; Layout.fillWidth: true }
+                Button { text: qsTr("Multicam …"); icon.name: "film"; onClicked: root.multicamRequested() }
                 Button { text: qsTr("Importieren …"); highlighted: true; onClicked: root.importRequested() }
             }
             Rectangle {

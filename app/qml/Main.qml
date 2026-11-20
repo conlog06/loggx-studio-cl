@@ -119,6 +119,18 @@ ApplicationWindow {
     Shortcut { sequence: "Home"; enabled: studioActive; onActivated: app.seek(0) }
     Shortcut { sequence: "T"; enabled: studioActive && !window.playingKeys && !app.musicMode; onActivated: app.addTitle() }
     Shortcut { sequence: "Ctrl+M"; enabled: studioActive; onActivated: app.addMidiClip() }
+    // Multicam: Tasten 1–9 schalten am Abspielkopf um (auch während der Wiedergabe)
+    Repeater {
+        model: 9
+        Item {
+            required property int index
+            Shortcut {
+                sequence: String(parent.index + 1)
+                enabled: studioActive && !window.playingKeys && !app.musicMode && app.multicam.angles !== undefined
+                onActivated: app.switchAngle(parent.index)
+            }
+        }
+    }
     Shortcut { sequence: "End"; enabled: studioActive; onActivated: app.seek(app.duration) }
 
     // ------------------------------------------------------------ Dialoge
@@ -147,10 +159,96 @@ ApplicationWindow {
         title: qsTr("Medien importieren")
         fileMode: FileDialog.OpenFiles
         nameFilters: [
-            qsTr("Medien (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.flac *.aac *.m4a *.ogg *.opus *.png *.jpg *.jpeg *.webp)"),
+            qsTr("Medien (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.flac *.aac *.m4a *.ogg *.opus *.png *.jpg *.jpeg *.webp *.tif *.tiff %1)").arg("*.cr2 *.cr3 *.nef *.arw *.dng *.raf *.orf *.rw2 *.pef *.srw *.3fr *.iiq"),
+            qsTr("RAW-Fotos (%1)").arg("*.cr2 *.cr3 *.nef *.arw *.dng *.raf *.orf *.rw2 *.pef *.srw *.3fr *.iiq"),
             qsTr("Alle Dateien (*)")
         ]
         onAccepted: app.importMedia(selectedFiles)
+    }
+    // Projekt als eigene Vorlage speichern
+    Dialog {
+        id: templateDialog
+        title: qsTr("Als Vorlage speichern")
+        modal: true
+        anchors.centerIn: parent
+        width: 440
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onAboutToShow: { tName.text = ""; tDesc.text = "" }
+        onAccepted: app.saveAsTemplate(tName.text, tDesc.text, tAuthor.text)
+        contentItem: GridLayout {
+            columns: 2
+            columnSpacing: 10
+            rowSpacing: 8
+            Label { text: qsTr("Name") }
+            TextField { id: tName; Layout.fillWidth: true; placeholderText: qsTr("z. B. YouTube-Intro, Podcast, Reel") }
+            Label { text: qsTr("Beschreibung") }
+            TextField { id: tDesc; Layout.fillWidth: true }
+            Label { text: qsTr("Von") }
+            TextField { id: tAuthor; Layout.fillWidth: true; placeholderText: qsTr("optional") }
+            Label {
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Theme.faint
+                font.pixelSize: 11
+                text: qsTr("Die Vorlage enthält Spuren, Clips, Titel, Effekte, Plugins und Kopien der Medien. Auf dem Startbildschirm lässt sie sich als .lxpack-Paket an andere weitergeben.")
+            }
+        }
+    }
+    // Multicam: Videos wählen, über den Ton synchronisieren, Gruppe anlegen
+    Dialog {
+        id: multicamDialog
+        title: qsTr("Multicam anlegen")
+        modal: true
+        anchors.centerIn: parent
+        width: 520
+        property var chosen: ({})
+        onAboutToShow: chosen = ({})
+        standardButtons: Dialog.Cancel
+        footer: DialogButtonBox {
+            Button {
+                text: qsTr("Synchronisieren und anlegen")
+                highlighted: true
+                enabled: Object.keys(multicamDialog.chosen).filter(k => multicamDialog.chosen[k]).length >= 2
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            }
+            Button { text: qsTr("Abbrechen"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+        onAccepted: {
+            const ids = app.assets.filter(a => chosen[a.id]).map(a => a.id)
+            app.createMulticam(ids)
+        }
+        contentItem: ColumnLayout {
+            spacing: 8
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Theme.dim
+                text: qsTr("Wähle die Aufnahmen derselben Szene (mehrere Kameras, Handy, Audio). LXStudio richtet sie über den Ton aufs Millisekunden genau aus. Die zuerst gewählte Kamera liefert den Ton. Danach schneidest du mit den Tasten 1–9 – auch live beim Abspielen.")
+            }
+            ListView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(320, contentHeight)
+                clip: true
+                model: app.assets.filter(a => a.hasVideo && !a.isStill)
+                delegate: CheckBox {
+                    required property var modelData
+                    width: ListView.view.width
+                    text: modelData.name
+                    checked: multicamDialog.chosen[modelData.id] === true
+                    onToggled: {
+                        const c = Object.assign({}, multicamDialog.chosen)
+                        c[modelData.id] = checked
+                        multicamDialog.chosen = c
+                    }
+                }
+            }
+            Label {
+                visible: app.assets.filter(a => a.hasVideo && !a.isStill).length < 2
+                text: qsTr("Erst mindestens zwei Videos importieren.")
+                color: Theme.warn
+            }
+        }
     }
     Dialog {
         id: discardDialog
@@ -343,6 +441,7 @@ ApplicationWindow {
             IconButton { visible: !window.djMode; iconName: "home"; tip: qsTr("Startbildschirm (Strg+Pos1)"); checked: app.showStart; onClicked: app.showStart = !app.showStart }
             IconButton { visible: !window.djMode; iconName: "folder"; tip: qsTr("Projekt öffnen (Strg+O)"); onClicked: guarded(function () { openDialog.open() }) }
             IconButton { visible: !window.djMode; iconName: "save"; tip: qsTr("Speichern (Strg+S)"); enabled: app.dirty || app.filePath === ""; onClicked: save() }
+            IconButton { visible: !window.djMode; iconName: "layers"; tip: qsTr("Als Vorlage speichern … (mit Medien, als Paket teilbar)"); onClicked: templateDialog.open() }
             Divider { Layout.leftMargin: 6; Layout.rightMargin: 6; visible: !window.djMode }
             IconButton { visible: !window.djMode; iconName: "undo"; tip: qsTr("Rückgängig (Strg+Z)"); enabled: app.canUndo; onClicked: app.undo() }
             IconButton { visible: !window.djMode; iconName: "redo"; tip: qsTr("Wiederholen (Strg+Y)"); enabled: app.canRedo; onClicked: app.redo() }
@@ -440,9 +539,10 @@ ApplicationWindow {
         anchors.fill: parent
         currentIndex: window.djMode ? 6 : app.showStart ? 5 : window.page
 
-        MediaPage { onImportRequested: importDialog.open() }
+        MediaPage { onImportRequested: importDialog.open(); onMulticamRequested: multicamDialog.open() }
         EditPage {
             onImportRequested: importDialog.open()
+            onMulticamRequested: multicamDialog.open()
             onOpenPage: function (p) { window.page = p }
         }
         ColorPage {}

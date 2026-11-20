@@ -218,6 +218,43 @@ Dialog {
                             onActivated: function (i) { app.audioInput = i }
                         }
                     }
+
+                    Heading { text: qsTr("Audio-Plugins (CLAP, VST3%1)").arg(Qt.platform.os === "osx" ? qsTr(", Audio Units") : "") }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.faint
+                        text: qsTr("Effekt-Plugins setzt du im Mixer (Musik) über „+“ bei PLUGINS auf eine Spur. Gesucht wird in:\n%1").arg(app.defaultPluginFolders().join("\n"))
+                    }
+                    Repeater {
+                        model: app.pluginFolders
+                        RowLayout {
+                            required property int index
+                            required property string modelData
+                            Layout.fillWidth: true
+                            Label { text: modelData; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                            IconButton {
+                                iconName: "close"
+                                tip: qsTr("Ordner entfernen")
+                                onClicked: { const l = app.pluginFolders.slice(); l.splice(index, 1); app.pluginFolders = l }
+                            }
+                        }
+                    }
+                    RowLayout {
+                        Button { text: qsTr("Ordner hinzufügen …"); onClicked: pluginFolderDialog.open() }
+                        Button { text: qsTr("Jetzt suchen"); icon.name: "sparkles"; enabled: !app.working; onClicked: app.scanPluginsNow() }
+                        Label { text: qsTr("%1 Effekte bekannt").arg(app.availablePlugins.length); color: Theme.dim }
+                    }
+                    FolderDialog {
+                        id: pluginFolderDialog
+                        title: qsTr("Plugin-Ordner")
+                        onAccepted: {
+                            const l = app.pluginFolders.slice()
+                            const path = decodeURIComponent(selectedFolder.toString().replace(/^file:\/\/(\/[A-Za-z]:)/, "$1").replace(/^file:\/\//, ""))
+                            if (l.indexOf(path) < 0) l.push(path)
+                            app.pluginFolders = l
+                        }
+                    }
                 }
             }
 

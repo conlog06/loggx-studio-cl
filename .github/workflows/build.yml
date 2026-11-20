@@ -15,7 +15,7 @@ jobs:
       - name: Abhängigkeiten
         run: |
           sudo apt-get -o Acquire::Retries=6 update
-          sudo apt-get -o Acquire::Retries=6 install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev gdb \
+          sudo apt-get -o Acquire::Retries=6 install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev libraw-dev gdb \
             libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
             qt6-base-dev qt6-declarative-dev qt6-multimedia-dev libgl1-mesa-dev \
             qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts \
@@ -70,7 +70,7 @@ jobs:
       - name: Abhängigkeiten
         run: |
           sudo apt-get -o Acquire::Retries=6 update
-          sudo apt-get -o Acquire::Retries=6 install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev gdb \
+          sudo apt-get -o Acquire::Retries=6 install -y ninja-build pkg-config nlohmann-json3-dev librubberband-dev libraw-dev gdb \
             libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev
       - run: cmake -S . -B build -G Ninja -DLOGGX_BUILD_APP=OFF -DCMAKE_BUILD_TYPE=${{ matrix.type }} "-DCMAKE_CXX_FLAGS=${{ matrix.flags }}"
       - run: cmake --build build
@@ -97,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Abhängigkeiten
-        run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json rtmidi
+        run: brew install ninja pkg-config qt ffmpeg rubberband nlohmann-json rtmidi libraw
       - name: ONNX Runtime
         run: tools/ci/fetch-ort.sh ${ORT_VERSION} osx-universal2 $HOME/onnxruntime-osx-universal2-${ORT_VERSION}
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DLOGGX_ONNXRUNTIME_DIR=$HOME/onnxruntime-osx-universal2-${ORT_VERSION} -DLOGGX_BUILD_NUMBER=${{ github.run_number }}
@@ -185,7 +185,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample,mp3lame,opus,vorbis,dav1d]:x64-windows" "rubberband:x64-windows" "nlohmann-json:x64-windows" "rtmidi:x64-windows"
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "ffmpeg[core,avcodec,avformat,swscale,swresample,mp3lame,opus,vorbis,dav1d,svt-av1,nvcodec,amf]:x64-windows" "rubberband:x64-windows" "nlohmann-json:x64-windows" "rtmidi:x64-windows" "libraw:x64-windows"
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: vcpkg-Cache sichern
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'

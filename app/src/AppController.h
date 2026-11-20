@@ -9,7 +9,10 @@
 #include <QColor>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QHash>
 #include <QObject>
+#include <QPointer>
+#include <QWindow>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
@@ -38,6 +41,13 @@ class AppController : public QObject {
     Q_PROPERTY(double duration READ duration NOTIFY projectChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playingChanged)
     Q_PROPERTY(QVariantList assets READ assets NOTIFY assetsChanged)
+    // Multicam: Kameras der Gruppe am Abspielkopf (oder der ersten) und aktive Kamera
+    Q_PROPERTY(QVariantMap multicam READ multicam NOTIFY multicamChanged)
+    // Audio-Plugins (CLAP, VST3, AU)
+    Q_PROPERTY(QVariantList availablePlugins READ availablePlugins NOTIFY pluginsChanged)
+    Q_PROPERTY(QStringList pluginFolders READ pluginFolders WRITE setPluginFolders NOTIFY pluginsChanged)
+    // Eigene Vorlagen (Vorlagen-Pakete .lxpack)
+    Q_PROPERTY(QVariantList templates READ templates NOTIFY templatesChanged)
     Q_PROPERTY(QVariantList tracks READ tracks NOTIFY projectChanged)
     Q_PROPERTY(QString selectedClipId READ selectedClipId WRITE setSelectedClipId NOTIFY selectionChanged)
     Q_PROPERTY(QVariantMap clip READ clip NOTIFY clipChanged)
@@ -256,6 +266,34 @@ public:
     QString workLabel() const { return m_workLabel; }
     Q_INVOKABLE bool analyzeSelected();                 // Tempo + Tonart der Quelle
     Q_INVOKABLE bool trackSelectedMask();               // Maske ab Abspielkopf verfolgen
+    // Multicam: Videos über den Ton synchronisieren und als Gruppe anlegen
+    Q_INVOKABLE bool createMulticam(const QStringList& assetIds);
+    Q_INVOKABLE bool switchAngle(int angle);            // ab Abspielkopf (auch beim Abspielen)
+    QVariantMap multicam() const;
+    // Audio-Plugins
+    QVariantList availablePlugins() const;
+    QStringList pluginFolders() const;
+    void setPluginFolders(const QStringList& dirs);
+    Q_INVOKABLE QStringList defaultPluginFolders() const;
+    Q_INVOKABLE bool scanPluginsNow();
+    Q_INVOKABLE bool addPlugin(int trackIndex, const QVariantMap& plugin);
+    Q_INVOKABLE bool removePlugin(int trackIndex, const QString& uid);
+    Q_INVOKABLE bool setPluginBypass(int trackIndex, const QString& uid, bool bypass);
+    Q_INVOKABLE bool movePlugin(int trackIndex, const QString& uid, int delta);
+    Q_INVOKABLE QVariantList pluginParams(const QString& uid) const;
+    Q_INVOKABLE bool setPluginParam(int trackIndex, const QString& uid, const QString& paramId, double value);
+    Q_INVOKABLE QString pluginError(const QString& uid) const;
+    Q_INVOKABLE bool pluginHasEditor(const QString& uid) const;
+    Q_INVOKABLE bool openPluginEditor(const QString& uid);
+    Q_INVOKABLE void closePluginEditor(const QString& uid);
+    void capturePluginStates();
+    // Vorlagen
+    QVariantList templates() const;
+    Q_INVOKABLE bool saveAsTemplate(const QString& name, const QString& description, const QString& author);
+    Q_INVOKABLE bool newFromUserTemplate(const QString& dir);
+    Q_INVOKABLE bool exportTemplate(const QString& dir, const QUrl& url);
+    Q_INVOKABLE bool importTemplatePack(const QUrl& url);
+    Q_INVOKABLE bool deleteTemplate(const QString& dir);
     // Auto-Reframe: Projekt auf B×H stellen (0 = so lassen) und Videoclips mit
     // dem Motiv mitschwenken lassen (nur gewählter Clip oder alle)
     Q_INVOKABLE bool autoReframe(int width, int height, bool onlySelected);
@@ -359,6 +397,9 @@ signals:
     void positionChanged();
     void playingChanged();
     void assetsChanged();
+    void multicamChanged();
+    void pluginsChanged();
+    void templatesChanged();
     void selectionChanged();
     void clipChanged();
     void undoChanged();
@@ -433,6 +474,7 @@ private:
     PreviewWorker m_preview;
     MediaCache m_cache;
     loggx::AudioMixer m_mixer;
+    QHash<QString, QPointer<QWindow>> m_pluginWindows;
     MixerDevice m_mixerDevice;
     QAudioSink* m_sink = nullptr;
 

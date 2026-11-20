@@ -8,6 +8,7 @@ import LoggXStyle
 Item {
     id: editRoot
     signal importRequested()
+    signal multicamRequested()
     signal openPage(int page)
 
     TimelineMenu {
@@ -41,6 +42,7 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         Label { text: qsTr("Medien"); font.bold: true; Layout.fillWidth: true }
+                        IconButton { iconName: "layers"; tip: qsTr("Multicam anlegen (mehrere Kameras über den Ton synchronisieren)"); onClicked: editRoot.multicamRequested() }
                         Button { text: qsTr("Importieren"); icon.name: "import"; flat: true; onClicked: editRoot.importRequested() }
                     }
                     ListView {

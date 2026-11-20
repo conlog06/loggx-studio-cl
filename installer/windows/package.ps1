@@ -56,6 +56,9 @@ if ($env:ONNXRUNTIME_DIR) {
 foreach ($f in @("third_party\pocketfft\LICENSE.md")) {
     if (Test-Path $f) { Copy-Item $f (Join-Path $licenses "pocketfft.txt") }
 }
+# Plugin-Schnittstellen (MIT)
+Copy-Item "third_party\clap\LICENSE" (Join-Path $licenses "CLAP.txt") -ErrorAction SilentlyContinue
+Copy-Item "third_party\vst3\LICENSE.txt" (Join-Path $licenses "VST3-pluginterfaces.txt") -ErrorAction SilentlyContinue
 
 # 3b. Vollversion: KI-Modelle (MIT, kuielab MDX-Net) gleich mitliefern – kein Download nötig
 if ($env:LOGGX_MODELS_DIR -and (Test-Path $env:LOGGX_MODELS_DIR)) {

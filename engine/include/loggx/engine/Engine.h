@@ -85,6 +85,17 @@ struct ReframeResult {
 ReframeResult autoReframe(const Project& project, const std::string& clipId, int targetW, int targetH,
                           const std::function<bool(double)>& progress = {});
 
+// Multicam: Dateien über den Ton synchronisieren. offset = wie viel später
+// Datei i gegenüber Datei 0 beginnt (negativ: früher). Datei 0 hat offset 0.
+struct AudioSyncResult {
+    TimeUs offset = 0;
+    double confidence = 0;
+    bool ok = false;
+    std::string error;
+};
+std::vector<AudioSyncResult> syncByAudio(const std::vector<std::string>& paths, TimeUs maxDuration = 10 * 60 * 1'000'000LL,
+                                         const std::function<bool(double)>& progress = {});
+
 // Prüft, ob eine .cube-Datei als 3D-LUT lesbar ist.
 bool validateLut(const std::string& path, std::string* error = nullptr);
 
@@ -99,6 +110,8 @@ struct MeterLevels {
 // Instrumentspuren) zu Stereo-Float, mit Spureffekten und Master-Limiter.
 // Thread-sicher, damit der Audio-Thread rendern kann, während die
 // Oberfläche das Projekt austauscht.
+class AudioPlugin;
+
 class AudioMixer {
 public:
     AudioMixer();
@@ -112,9 +125,23 @@ public:
     // true, wenn Pitch-Shift und Time-Stretch einkompiliert sind.
     static bool hasStretcher();
 
+    // Laufende Plugin-Instanz (für Oberfläche/Parameter), nach PluginRef::uid
+    std::shared_ptr<AudioPlugin> plugin(const std::string& uid) const;
+    // Fehler beim Laden (uid → Text)
+    std::map<std::string, std::string> pluginErrors() const;
+
 private:
     struct Source;
     struct TrackState;
+    struct PluginSlot {
+        std::shared_ptr<AudioPlugin> plugin;
+        std::map<std::string, double> applied;
+        std::string appliedState;
+    };
+    mutable std::mutex m_pluginMutex;   // nur Haupt-Thread-Seite
+    std::map<std::string, PluginSlot> m_plugins;
+    std::map<std::string, std::string> m_pluginErrors;
+    void syncPlugins(const Project& project);
     std::mutex m_mutex;
     std::shared_ptr<const Project> m_project;
     std::map<std::string, std::unique_ptr<Source>> m_sources;

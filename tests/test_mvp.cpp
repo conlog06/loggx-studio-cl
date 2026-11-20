@@ -14,6 +14,7 @@
 #include "loggx/engine/Dj.h"
 #include "check.h"
 #include "loggx/engine/Engine.h"
+#include "loggx/engine/Plugins.h"
 
 using namespace loggx;
 namespace fs = std::filesystem;
@@ -1127,6 +1128,172 @@ void testDjCueAndJog() {
 }
 
 // Eingebaute Stem-Engine: Schlagzeug und Bass landen im richtigen Stem
+void testPluginHost() {
+    // CLAP und VST3: laden, Parameter, Verarbeitung, Zustand, Suche
+    struct Case {
+        const char* format;
+        const char* path;
+        const char* id;
+        std::string param;
+        double half;   // Parameterwert für Faktor 0,5
+    };
+    const Case cases[] = {{"clap", LOGGX_TEST_CLAP, "de.loggx.test.gain", "7", 0.5},
+                          {"vst3", LOGGX_TEST_VST3, "4C58544553544741494E303132333435", "3", 0.25}};
+    for (const Case& c : cases) {
+        loggx::PluginInfo info;
+        info.format = c.format;
+        info.path = c.path;
+        info.id = c.id;
+        std::string err;
+        auto p = loggx::loadPlugin(info, 48000, 512, &err);
+        if (!p) std::fprintf(stderr, "%s: %s\n", c.format, err.c_str());
+        CHECK(p != nullptr);
+        if (!p) continue;
+        const auto params = p->params();
+        CHECK(params.size() == 1 && params[0].id == c.param && params[0].name == "Gain");
+        std::vector<float> buf(1024 * 2);
+        auto fill = [&] { for (std::size_t i = 0; i < buf.size(); ++i) buf[i] = static_cast<float>(std::sin(i * 0.01)) * 0.5f; };
+        fill();
+        const float ref = buf[200];
+        p->process(buf.data(), 1024);
+        CHECK(std::abs(buf[200] - ref) < 1e-5f);          // Standard: Faktor 1
+        p->setParam(c.param, c.half);
+        fill();
+        p->process(buf.data(), 1024);
+        CHECK(std::abs(buf[200] - ref * 0.5f) < 1e-5f);   // halbiert
+        const std::string state = p->saveState();
+        CHECK(!state.empty());
+        auto q = loggx::loadPlugin(info, 48000, 512, &err);
+        CHECK(q && q->loadState(state));
+        fill();
+        q->process(buf.data(), 1024);
+        CHECK(std::abs(buf[200] - ref * 0.5f) < 1e-5f);   // Zustand übernommen
+        CHECK(std::abs(q->params()[0].value - c.half) < 1e-9);
+        // Große Blöcke (größer als maxBlock) werden aufgeteilt
+        std::vector<float> big(5000 * 2, 0.25f);
+        q->process(big.data(), 5000);
+        CHECK(std::abs(big[9999] - 0.125f) < 1e-6f);
+    }
+    // Im Mix: Instrumentspur mit Test-CLAP (Faktor 0,5) → halbe Amplitude
+    {
+        loggx::Project proj = loggx::Project::createDefault();
+        std::string inst;
+        for (auto& t : proj.tracks)
+            if (t.kind == loggx::TrackKind::Instrument) inst = t.id;
+        const std::string mid = proj.addMidiClip(inst, 0, 2 * kSecond);
+        proj.findClip(mid)->notes.push_back({60, 0, 1'500'000, 0.3});
+        auto render = [](const loggx::Project& pr) {
+            loggx::AudioMixer mx;
+            mx.setProject(std::make_shared<const loggx::Project>(pr));
+            std::vector<float> out(48000 * 2);
+            mx.render(0, out.data(), 48000);
+            double e = 0;
+            for (float v : out) e += v * v;
+            return std::sqrt(e);
+        };
+        const double plain = render(proj);
+        loggx::PluginRef ref;
+        ref.uid = "p1";
+        ref.format = "clap";
+        ref.pluginId = "de.loggx.test.gain";
+        ref.path = LOGGX_TEST_CLAP;
+        ref.name = "LX Test Gain";
+        ref.params["7"] = 0.5;
+        proj.findTrack(inst)->plugins.push_back(ref);
+        const double withPlugin = render(proj);
+        CHECK(plain > 0.1 && std::abs(withPlugin / plain - 0.5) < 0.01);
+        proj.findTrack(inst)->plugins[0].bypass = true;
+        CHECK(std::abs(render(proj) / plain - 1.0) < 0.01);
+        // Speichern/Laden: Parameter und Zustand (base64) bleiben erhalten
+        proj.findTrack(inst)->plugins[0].state = std::string("\0\x01\xff\x80Zustand", 11);
+        loggx::Project q;
+        std::string e;
+        CHECK(loggx::Project::fromJson(proj.toJson(), {}, q, &e));
+        const auto& pr = q.findTrack(inst)->plugins.at(0);
+        CHECK(pr.params.at("7") == 0.5 && pr.bypass && pr.path == LOGGX_TEST_CLAP && pr.state == proj.findTrack(inst)->plugins[0].state);
+        std::printf("Plugin im Mix: %.3f → %.3f\n", plain, withPlugin);
+    }
+    const auto found = loggx::scanPlugins({LOGGX_TEST_PLUGDIR});
+    int clap = 0, vst3 = 0;
+    for (const auto& f : found) {
+        if (f.format == "clap" && f.id == "de.loggx.test.gain") ++clap;
+        if (f.format == "vst3" && f.name == "LX Test Gain VST3") ++vst3;
+    }
+    std::printf("Plugins: %zu gefunden (Test-CLAP %d, Test-VST3 %d)\n", found.size(), clap, vst3);
+    CHECK(clap == 1 && vst3 == 1);
+#ifdef __APPLE__
+    // Audio Unit: Apples eingebauter Tiefpass (aufx:lpas:appl)
+    int au = 0;
+    for (const auto& f : found) au += f.format == "au";
+    loggx::PluginInfo lp;
+    lp.format = "au";
+    lp.id = "aufx:lpas:appl";
+    std::string auErr;
+    auto a = loggx::loadPlugin(lp, 48000, 512, &auErr);
+    if (!a) std::fprintf(stderr, "AU: %s\n", auErr.c_str());
+    CHECK(a != nullptr && au > 0);
+    if (a) {
+        CHECK(!a->params().empty());
+        a->setParam("0", 200.0);   // Grenzfrequenz 200 Hz
+        std::vector<float> hi(4096 * 2);
+        for (std::size_t i = 0; i < 4096; ++i) hi[i * 2] = hi[i * 2 + 1] = static_cast<float>(std::sin(2 * 3.14159265 * 8000.0 * i / 48000.0));
+        a->process(hi.data(), 4096);
+        float peak = 0;
+        for (std::size_t i = 2048 * 2; i < hi.size(); ++i) peak = std::max(peak, std::abs(hi[i]));
+        std::printf("AU: %d gefunden, 8 kHz nach Tiefpass: %.3f\n", au, peak);
+        CHECK(peak < 0.2f);
+        CHECK(!a->saveState().empty());
+    }
+#endif
+}
+
+void testMulticam() {
+    using loggx::Project;
+    Project p = Project::createDefault();
+    auto cam = [&](const char* name, TimeUs dur) {
+        loggx::MediaAsset a;
+        a.path = std::string("/tmp/") + name;
+        a.name = name;
+        a.hasVideo = a.hasAudio = true;
+        a.width = 1920;
+        a.height = 1080;
+        a.duration = dur;
+        return p.addAsset(a);
+    };
+    const auto a = cam("a.mp4", 60 * kSecond), b = cam("b.mp4", 50 * kSecond), c = cam("c.mp4", 70 * kSecond);
+    // b beginnt 5 s nach a, c beginnt 2 s vor a
+    const std::string g = p.createMulticam("Konzert", {{a, 0, ""}, {b, 5 * kSecond, ""}, {c, -2 * kSecond, ""}}, 0);
+    CHECK(!g.empty());
+    const auto* grp = p.findMulticam(g);
+    CHECK(grp && grp->start == 2 * kSecond && grp->angles[1].name == "Kamera 2");
+    CHECK(p.tracks.front().id == grp->programTrack);
+    // Programm: 0–2 s Kamera 3 (nur c läuft), ab 2 s Kamera 1, nach dem Ende von a wieder Kamera 3
+    CHECK(p.angleAt(g, 1 * kSecond) == 2 && p.angleAt(g, 10 * kSecond) == 0 && p.angleAt(g, 63 * kSecond) == 2);
+    // Umschalten bei 20 s auf Kamera 2: Quelle stimmt mit dem Versatz
+    CHECK(p.switchAngle(g, 1, 20 * kSecond));
+    CHECK(p.angleAt(g, 19 * kSecond) == 0 && p.angleAt(g, 21 * kSecond) == 1);
+    const loggx::Track* pt = p.findTrack(grp->programTrack);
+    const loggx::Clip* sw = nullptr;
+    for (const auto& cl : pt->clips)
+        if (cl.angle == 1) sw = &cl;
+    CHECK(sw && sw->start == 20 * kSecond && sw->in == 13 * kSecond && sw->audioOff);   // 20 − 2 − 5
+    // Kamera 2 endet bei 2 + 5 + 50 = 57 s → danach wieder die alte Kamera
+    CHECK(p.angleAt(g, 58 * kSecond) == 0);
+    // Zurück auf Kamera 1 bei 20 s: Clips werden wieder zusammengefasst
+    const std::size_t before = pt->clips.size();
+    CHECK(p.switchAngle(g, 0, 20 * kSecond));
+    CHECK(p.findTrack(grp->programTrack)->clips.size() < before);
+    // Kamera ohne Aufnahme an der Stelle → Fehler
+    std::string err;
+    CHECK(!p.switchAngle(g, 1, 3 * kSecond, &err) && !err.empty());
+    // Speichern und laden
+    Project q;
+    std::string e2;
+    CHECK(Project::fromJson(p.toJson(), {}, q, &e2));
+    CHECK(q.multicams.size() == 1 && q.multicams[0].angles.size() == 3 && q.angleAt(g, 30 * kSecond) == 0);
+    CHECK(q.switchAngle(g, 2, 30 * kSecond) && q.angleAt(g, 31 * kSecond) == 2);
+}
+
 void testMastering() {
     constexpr double kPi = 3.14159265358979323846;
     const int rate = 48000;
@@ -1250,6 +1417,8 @@ int main() {
     testDjCueAndJog();
     testDspStems();
     testMastering();
+    testMulticam();
+    testPluginHost();
     testTempoDetection();
     testAi(dir);
     testCutout();

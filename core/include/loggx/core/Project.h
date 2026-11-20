@@ -34,6 +34,7 @@ const char* transitionName(TransitionType type);
 struct MediaAsset {
     std::string id;
     std::string path;      // absoluter Pfad zur Laufzeit
+    std::string sourcePath;   // Original, falls path daraus erzeugt wurde (RAW-Foto → TIFF)
     std::string name;
     TimeUs duration = 0;   // 0 bei Standbildern
     int width = 0;
@@ -153,6 +154,10 @@ struct Clip {
     TransitionType transition = TransitionType::None;     // zum vorherigen Clip
     TimeUs transitionDuration = 500'000;                  // Gesamtlänge, mittig am Schnitt
 
+    // Multicam: Gruppe und Kamera (Winkel) dieses Programm-Clips
+    std::string multicam;
+    int angle = -1;
+    bool audioOff = false;   // Ton dieses Clips stumm (Multicam: Ton kommt von der Hauptkamera)
     TimeUs end() const { return start + duration; }
     // Zeit im Quellmaterial für einen Timeline-Zeitpunkt innerhalb des Clips.
     TimeUs sourceTime(TimeUs timelineTime) const {
@@ -180,6 +185,15 @@ struct TrackEffects {
     }
 };
 
+// Audio-Plugin auf einer Spur (CLAP, VST3, AU)
+struct PluginRef {
+    std::string uid;                        // eindeutig je Einsatz (für die laufende Instanz)
+    std::string format, pluginId, path, name, vendor;
+    bool bypass = false;
+    std::map<std::string, double> params;   // im Programm geänderte Parameter
+    std::string state;                      // gesicherter Zustand des Plugins (Rohdaten)
+};
+
 struct Track {
     std::string id;
     std::string name;
@@ -190,10 +204,30 @@ struct Track {
     double pan = 0.0;        // -1 links .. 1 rechts
     InstrumentType instrument = InstrumentType::Piano;
     TrackEffects fx;
+    std::vector<PluginRef> plugins;   // nach den eingebauten Effekten, in dieser Reihenfolge
     std::vector<Clip> clips;   // immer nach start sortiert, überlappungsfrei
 
     bool hasSound() const { return kind != TrackKind::Video; }
 };
+
+// Multicam: mehrere Kameras derselben Szene, über den Ton synchron.
+// Zeit 0 der Gruppe (start) = Beginn der Bezugskamera; offset = wie viel später
+// eine Kamera beginnt.
+struct MulticamAngle {
+    std::string assetId;
+    TimeUs offset = 0;
+    std::string name;
+};
+struct MulticamGroup {
+    std::string id;
+    std::string name;
+    TimeUs start = 0;
+    std::vector<MulticamAngle> angles;
+    std::string programTrack, audioTrack;
+};
+
+std::string base64Encode(const std::string& data);
+std::string base64Decode(const std::string& text);
 
 struct Project {
     std::string name = "Unbenannt";
@@ -209,6 +243,7 @@ struct Project {
     TimeUs beatOffset = 0;       // Lage des ersten Schlags (Beat-Raster)
     std::vector<MediaAsset> assets;
     std::vector<Track> tracks;   // Reihenfolge = Anzeige von oben nach unten
+    std::vector<MulticamGroup> multicams;
     std::uint64_t nextId = 1;
 
     // Standardprojekt: zwei Video-, zwei Audiospuren und eine Instrumentspur.
@@ -267,6 +302,15 @@ struct Project {
     // Direkt angrenzender Clip vor bzw. nach c auf derselben Spur (±1 ms).
     const Clip* previousAdjacent(const Track& track, const Clip& c) const;
     const Clip* nextAdjacent(const Track& track, const Clip& c) const;
+
+    // Multicam: Gruppe anlegen (neue Programm-Videospur + Tonspur der
+    // Hauptkamera = angles[0]); die erste vorhandene Kamera füllt das Programm.
+    std::string createMulticam(const std::string& name, const std::vector<MulticamAngle>& angles, TimeUs at);
+    const MulticamGroup* findMulticam(const std::string& id) const;
+    // Ab t im Programm auf Kamera „angle“ umschalten (schneidet bei t).
+    bool switchAngle(const std::string& groupId, int angle, TimeUs t, std::string* error = nullptr);
+    // Kamera, die bei t im Programm läuft (-1: keine)
+    int angleAt(const std::string& groupId, TimeUs t) const;
 
     // Keyframes. t ist ein Timeline-Zeitpunkt; gespeichert wird relativ zum Clip.
     bool setKeyframe(const std::string& clipId, const std::string& param, TimeUs t, double value);

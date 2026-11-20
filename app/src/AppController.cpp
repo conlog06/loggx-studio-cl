@@ -104,6 +104,7 @@ AppController::~AppController() {
 // ------------------------------------------------------------ Zustand
 
 void AppController::publish() {
+    if (!m_project.multicams.empty()) emit multicamChanged();
     m_shared = std::make_shared<const Project>(m_project);
     m_mixer.setProject(m_shared);
     m_cache.request(m_project);
@@ -214,8 +215,14 @@ bool AppController::openProjectFile(const QString& path) {
     emit fileChanged();
 
     int missing = 0;
-    for (const auto& a : m_project.assets)
+    for (auto& a : m_project.assets) {
+        // RAW-Foto: entwickeltes Bild fehlt (Zwischenspeicher geleert) → neu entwickeln
+        if (!QFileInfo::exists(qstr(a.path)) && !a.sourcePath.empty() && QFileInfo::exists(qstr(a.sourcePath))) {
+            const std::string tiff = developRaw(a.sourcePath);
+            if (!tiff.empty()) a.path = tiff;
+        }
         if (!QFileInfo::exists(qstr(a.path))) ++missing;
+    }
     setStatus(missing > 0 ? tr("Geöffnet – %1 Mediendatei(en) nicht gefunden").arg(missing)
                           : tr("Projekt geöffnet"));
     m_beatGrid = musicMode();
@@ -226,6 +233,7 @@ bool AppController::openProjectFile(const QString& path) {
 }
 
 bool AppController::saveProject() {
+    capturePluginStates();
     if (m_filePath.isEmpty()) return false;
     std::string error;
     if (!m_project.saveFile(str(m_filePath), &error)) {
@@ -391,6 +399,12 @@ QVariantList AppController::tracks() const {
         m[QStringLiteral("reverb")] = t.fx.reverb;
         m[QStringLiteral("delay")] = t.fx.delay;
         m[QStringLiteral("empty")] = t.clips.empty();
+        QVariantList plugins;
+        for (const auto& pl : t.plugins)
+            plugins << QVariantMap{{QStringLiteral("uid"), qstr(pl.uid)},       {QStringLiteral("name"), qstr(pl.name)},
+                                   {QStringLiteral("vendor"), qstr(pl.vendor)}, {QStringLiteral("format"), qstr(pl.format)},
+                                   {QStringLiteral("bypass"), pl.bypass}};
+        m[QStringLiteral("plugins")] = plugins;
         bool sound = t.kind != TrackKind::Video;
         for (const auto& c : t.clips)
             if (c.kind == ClipKind::Media)
@@ -1170,9 +1184,10 @@ void AppController::exportVideo(const QUrl& url, int width, int height, int code
     settings.codec = codec == 1 ? ExportSettings::Codec::H265
                    : codec == 2 ? ExportSettings::Codec::ProRes422HQ
                    : codec == 3 ? ExportSettings::Codec::ProRes4444
+                   : codec == 4 ? ExportSettings::Codec::AV1
                                 : ExportSettings::Codec::H264;
     settings.quality = std::clamp(quality, 0, 3);
-    settings.hdr = hdr && codec >= 1;   // HDR (HLG) nur mit H.265 oder ProRes
+    settings.hdr = hdr && codec >= 1;   // HDR (HLG) nur mit H.265, ProRes oder AV1
     startExport(settings, ExportWorker::Video);
 }
 

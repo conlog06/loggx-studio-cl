@@ -88,6 +88,16 @@ bool readTags(const std::string& path, MediaTags& out) {
 }
 
 bool probeMedia(const std::string& path, MediaAsset& out, std::string* error) {
+    if (isRawPhoto(path)) {
+        // RAW: entwickeltes TIFF verwenden, Name des Originals behalten
+        const std::string tiff = developRaw(path, error);
+        if (tiff.empty()) return false;
+        if (!probeMedia(tiff, out, error)) return false;
+        const auto fileName = std::filesystem::path(std::u8string(path.begin(), path.end())).filename().u8string();
+        out.name.assign(fileName.begin(), fileName.end());
+        out.sourcePath = path;
+        return true;
+    }
     ff::quietLogs();
     AVFormatContext* fmt = nullptr;
     int rc = avformat_open_input(&fmt, path.c_str(), nullptr, nullptr);

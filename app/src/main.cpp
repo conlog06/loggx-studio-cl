@@ -1,3 +1,5 @@
+#include <string>
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
@@ -6,6 +8,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QStandardPaths>
 #include <QTimer>
 
 #include "AppController.h"
@@ -16,7 +19,15 @@
 #include "IconItem.h"
 #include "Items.h"
 
+int runPluginScanProcess(const QStringList& args);
+
 int main(int argc, char** argv) {
+    // Hilfsprozess für die Plugin-Suche (ohne Fenster)
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--scan-plugins") {
+            QCoreApplication core(argc, argv);
+            return runPluginScanProcess(core.arguments());
+        }
     QGuiApplication app(argc, argv);
     // Interner Name bleibt (Einstellungen, Modelle, Bibliothek); angezeigt wird „LXStudio“
     QGuiApplication::setApplicationName(QStringLiteral("LoggX Studio"));
@@ -62,6 +73,8 @@ int main(int argc, char** argv) {
     qmlRegisterUncreatableType<DjMidi>("LoggX", 1, 0, "DjMidi", QStringLiteral("nur als djmidi"));
     qmlRegisterUncreatableType<Updater>("LoggX", 1, 0, "Updater", QStringLiteral("nur als updater"));
 
+    // RAW-Fotos: entwickelte Bilder dauerhaft im Cache-Ordner der App ablegen
+    loggx::setRawCacheDir((QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QStringLiteral("/raw")).toStdString());
     AppController controller;
     DjController dj(&controller);
     DjMidi djmidi(&dj);
