@@ -37,6 +37,7 @@ void copy16(String128 dst, const char* s) {
 
 class Gain : public IComponent, public IAudioProcessor, public IEditController {
 public:
+    virtual ~Gain() = default;   // Synth wird über Gain* gelöscht
     std::atomic<uint32> ref{1};
     double gain = 0.5;   // normiert: 0,5 → Faktor 1 (0..2)
 
