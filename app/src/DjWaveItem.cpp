@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <QQuickWindow>
 #include <cstring>
+#include <QFontMetricsF>
 #include <QPainter>
 #include <QWheelEvent>
 
@@ -122,6 +123,41 @@ void DjWaveItem::renderWave(QImage& img, double t0, double t1, double darkUntil)
     }
 }
 
+// Raster direkt in den Streifen: Schläge fein, Takte rot, 16-Takt-Phrasen kräftiger
+void DjWaveItem::renderGrid(QImage& img, double t0, double t1) const {
+    const double gridBpm = m_controller->mixer().gridBpm(m_deck);
+    if (gridBpm <= 0) return;
+    const double gridFirst = m_controller->mixer().gridFirstBeat(m_deck);
+    const double b = 60.0 / gridBpm;
+    const int W = img.width(), H = img.height();
+    const double pxPerBeat = W / (t1 - t0) * b;
+    QPainter p(&img);
+    const long long first = static_cast<long long>(std::floor((t0 - gridFirst) / b));
+    const double tick = std::max(3.0, H * 0.09);
+    for (long long k = first;; ++k) {
+        const double t = gridFirst + static_cast<double>(k) * b;
+        if (t > t1) break;
+        if (t < 0) continue;
+        const double x = (t - t0) / (t1 - t0) * W;
+        const long long kk = ((k % 64) + 64) % 64;
+        const bool bar = kk % 4 == 0, phrase = kk == 0;
+        if (!bar && pxPerBeat < 4) continue;   // stark herausgezoomt: nur Takte
+        if (m_bars) {
+            if (bar) {
+                p.fillRect(QRectF(x, 0, phrase ? 2 : 1, H), phrase ? QColor(255, 70, 70, 200) : QColor(255, 255, 255, 110));
+                // rote Taktmarken oben und unten wie bei rekordbox
+                const QColor red = phrase ? QColor(0xff, 0x40, 0x40) : QColor(0xe0, 0x30, 0x30);
+                p.fillRect(QRectF(x - 1, 0, 3, tick), red);
+                p.fillRect(QRectF(x - 1, H - tick, 3, tick), red);
+            } else {
+                p.fillRect(QRectF(x, 0, 1, H), QColor(255, 255, 255, 45));
+            }
+        } else {
+            p.fillRect(QRectF(x, 0, 1, H), bar ? QColor(255, 80, 80, 170) : QColor(255, 255, 255, 60));
+        }
+    }
+}
+
 void DjWaveItem::paint(QPainter* p) {
     const double w = width(), h = height();
     p->fillRect(QRectF(0, 0, w, h), QColor(0x0a, 0x0b, 0x0e));
@@ -178,25 +214,31 @@ void DjWaveItem::paint(QPainter* p) {
         p->drawImage(QRectF(split, 0, w - split, h), m_overviewImg, QRectF(split * dpr, 0, (w - split) * dpr, pxs.height()));
         p->drawImage(QRectF(0, 0, split, h), m_overviewDark, QRectF(0, 0, split * dpr, pxs.height()));
     } else {
-        if (m_frame.size() != pxs) m_frame = QImage(pxs, QImage::Format_RGB32);
-        renderWave(m_frame, t0, t1, -1.0);
-        p->drawImage(QRectF(0, 0, w, h), m_frame);
+        // Streifen mit 3-facher Breite: Bild nur bei Bedarf neu, sonst nur verschieben
+        const double secPerPx = (t1 - t0) / pxs.width();
+        std::uint64_t key = reinterpret_cast<std::uintptr_t>(track.get());
+        auto mixKey = [&key](double v) {
+            std::uint64_t bits;
+            std::memcpy(&bits, &v, sizeof bits);
+            key ^= bits + 0x9e3779b97f4a7c15ULL + (key << 6) + (key >> 2);
+        };
+        mixKey(secPerPx); mixKey(pxs.height()); mixKey(gridBpm); mixKey(gridFirst);
+        mixKey(m_controller->waveStyle()); mixKey(m_bars ? 1 : 0);
+        const double off = (t0 - m_stripT0) / secPerPx;   // Startpixel im Streifen
+        if (key != m_stripKey || m_strip.isNull() || off < pxs.width() * 0.1 || off > pxs.width() * 1.9) {
+            m_strip = QImage(pxs.width() * 3, pxs.height(), QImage::Format_RGB32);
+            m_stripT0 = t0 - pxs.width() * secPerPx;
+            m_stripSecPerPx = secPerPx;
+            const double s1 = m_stripT0 + m_strip.width() * secPerPx;
+            renderWave(m_strip, m_stripT0, s1, -1.0);
+            renderGrid(m_strip, m_stripT0, s1);
+            m_stripKey = key;
+        }
+        const double sx = (t0 - m_stripT0) / secPerPx;
+        p->drawImage(QRectF(0, 0, w, h), m_strip, QRectF(sx, 0, pxs.width(), pxs.height()));
     }
     // Loop-Bereich über der Wellenform
     if (loopRect.width() > 0) p->fillRect(loopRect, QColor(60, 220, 120, 55));
-
-    // Beat-Raster (gezoomt): Schläge fein, Takte deutlich
-    if (!m_overview && gridBpm > 0) {
-        const double b = beatLen;
-        const long long first = static_cast<long long>(std::floor((t0 - gridFirst) / b));
-        for (long long k = first; ; ++k) {
-            const double t = gridFirst + k * b;
-            if (t > t1) break;
-            if (t < 0) continue;
-            const bool bar = k % 4 == 0;
-            p->fillRect(QRectF(xOf(t), 0, 1, h), bar ? QColor(255, 80, 80, 170) : QColor(255, 255, 255, 60));
-        }
-    }
 
     // Cue und Hot Cues
     const double cue = m_controller->cuePoint(m_deck);
@@ -226,6 +268,38 @@ void DjWaveItem::paint(QPainter* p) {
         QPolygonF tri;
         tri << QPointF(px - 6, 0) << QPointF(px + 6, 0) << QPointF(px, 7);
         p->drawPolygon(tri);
+    }
+    // „-X.X Bars“ bis zum nächsten Cue (sonst bis zur nächsten 16-Takt-Phrase)
+    if (m_bars && !m_overview && gridBpm > 0) {
+        double next = -1;
+        for (int i = 0; i < 8; ++i) {
+            const double hc = m_controller->hotCuePoint(m_deck, i);
+            if (hc > pos + 0.05 && (next < 0 || hc < next)) next = hc;
+        }
+        if (cue > pos + 0.05 && (next < 0 || cue < next)) next = cue;
+        if (next < 0) {
+            const double beats = (pos - gridFirst) / beatLen;
+            next = gridFirst + (std::floor(beats / 64.0) + 1.0) * 64.0 * beatLen;
+        }
+        const double barsLeft = (next - pos) / beatLen / 4.0;
+        const QString txt = QStringLiteral("-%1Bars").arg(barsLeft, 0, 'f', 1);
+        QFont f = p->font();
+        f.setPixelSize(std::clamp(static_cast<int>(h * 0.2), 10, 15));
+        f.setBold(true);
+        p->setFont(f);
+        const QFontMetricsF fm(f);
+        const QRectF r(6, h - fm.height() - 4, fm.horizontalAdvance(txt) + 10, fm.height() + 2);
+        p->setPen(Qt::NoPen);
+        p->setBrush(QColor(0, 0, 0, 170));
+        p->drawRoundedRect(r, 3, 3);
+        p->setPen(barsLeft <= 4.0 ? QColor(0xff, 0x40, 0x40) : QColor(0xf0, 0xf0, 0xf0));
+        p->drawText(r, Qt::AlignCenter, txt);
+        // Schlag im Takt (1–4) als kleine Punkte rechts unten
+        const int beatInBar = static_cast<int>(std::floor((pos - gridFirst) / beatLen + 1e-6)) % 4;
+        for (int i = 0; i < 4; ++i) {
+            p->setBrush(i == ((beatInBar + 4) % 4) ? m_accent : QColor(255, 255, 255, 50));
+            p->drawRect(QRectF(w - 50 + i * 11, h - 12, 8, 6));
+        }
     }
     // Rahmen in Deck-Farbe
     p->setBrush(Qt::NoBrush);

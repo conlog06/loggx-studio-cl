@@ -151,6 +151,17 @@ public:
     // ---- Mixer
     void setCrossfader(double value);            // −1 = nur A, +1 = nur B
     double crossfader() const;
+    // Crossfader-Kurve: 0 weich (gleiche Leistung), 1 Mix (Mitte beide voll), 2 Cut (scharf)
+    void setCrossfaderCurve(int curve);
+    int crossfaderCurve() const;
+    // Automatischer Übergang zum anderen Deck: startet auf dem nächsten Takt,
+    // dauert „beats“ Schläge. Stil: 0 Blend, 1 Bass-Tausch, 2 Filter, 3 Echo-Out
+    bool startTransition(int toDeck, double beats, int style, bool quantize = true);
+    void cancelTransition();
+    double transitionProgress() const;   // −1 = keiner, 0…1 (vor dem Start: 0)
+    int transitionTarget() const;        // Ziel-Deck oder −1
+    // Phasenabweichung des Decks zum Master in Schlägen (−0,5…0,5), NaN ohne Bezug
+    double phaseOffset(int deck) const;
     void setMasterVolume(double value);          // 0 … 1,5
     double masterLevel() const;
 
@@ -176,6 +187,16 @@ private:
     int m_master = 0;
     bool m_quantize = true;
     double m_cross = 0.0, m_masterVol = 1.0, m_masterLevel = 0.0;
+    double m_crossGa = -1, m_crossGb = -1;   // zuletzt verwendete Pegel (für weiche Rampe)
+    int m_xfCurve = 0;
+    struct Transition {
+        bool active = false, started = false;
+        int from = 0, to = 1, style = 0;
+        double beats = 16, waitFrames = 0, elapsed = 0, total = 1;
+        double fromLow = 0, toLow = 0, fromFilt = 0;
+        bool fxWasOn = false;
+    } m_trans;
+    void runTransition(std::size_t frames);
     struct Fx;
     std::unique_ptr<Fx> m_fx;
     std::function<void(const float*, std::size_t)> m_recorder;

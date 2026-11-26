@@ -40,6 +40,11 @@ void DjController::loadPadFx() {
     }
     m_stemPads = std::clamp(s.value(QStringLiteral("dj/flx4StemPads"), 0).toInt(), 0, 3);
     m_cfxMode = std::clamp(s.value(QStringLiteral("dj/cfxMode"), 0).toInt(), 0, 1);
+    m_xfCurve = std::clamp(s.value(QStringLiteral("dj/xfCurve"), 0).toInt(), 0, 2);
+    m_mixer.setCrossfaderCurve(m_xfCurve);
+    m_autoMixBars = std::clamp(s.value(QStringLiteral("dj/autoMixBars"), 8).toInt(), 1, 32);
+    m_autoMixStyle = std::clamp(s.value(QStringLiteral("dj/autoMixStyle"), 0).toInt(), 0, 3);
+    m_topWaveHeight = std::clamp(s.value(QStringLiteral("dj/topWaveHeight"), 72).toInt(), 40, 160);
 }
 
 QVariantList DjController::padFxSlots() const {
@@ -166,4 +171,51 @@ int DjController::savedPadMode(int deck) const {
 
 void DjController::savePadMode(int deck, int mode, int page) {
     QSettings().setValue(QStringLiteral("dj/padMode%1").arg(deck), mode + (page > 0 ? 10 : 0));
+}
+
+// ------------------------------------------------------------ Übergänge
+
+void DjController::setCrossfaderCurve(int curve) {
+    m_xfCurve = std::clamp(curve, 0, 2);
+    m_mixer.setCrossfaderCurve(m_xfCurve);
+    QSettings().setValue(QStringLiteral("dj/xfCurve"), m_xfCurve);
+    emit settingsChanged();
+}
+
+void DjController::setAutoMixBars(int bars) {
+    m_autoMixBars = std::clamp(bars, 1, 32);
+    QSettings().setValue(QStringLiteral("dj/autoMixBars"), m_autoMixBars);
+    emit settingsChanged();
+}
+
+void DjController::setAutoMixStyle(int style) {
+    m_autoMixStyle = std::clamp(style, 0, 3);
+    QSettings().setValue(QStringLiteral("dj/autoMixStyle"), m_autoMixStyle);
+    emit settingsChanged();
+}
+
+void DjController::setTopWaveHeight(int h) {
+    m_topWaveHeight = std::clamp(h, 40, 160);
+    QSettings().setValue(QStringLiteral("dj/topWaveHeight"), m_topWaveHeight);
+    emit layoutChanged();
+}
+
+bool DjController::autoMix(int toDeck) {
+    if (toDeck < 0) {
+        // Ziel: das Deck, das gerade nicht (oder leiser) zu hören ist
+        const bool aPlays = m_mixer.playing(0), bPlays = m_mixer.playing(1);
+        if (aPlays != bPlays) toDeck = aPlays ? 1 : 0;
+        else toDeck = m_mixer.crossfader() <= 0 ? 1 : 0;
+    }
+    const bool ok = m_mixer.startTransition(toDeck, m_autoMixBars * 4.0, m_autoMixStyle, true);
+    if (!ok) setStatus(tr("Auto-Mix: Deck %1 ist leer").arg(toDeck == 0 ? QStringLiteral("A") : QStringLiteral("B")));
+    emit decksChanged();
+    emit mixerChanged();
+    return ok;
+}
+
+void DjController::cancelAutoMix() {
+    m_mixer.cancelTransition();
+    emit decksChanged();
+    emit mixerChanged();
 }

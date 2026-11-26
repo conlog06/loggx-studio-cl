@@ -1026,6 +1026,70 @@ void testAi(const fs::path& dir) {
 }
 
 // Kopfhörer (Vorhören vor dem Fader), Scratchen, Beatgrid je Deck
+void testDjTransitions() {
+    DjMixer dj(kRate);
+    auto a = makeDjTrack(120, 60, 440);
+    auto b = makeDjTrack(124, 60, 330);
+    dj.load(0, a);
+    dj.load(1, b);
+    std::vector<float> out(512 * 2);
+    auto run = [&](double seconds) {
+        for (int i = 0; i < static_cast<int>(seconds * kRate / 512); ++i) dj.render(out.data(), 512);
+    };
+    // Weiche Regler: harter Fader-Sprung erzeugt keinen Knacks (Rampe über den Block)
+    dj.play(0);
+    dj.setCrossfader(-1.0);
+    run(0.5);
+    dj.setFader(0, 0.0);
+    dj.render(out.data(), 512);
+    float maxStep = 0;
+    for (std::size_t i = 2; i < out.size(); i += 2) maxStep = std::max(maxStep, std::abs(out[i] - out[i - 2]));
+    CHECK(maxStep < 0.08f);   // Sinus 440 Hz bei 48 kHz: Schritt ≤ ~0,06
+    dj.setFader(0, 1.0);
+    run(0.2);
+    // Phasenregelung: B mit Sync-Lock, um 0,3 Schläge daneben gestartet → rastet ein
+    dj.seek(1, 5.0 + 0.3 * 60.0 / 124.0);
+    dj.setSyncLock(1, true);
+    dj.play(1);
+    run(0.1);
+    const double before = std::abs(dj.phaseOffset(1));
+    run(20.0);
+    const double after = std::abs(dj.phaseOffset(1));
+    std::printf("Phasenregelung: %.3f → %.4f Schläge\n", before, after);
+    CHECK(before > 0.1 && after < 0.01);
+    dj.pause(1);
+    // Automatischer Übergang A → B über 8 Schläge, Bass-Tausch, startet auf dem nächsten Takt
+    dj.setSyncLock(1, false);
+    dj.seek(1, 0.0);
+    dj.setCrossfader(-1.0);
+    CHECK(dj.startTransition(1, 8, 1));
+    CHECK(dj.transitionTarget() == 1 && dj.transitionProgress() == 0.0);
+    run(2.05);   // höchstens ein Takt (2 s bei 120 BPM) Wartezeit
+    CHECK(dj.playing(1));
+    run(2.0);    // Mitte (8 Schläge = 4 s)
+    const double mid = dj.transitionProgress();
+    CHECK(mid > 0.3 && mid < 0.8 && std::abs(dj.crossfader()) < 0.8);
+    run(2.5);
+    CHECK(dj.transitionProgress() < 0 && dj.crossfader() == 1.0 && !dj.playing(0) && dj.playing(1));
+    CHECK(dj.eq(0, 0) == 0.0 && dj.eq(1, 0) == 0.0);   // EQ wieder wie vorher
+    CHECK(std::abs(dj.currentBpm(1) - 120.0) < 0.01);   // Tempo angeglichen
+    // Filter- und Echo-Out-Übergang zurück, Abbrechen stellt alles zurück
+    dj.seek(0, 0.0);
+    CHECK(dj.startTransition(0, 4, 2, false));
+    run(1.0);
+    CHECK(dj.filter(1) > 0.1);
+    dj.cancelTransition();
+    CHECK(dj.filter(1) == 0.0 && dj.transitionProgress() < 0);
+    CHECK(dj.startTransition(0, 4, 3, false));
+    run(2.5);
+    run(0.1);
+    CHECK(dj.transitionProgress() < 0 && dj.crossfader() == -1.0);
+    // Crossfader-Kurven
+    dj.setCrossfaderCurve(2);
+    CHECK(dj.crossfaderCurve() == 2);
+    dj.setCrossfaderCurve(0);
+}
+
 void testDjCueAndJog() {
     DjMixer dj(kRate);
     auto a = makeDjTrack(120, 20, 440);
@@ -1465,6 +1529,7 @@ int main() {
     testDspStems();
     testMastering();
     testMulticam();
+    testDjTransitions();
     testPluginHost();
     testTempoDetection();
     testAi(dir);

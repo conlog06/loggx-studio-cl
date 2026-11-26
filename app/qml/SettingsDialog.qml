@@ -446,6 +446,21 @@ Dialog {
                             onActivated: dj.cfxMode = currentIndex
                         }
                     }
+                    Row2 {
+                        label: qsTr("Crossfader-Kurve")
+                        hint: qsTr("Weich: gleichmäßige Lautstärke beim Überblenden. Mix: in der Mitte beide voll. Cut: scharf zum Scratchen.")
+                        ComboBox {
+                            implicitWidth: 260
+                            model: [qsTr("Weich (Standard)"), qsTr("Mix"), qsTr("Cut (Scratch)")]
+                            currentIndex: dj.crossfaderCurve
+                            onActivated: dj.crossfaderCurve = currentIndex
+                        }
+                    }
+                    Row2 {
+                        label: qsTr("Höhe Takt-Wellenformen")
+                        hint: qsTr("Höhe der beiden mitlaufenden Wellenformen oben (Pixel).")
+                        SpinBox { from: 40; to: 160; stepSize: 8; value: dj.topWaveHeight; onValueModified: dj.topWaveHeight = value }
+                    }
                     Heading { text: qsTr("MIDI-Learn (eigene Zuordnung)") }
                     RowLayout {
                         Layout.fillWidth: true

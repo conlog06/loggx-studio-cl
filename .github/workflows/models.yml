@@ -29,6 +29,7 @@ jobs:
           cd /tmp/demucs.onnx/demucs-for-onnx && pip install --no-deps -e .
           cd /tmp/demucs.onnx && python scripts/convert-pth-to-onnx.py $GITHUB_WORKSPACE/out
           ls -la $GITHUB_WORKSPACE/out
+          cd $GITHUB_WORKSPACE
           python - <<'PY'
           import onnx
           m = onnx.load("out/htdemucs.onnx")

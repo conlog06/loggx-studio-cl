@@ -411,24 +411,43 @@ Rectangle {
             Label { text: dj.status; color: Theme.dim; elide: Text.ElideRight; Layout.maximumWidth: 420 }
         }
 
-        // --------------------------------- mitlaufende Wellenformen
-        DjWave {
+        // --------------------------------- mitlaufende Wellenformen (Takt-Ansicht wie rekordbox)
+        RowLayout {
             visible: !dj.libraryMax
             Layout.fillWidth: true
-            Layout.preferredHeight: 56
-            controller: dj
-            deck: 0
-            zoom: dj.waveZoom
-            accent: "#3d8bff"
-        }
-        DjWave {
-            visible: !dj.libraryMax
-            Layout.fillWidth: true
-            Layout.preferredHeight: 56
-            controller: dj
-            deck: 1
-            zoom: dj.waveZoom
-            accent: "#ff8a3d"
+            Layout.preferredHeight: dj.topWaveHeight * 2 + 4
+            spacing: 4
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 4
+                DjWave {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    controller: dj
+                    deck: 0
+                    zoom: dj.waveZoom
+                    bars: true
+                    accent: "#3d8bff"
+                }
+                DjWave {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    controller: dj
+                    deck: 1
+                    zoom: dj.waveZoom
+                    bars: true
+                    accent: "#ff8a3d"
+                }
+            }
+            // Zoom: + / RST / −
+            ColumnLayout {
+                Layout.fillHeight: true
+                spacing: 2
+                Button { text: "+"; Layout.preferredWidth: 38; Layout.fillHeight: true; onClicked: dj.zoomWave(1); ToolTip.visible: hovered; ToolTip.text: qsTr("Näher heran") }
+                Button { text: "RST"; font.pixelSize: 10; Layout.preferredWidth: 38; Layout.fillHeight: true; onClicked: dj.waveZoom = 8; ToolTip.visible: hovered; ToolTip.text: qsTr("Zoom zurücksetzen") }
+                Button { text: "−"; Layout.preferredWidth: 38; Layout.fillHeight: true; onClicked: dj.zoomWave(-1); ToolTip.visible: hovered; ToolTip.text: qsTr("Weiter weg") }
+            }
         }
 
         // ------------------------------------------ Sampler
@@ -675,6 +694,38 @@ Rectangle {
                             onMoved: dj.crossfader = value
                         }
                         Label { text: "B"; color: "#ff8a3d"; font.bold: true }
+                    }
+                    // Auto-Mix: automatischer Übergang zum anderen Deck, startet auf dem nächsten Takt
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        Button {
+                            text: dj.transitionTarget >= 0 ? qsTr("STOP") : qsTr("AUTO-MIX")
+                            highlighted: dj.transitionTarget >= 0
+                            font.pixelSize: 11
+                            onClicked: dj.transitionTarget >= 0 ? dj.cancelAutoMix() : dj.autoMix(-1)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Übergang zum anderen Deck: Tempo und Takt werden angeglichen, Start auf dem nächsten Takt")
+                        }
+                        ComboBox {
+                            Layout.preferredWidth: 70
+                            model: ["4", "8", "16", "32"]
+                            currentIndex: Math.max(0, [4, 8, 16, 32].indexOf(dj.autoMixBars))
+                            onActivated: dj.autoMixBars = [4, 8, 16, 32][currentIndex]
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Länge in Takten")
+                        }
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: [qsTr("Blend"), qsTr("Bass-Tausch"), qsTr("Filter"), qsTr("Echo-Out")]
+                            currentIndex: dj.autoMixStyle
+                            onActivated: dj.autoMixStyle = currentIndex
+                        }
+                    }
+                    ProgressBar {
+                        Layout.fillWidth: true
+                        visible: dj.transitionTarget >= 0
+                        value: Math.max(0, dj.transitionProgress)
                     }
                     RowLayout {
                         Layout.fillWidth: true

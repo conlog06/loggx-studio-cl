@@ -1024,7 +1024,19 @@ QVariantMap DjController::deckInfo(int deck) const {
             const double h = m_mixer.hotCue(deck, i);
             if (h > pos + 0.05 && (next < 0 || h < next)) next = h;
         }
-        m[QStringLiteral("barsToCue")] = next > 0 ? (next - pos) / (60.0 / gb) / 4.0 : -1.0;
+        // Kein Hot Cue voraus: Memory-Cue, sonst nächster 16-Takt-Abschnitt (Phrase)
+        const double cuePt = m_mixer.cuePoint(deck);
+        if (cuePt > pos + 0.05 && (next < 0 || cuePt < next)) next = cuePt;
+        bool phrase = false;
+        if (next < 0) {
+            const double phraseLen = 16.0 * 4.0;
+            next = m_mixer.gridFirstBeat(deck) + (std::floor(beats / phraseLen) + 1.0) * phraseLen * (60.0 / gb);
+            phrase = true;
+        }
+        m[QStringLiteral("barsToCue")] = (next - pos) / (60.0 / gb) / 4.0;
+        m[QStringLiteral("barsToPhrase")] = phrase;
+        const double ph = m_mixer.phaseOffset(deck);
+        m[QStringLiteral("phase")] = std::isnan(ph) ? 0.0 : ph;
         m[QStringLiteral("beatInBar")] = static_cast<int>(std::floor(beats)) % 4 + 1;
         m[QStringLiteral("bar")] = static_cast<int>(std::floor(beats / 4)) + 1;
     }

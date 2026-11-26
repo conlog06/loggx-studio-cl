@@ -16,6 +16,8 @@ class DjWaveItem : public QQuickPaintedItem {
     Q_PROPERTY(bool overview READ overview WRITE setOverview NOTIFY changed)
     Q_PROPERTY(double zoom READ zoom WRITE setZoom NOTIFY changed)   // sichtbare Sekunden (gezoomt)
     Q_PROPERTY(QColor accent READ accent WRITE setAccent NOTIFY changed)
+    // Takt-Ansicht wie rekordbox: Taktmarken oben/unten, „-X.X Bars“ bis zum nächsten Cue
+    Q_PROPERTY(bool bars READ bars WRITE setBars NOTIFY changed)
 
 public:
     explicit DjWaveItem(QQuickItem* parent = nullptr);
@@ -29,6 +31,8 @@ public:
     void setZoom(double z) { m_zoom = z; emit changed(); update(); }
     QColor accent() const { return m_accent; }
     void setAccent(const QColor& c) { m_accent = c; emit changed(); update(); }
+    bool bars() const { return m_bars; }
+    void setBars(bool b) { m_bars = b; emit changed(); update(); }
     void paint(QPainter* p) override;
 
 signals:
@@ -58,4 +62,11 @@ private:
     const void* m_overviewTrack = nullptr;
     int m_overviewStyle = -1;
     void renderWave(QImage& img, double t0, double t1, double darkUntil) const;
+    bool m_bars = false;
+    // Breiter Streifen (3× Sichtbreite) mit Wellenform + Raster; wird nur neu
+    // gerendert, wenn die Position das mittlere Drittel verlässt
+    QImage m_strip;
+    double m_stripT0 = 0, m_stripSecPerPx = 0;
+    std::uint64_t m_stripKey = 0;
+    void renderGrid(QImage& img, double t0, double t1) const;
 };

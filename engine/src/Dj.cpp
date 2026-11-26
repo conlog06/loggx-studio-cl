@@ -155,6 +155,9 @@ struct DjMixer::Deck {
     double designedEq[3] = {1e9, 1e9, 1e9};
     double filt = 0, designedFilt = 1e9;
     double trim = 1.0, fader = 1.0;
+    // weich nachgeführte Werte (gegen Knacken beim Drehen/Schieben)
+    double eqS[3] = {0, 0, 0}, filtS = 0, trimS = 1.0, fadeS = 1.0;
+    double phaseCorr = 0.0;     // Phasenregelung bei Sync (±1 %)
     Biquad low, mid, high, filter;
     double level = 0.0;
     double brake = 1.0;         // Bremse: Faktor auf das Tempo
@@ -166,7 +169,8 @@ struct DjMixer::Deck {
     std::vector<float> inL, inR, outL, outR;
 
     Deck() { hot.fill(-1.0); }
-    double rate() const { return (1.0 + tempo / 100.0) * brake * (1.0 + bend); }
+    double rate() const { return (1.0 + tempo / 100.0) * brake * (1.0 + bend) * (1.0 + phaseCorr); }
+    double baseRate() const { return (1.0 + tempo / 100.0) * brake * (1.0 + bend); }
     double beatLen() const { return gridBpm > 0 ? 60.0 / gridBpm : 0.0; }
     double seconds() const { return track ? pos / track->sampleRate : 0.0; }
     double bpm() const { return track && gridBpm > 0 ? gridBpm * (1.0 + tempo / 100.0) : 0.0; }
@@ -197,19 +201,19 @@ struct DjMixer::Deck {
     void designFilters(int rate) {
         static constexpr double freqs[3] = {250.0, 1000.0, 3500.0};
         for (int b = 0; b < 3; ++b) {
-            if (eq[b] == designedEq[b]) continue;
-            const double db = eq[b] < 0 ? 40.0 * eq[b] : 6.0 * eq[b];
+            if (eqS[b] == designedEq[b]) continue;
+            const double db = eqS[b] < 0 ? 40.0 * eqS[b] : 6.0 * eqS[b];
             Biquad& f = b == 0 ? low : b == 1 ? mid : high;
             f.design(b == 0 ? Biquad::Type::LowShelf : b == 1 ? Biquad::Type::Peak : Biquad::Type::HighShelf, freqs[b], db,
                      b == 1 ? 0.6 : 0.7, rate);
-            designedEq[b] = eq[b];
+            designedEq[b] = eqS[b];
         }
-        if (filt != designedFilt) {
-            if (filt < -0.02)
-                filter.design(Biquad::Type::LowPass, 20000.0 * std::pow(100.0 / 20000.0, -filt), 0, 1.0, rate);
-            else if (filt > 0.02)
-                filter.design(Biquad::Type::HighPass, 20.0 * std::pow(8000.0 / 20.0, filt), 0, 1.0, rate);
-            designedFilt = filt;
+        if (filtS != designedFilt) {
+            if (filtS < -0.02)
+                filter.design(Biquad::Type::LowPass, 20000.0 * std::pow(100.0 / 20000.0, -filtS), 0, 1.0, rate);
+            else if (filtS > 0.02)
+                filter.design(Biquad::Type::HighPass, 20.0 * std::pow(8000.0 / 20.0, filtS), 0, 1.0, rate);
+            designedFilt = filtS;
         }
     }
 };
@@ -581,6 +585,141 @@ double DjMixer::level(int deck) const {
     return DECK(deck).level;
 }
 
+void DjMixer::setCrossfaderCurve(int curve) {
+    LOCK;
+    m_xfCurve = std::clamp(curve, 0, 2);
+}
+
+int DjMixer::crossfaderCurve() const {
+    LOCK;
+    return m_xfCurve;
+}
+
+double DjMixer::phaseOffset(int deck) const {
+    LOCK;
+    const Deck& d = DECK(deck);
+    const Deck& m = DECK(1 - deck);
+    if (!d.track || !m.track || d.gridBpm <= 0 || m.gridBpm <= 0) return std::nan("");
+    auto frac = [](double v) { return v - std::floor(v); };
+    double diff = frac((d.seconds() - d.gridFirst) / d.beatLen()) - frac((m.seconds() - m.gridFirst) / m.beatLen());
+    if (diff > 0.5) diff -= 1.0;
+    if (diff < -0.5) diff += 1.0;
+    return diff;
+}
+
+bool DjMixer::startTransition(int toDeck, double beats, int style, bool quantize) {
+    LOCK;
+    toDeck = std::clamp(toDeck, 0, 1);
+    Deck& to = DECK(toDeck);
+    Deck& from = DECK(1 - toDeck);
+    if (!to.track) return false;
+    Transition& tr = m_trans;
+    tr = {};
+    tr.active = true;
+    tr.from = 1 - toDeck;
+    tr.to = toDeck;
+    tr.style = std::clamp(style, 0, 3);
+    tr.beats = std::clamp(beats, 1.0, 128.0);
+    tr.fromLow = from.eq[0];
+    tr.toLow = to.eq[0];
+    tr.fromFilt = from.filt;
+    tr.fxWasOn = m_fx->on;
+    // Auf den nächsten Takt des laufenden Decks warten
+    if (quantize && from.playing && from.track && from.gridBpm > 0) {
+        const double bar = from.beatLen() * 4.0;
+        const double ph = (from.seconds() - from.gridFirst) / bar;
+        double wait = (std::ceil(ph) - ph) * bar / std::max(0.1, from.rate());
+        if (wait < 0.03) wait = 0.0;
+        tr.waitFrames = wait * m_rate;
+    }
+    if (tr.style == 1) to.eq[0] = -1.0;   // Bass des neuen Tracks zunächst raus
+    return true;
+}
+
+void DjMixer::cancelTransition() {
+    LOCK;
+    if (!m_trans.active) return;
+    Deck& from = DECK(m_trans.from);
+    Deck& to = DECK(m_trans.to);
+    from.eq[0] = m_trans.fromLow;
+    from.filt = m_trans.fromFilt;
+    to.eq[0] = m_trans.toLow;
+    if (m_trans.style == 3 && !m_trans.fxWasOn) m_fx->on = false;
+    m_trans.active = false;
+}
+
+double DjMixer::transitionProgress() const {
+    LOCK;
+    if (!m_trans.active) return -1.0;
+    return m_trans.started ? std::clamp(m_trans.elapsed / m_trans.total, 0.0, 1.0) : 0.0;
+}
+
+int DjMixer::transitionTarget() const {
+    LOCK;
+    return m_trans.active ? m_trans.to : -1;
+}
+
+// Läuft im Audio-Thread zu Beginn jedes Blocks (Sperre ist gehalten)
+void DjMixer::runTransition(std::size_t frames) {
+    Transition& tr = m_trans;
+    if (!tr.active) return;
+    Deck& from = *m_decks[static_cast<std::size_t>(tr.from)];
+    Deck& to = *m_decks[static_cast<std::size_t>(tr.to)];
+    if (!tr.started) {
+        tr.waitFrames -= static_cast<double>(frames);
+        if (tr.waitFrames > 0) return;
+        // Start: Tempo und Schlag angleichen, Sync halten, neues Deck los
+        if (from.playing && from.track && to.track && to.gridBpm > 0 && from.gridBpm > 0) {
+            applySync(to, from);
+            to.sync = true;
+            auto frac = [](double v) { return v - std::floor(v); };
+            double diff = frac((from.seconds() - from.gridFirst) / from.beatLen()) - frac((to.seconds() - to.gridFirst) / to.beatLen());
+            if (diff > 0.5) diff -= 1.0;
+            if (diff < -0.5) diff += 1.0;
+            to.pos = std::max(0.0, to.pos + diff * to.beatLen() * to.track->sampleRate);
+            to.stretchReset = true;
+        }
+        to.playing = true;
+        const double bpm = from.bpm() > 0 ? from.bpm() : (to.bpm() > 0 ? to.bpm() : 120.0);
+        tr.total = std::max(0.25, tr.beats * 60.0 / bpm);
+        tr.started = true;
+        tr.elapsed = 0;
+    } else {
+        tr.elapsed += static_cast<double>(frames) / m_rate;
+    }
+    const double p = std::clamp(tr.elapsed / tr.total, 0.0, 1.0);
+    const double fromSide = tr.from == 0 ? -1.0 : 1.0;
+    auto smooth = [](double v) { return v * v * (3.0 - 2.0 * v); };
+    double cross = p;
+    if (tr.style == 3) cross = p < 0.6 ? 0.5 * smooth(p / 0.6) : 0.5 + 0.5 * smooth((p - 0.6) / 0.4);   // Echo-Out: Echo klingt beim Rüberblenden aus
+    else cross = smooth(p);
+    m_cross = fromSide - 2.0 * fromSide * cross;
+    if (tr.style == 1) {   // Bass-Tausch in der Mitte (über einen Schlag)
+        const double w = std::max(0.02, 1.0 / tr.beats);
+        const double s = std::clamp((p - (0.5 - w / 2)) / w, 0.0, 1.0);
+        from.eq[0] = tr.fromLow + (-1.0 - tr.fromLow) * s;
+        to.eq[0] = -1.0 + (tr.toLow + 1.0) * s;
+    } else if (tr.style == 2) {   // Hochpass-Fahrt auf dem alten Track
+        from.filt = tr.fromFilt + (0.85 - tr.fromFilt) * smooth(p);
+    } else if (tr.style == 3 && p >= 0.6 && !m_fx->on) {   // Echo auf dem alten Track
+        m_fx->type = DjFx::Echo;
+        m_fx->beats = 0.75;
+        m_fx->wet = 0.7;
+        m_fx->target = tr.from;
+        m_fx->on = true;
+    }
+    if (p >= 1.0) {
+        // Fertig: altes Deck stoppen und zurücksetzen
+        from.playing = false;
+        from.eq[0] = tr.fromLow;
+        from.filt = tr.fromFilt;
+        to.eq[0] = tr.toLow;
+        if (tr.style == 3 && !tr.fxWasOn) m_fx->on = false;
+        m_master = tr.to;
+        tr.active = false;
+    }
+}
+
 void DjMixer::setCrossfader(double value) {
     LOCK;
     m_cross = std::clamp(value, -1.0, 1.0);
@@ -769,9 +908,21 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
     // Master bestimmen und Sync-Lock nachführen
     if (!m_decks[static_cast<std::size_t>(m_master)]->playing && m_decks[static_cast<std::size_t>(1 - m_master)]->playing)
         m_master = 1 - m_master;
+    runTransition(frames);
     for (int i = 0; i < 2; ++i) {
         Deck& d = *m_decks[static_cast<std::size_t>(i)];
-        if (d.sync && i != m_master) applySync(d, *m_decks[static_cast<std::size_t>(m_master)]);
+        const Deck& m = *m_decks[static_cast<std::size_t>(m_master)];
+        d.phaseCorr = 0.0;
+        if (!d.sync || i == m_master) continue;
+        applySync(d, m);
+        // Phasenregelung: Schläge bleiben auch über lange Übergänge übereinander
+        if (d.playing && m.playing && !d.scratch && d.track && m.track && d.gridBpm > 0 && m.gridBpm > 0 && d.bend == 0.0) {
+            auto frac = [](double v) { return v - std::floor(v); };
+            double diff = frac((m.seconds() - m.gridFirst) / m.beatLen()) - frac((d.seconds() - d.gridFirst) / d.beatLen());
+            if (diff > 0.5) diff -= 1.0;
+            if (diff < -0.5) diff += 1.0;
+            if (std::abs(diff) > 0.002) d.phaseCorr = std::clamp(diff * 0.25, -0.01, 0.01);
+        }
     }
 
     for (int di = 0; di < 2; ++di) {
@@ -793,7 +944,7 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
 
         bool useStretch = false;
 #ifdef LOGGX_WITH_RUBBERBAND
-        useStretch = !d.scratch && d.brakeStep == 0.0 && ((d.keyLock && std::abs(d.rate() - 1.0) > 1e-4) || d.keyShift != 0);
+        useStretch = !d.scratch && d.brakeStep == 0.0 && ((d.keyLock && std::abs(d.baseRate() - 1.0) > 1e-4) || d.keyShift != 0);
         // Tonhöhe: mit Key Lock nur die Verschiebung, sonst wie Vinyl (Tempo) plus Verschiebung
         const double pitch = std::pow(2.0, d.keyShift / 12.0) * (d.keyLock ? 1.0 : d.rate());
         if (useStretch) {
@@ -889,14 +1040,26 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
             d.playing = false;
             d.pos = static_cast<double>(t.frames());
         }
-        // Kanalzug: Trim → EQ → Filter → (Pegel) → Fader
+        // Kanalzug: Trim → EQ → Filter → (Pegel) → Fader – alles weich nachgeführt
+        {
+            const double a = 1.0 - std::exp(-static_cast<double>(frames) / (m_rate * 0.025));   // ~25 ms
+            for (int b = 0; b < 3; ++b) {
+                d.eqS[b] += (d.eq[b] - d.eqS[b]) * a;
+                if (std::abs(d.eq[b] - d.eqS[b]) < 1e-3) d.eqS[b] = d.eq[b];
+            }
+            d.filtS += (d.filt - d.filtS) * a;
+            if (std::abs(d.filt - d.filtS) < 1e-3) d.filtS = d.filt;
+        }
         d.designFilters(m_rate);
-        const bool eqOn = d.eq[0] != 0 || d.eq[1] != 0 || d.eq[2] != 0;
-        const bool filtOn = std::abs(d.filt) > 0.02;
-        const float trim = static_cast<float>(d.trim);
-        const float fade = static_cast<float>(d.fader * d.fader);   // Fader-Kurve
+        const bool eqOn = d.eqS[0] != 0 || d.eqS[1] != 0 || d.eqS[2] != 0;
+        const bool filtOn = std::abs(d.filtS) > 0.02;
+        const float trim0 = static_cast<float>(d.trimS), trim1 = static_cast<float>(d.trim);
+        const float fade0 = static_cast<float>(d.fadeS), fade1 = static_cast<float>(d.fader * d.fader);   // Fader-Kurve
+        const float inv = 1.0f / static_cast<float>(std::max<std::size_t>(1, frames));
         double peak = 0;
-        for (std::size_t k = 0; k < frames; ++k)
+        for (std::size_t k = 0; k < frames; ++k) {
+            const float r = static_cast<float>(k) * inv;
+            const float trim = trim0 + (trim1 - trim0) * r, fade = fade0 + (fade1 - fade0) * r;
             for (int c = 0; c < 2; ++c) {
                 float x = buf[k * 2 + c] * trim;
                 if (eqOn) x = d.high.process(d.mid.process(d.low.process(x, c), c), c);
@@ -905,6 +1068,9 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
                 if (cue && d.pfl) m_cueBus[k * 2 + c] += x;   // vor dem Fader
                 buf[k * 2 + c] = x * fade;
             }
+        }
+        d.trimS = d.trim;
+        d.fadeS = d.fader * d.fader;
         d.level = std::max(peak, d.level * 0.85);
     }
 
@@ -1065,11 +1231,34 @@ void DjMixer::render(float* out, std::size_t frames, float* cue) {
     if (m_fx->target == 0) applyFx(m_bufA.data());
     if (m_fx->target == 1) applyFx(m_bufB.data());
 
-    // Crossfader (gleiche Leistung) und Master
+    // Crossfader mit wählbarer Kurve, Pegel über den Block weich geführt
     const double x = (m_cross + 1.0) * 0.5;
-    const float ga = static_cast<float>(std::cos(x * kPi / 2)), gb = static_cast<float>(std::sin(x * kPi / 2));
-    const float norm = 1.0f / std::max(ga, gb);   // Mitte nicht leiser als außen
-    for (std::size_t i = 0; i < frames * 2; ++i) out[i] = (m_bufA[i] * ga + m_bufB[i] * gb) * norm;
+    float ga, gb;
+    if (m_xfCurve == 2) {   // Cut: fast sofort voll, nur ganz außen weg
+        ga = static_cast<float>(std::clamp((1.0 - x) / 0.06, 0.0, 1.0));
+        gb = static_cast<float>(std::clamp(x / 0.06, 0.0, 1.0));
+    } else {
+        ga = static_cast<float>(std::cos(x * kPi / 2));
+        gb = static_cast<float>(std::sin(x * kPi / 2));
+        if (m_xfCurve == 1) {   // Mix: Mitte nicht leiser als außen
+            const float norm = 1.0f / std::max(ga, gb);
+            ga *= norm;
+            gb *= norm;
+        }
+    }
+    if (m_crossGa < 0) m_crossGa = ga, m_crossGb = gb;
+    {
+        const float a0 = static_cast<float>(m_crossGa), b0 = static_cast<float>(m_crossGb);
+        const float inv = 1.0f / static_cast<float>(std::max<std::size_t>(1, frames));
+        for (std::size_t k = 0; k < frames; ++k) {
+            const float r = static_cast<float>(k) * inv;
+            const float A = a0 + (ga - a0) * r, B = b0 + (gb - b0) * r;
+            out[k * 2] = m_bufA[k * 2] * A + m_bufB[k * 2] * B;
+            out[k * 2 + 1] = m_bufA[k * 2 + 1] * A + m_bufB[k * 2 + 1] * B;
+        }
+        m_crossGa = ga;
+        m_crossGb = gb;
+    }
     if (m_fx->target == 2) applyFx(out);
     // Sampler (One-Shots) direkt in den Master
     const float sv = static_cast<float>(m_samplerVol);

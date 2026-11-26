@@ -93,6 +93,14 @@ class DjController : public QObject {
     Q_PROPERTY(int stemPads READ stemPads WRITE setStemPads NOTIFY settingsChanged)
     // CFX-Regler: 0 Filter, 1 Stems (links Acapella, rechts Instrumental)
     Q_PROPERTY(int cfxMode READ cfxMode WRITE setCfxMode NOTIFY settingsChanged)
+    // Übergänge: Crossfader-Kurve (0 weich, 1 Mix, 2 Cut), Auto-Mix
+    Q_PROPERTY(int crossfaderCurve READ crossfaderCurve WRITE setCrossfaderCurve NOTIFY settingsChanged)
+    Q_PROPERTY(int autoMixBars READ autoMixBars WRITE setAutoMixBars NOTIFY settingsChanged)
+    Q_PROPERTY(int autoMixStyle READ autoMixStyle WRITE setAutoMixStyle NOTIFY settingsChanged)
+    Q_PROPERTY(double transitionProgress READ transitionProgress NOTIFY decksChanged)
+    Q_PROPERTY(int transitionTarget READ transitionTarget NOTIFY decksChanged)
+    // Höhe der oberen Takt-Wellenformen (Pixel)
+    Q_PROPERTY(int topWaveHeight READ topWaveHeight WRITE setTopWaveHeight NOTIFY layoutChanged)
 
 public:
     static constexpr int kPadFxSlots = 16;
@@ -116,6 +124,19 @@ public:
     int stemPads() const { return m_stemPads; }
     void setStemPads(int mode);
     int cfxMode() const { return m_cfxMode; }
+    int crossfaderCurve() const { return m_xfCurve; }
+    void setCrossfaderCurve(int curve);
+    int autoMixBars() const { return m_autoMixBars; }
+    void setAutoMixBars(int bars);
+    int autoMixStyle() const { return m_autoMixStyle; }
+    void setAutoMixStyle(int style);
+    double transitionProgress() const { return m_mixer.transitionProgress(); }
+    int transitionTarget() const { return m_mixer.transitionTarget(); }
+    int topWaveHeight() const { return m_topWaveHeight; }
+    void setTopWaveHeight(int h);
+    // Auto-Mix zum anderen Deck (toDeck −1: zum gerade nicht hörbaren Deck)
+    Q_INVOKABLE bool autoMix(int toDeck = -1);
+    Q_INVOKABLE void cancelAutoMix();
     void setCfxMode(int mode);
     ~DjController() override;
 
@@ -422,6 +443,7 @@ private:
     std::array<double, 2> m_stemFx{0, 0};
     int m_stemPads = 0;
     int m_cfxMode = 0;
+    int m_xfCurve = 0, m_autoMixBars = 8, m_autoMixStyle = 0, m_topWaveHeight = 72;
     void loadPadFx();
     std::array<QString, 8> m_samplePaths;     // leer = eingebauter Klang
     std::array<bool, 8> m_samplePlaying{};
