@@ -12,6 +12,7 @@
 #include "loggx/engine/Engine.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <complex>
 #include <filesystem>
@@ -37,7 +38,7 @@ namespace {
 const std::vector<float>& hann() {
     static const std::vector<float> w = [] {
         std::vector<float> v(kFft);
-        for (int i = 0; i < kFft; ++i) v[static_cast<std::size_t>(i)] = static_cast<float>(0.5 - 0.5 * std::cos(2.0 * M_PI * i / kFft));
+        for (int i = 0; i < kFft; ++i) v[static_cast<std::size_t>(i)] = static_cast<float>(0.5 - 0.5 * std::cos(2.0 * 3.14159265358979323846 * i / kFft));
         return v;
     }();
     return w;
