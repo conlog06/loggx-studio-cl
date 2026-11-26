@@ -120,7 +120,7 @@ message(STATUS "LibRaw (RAW-Fotos): ${LOGGX_HAVE_LIBRAW}")
 add_library(loggx_engine STATIC
   engine/src/Compositor.cpp engine/src/AudioMixer.cpp engine/src/Render.cpp
   engine/src/ImageOps.cpp engine/src/Synth.cpp engine/src/AudioFx.cpp engine/src/Beat.cpp
-  engine/src/Parallel.cpp engine/src/Spectral.cpp engine/src/AiSeparation.cpp engine/src/Dj.cpp
+  engine/src/Parallel.cpp engine/src/Spectral.cpp engine/src/AiSeparation.cpp engine/src/Demucs.cpp engine/src/Dj.cpp
   engine/src/DjSamples.cpp
   engine/src/StemsDsp.cpp
   engine/src/Mastering.cpp

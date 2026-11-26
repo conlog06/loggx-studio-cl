@@ -27,6 +27,10 @@ const std::vector<StemModelInfo>& stemModels() {
     static const std::vector<StemModelInfo> models = {
         {"vocals-hq", "Gesang – beste Qualität (Kim Vocal 2)", "Kim_Vocal_2.onnx", base + "Kim_Vocal_2.onnx",
          "ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b", "vocals", 66759214, 7680, 3072, 8, 1.009},
+        // HTDemucs v4 (Meta, MIT): alle 4 Stems in einem Durchgang, beste Qualität
+        {"demucs", "Alle Stems – beste Qualität (HTDemucs v4)", "htdemucs.onnx",
+         "https://github.com/conlog06/loggx-studio-cl/releases/download/ki-modelle/htdemucs.onnx",
+         "", "demucs4", 174263526, 0, 0, 0, 1.0},
         {"vocals", "Gesang – schnell (MDX-Net)", "kuielab_a_vocals.onnx", base + "kuielab_a_vocals.onnx",
          "daba83c2ee1afee9139766ad64c9b6808d6b6f092fff04bed3338be50baac721", "vocals", 29703204, 6144, 2048, 9, 1.035},
         {"drums", "Schlagzeug (MDX-Net)", "kuielab_a_drums.onnx", base + "kuielab_a_drums.onnx",
@@ -245,6 +249,39 @@ bool writeWav(const std::string& path, const std::vector<float>& data, int rate,
 }
 
 }  // namespace
+
+SeparationResult separateStemsDemucs(const std::string& input, const std::string& modelPath, const std::string& vocalsPath,
+                                     const std::string& drumsPath, const std::string& bassPath, const std::string& otherPath,
+                                     const std::string& instrumentalPath, const std::function<void(double)>& progress,
+                                     const std::atomic<bool>* cancel) {
+    SeparationResult result;
+    constexpr int kRate = 44100;
+    std::vector<float> mix;
+    if (!loadStereo(input, kRate, mix, &result.error)) return result;
+    if (mix.empty()) {
+        result.error = "Keine Tonspur";
+        return result;
+    }
+    std::vector<float> src[4];
+    if (!runDemucs(modelPath, mix, src, progress, cancel, &result.error)) return result;
+    // Reihenfolge im Modell: Schlagzeug, Bass, Rest, Gesang
+    const std::string* paths[4] = {&drumsPath, &bassPath, &otherPath, &vocalsPath};
+    for (int s = 0; s < 4; ++s)
+        if (!paths[s]->empty() && !writeWav(*paths[s], src[s], kRate, &result.error)) return result;
+    double eV = 0, eAll = 0;
+    for (std::size_t i = 0; i < mix.size(); ++i) {
+        eV += static_cast<double>(src[3][i]) * src[3][i];
+        eAll += static_cast<double>(mix[i]) * mix[i];
+    }
+    if (!instrumentalPath.empty()) {
+        std::vector<float> inst(mix.size());
+        for (std::size_t i = 0; i < mix.size(); ++i) inst[i] = src[0][i] + src[1][i] + src[2][i];
+        if (!writeWav(instrumentalPath, inst, kRate, &result.error)) return result;
+    }
+    result.vocalShare = eAll > 0 ? eV / eAll : 0.0;
+    result.ok = true;
+    return result;
+}
 
 SeparationResult separateStemsAi(const std::string& input, const std::vector<StemJob>& jobs, const std::string& restPath,
                                  bool denoise, const std::function<void(double)>& progress, const std::atomic<bool>* cancel) {

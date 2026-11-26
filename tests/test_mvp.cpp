@@ -1358,6 +1358,65 @@ void testPluginHost() {
 #endif
 }
 
+// HTDemucs: STFT/iSTFT wie PyTorch (Rundweg verlustfrei); mit LOGGX_DEMUCS_DIR
+// (Modell + Referenz aus dem Release „ki-modelle“) Vergleich mit dem Original.
+void testDemucs() {
+    const std::size_t n = 343980;
+    std::vector<float> x(n);
+    for (std::size_t i = 0; i < n; ++i) x[i] = static_cast<float>(std::sin(i * 0.013) * 0.5 + std::sin(i * 0.31) * 0.2 + std::sin(i * 2.9) * 0.05);
+    std::vector<std::complex<float>> z;
+    demucs::spec(x.data(), n, z);
+    CHECK(z.size() == 2048u * 336u);
+    std::vector<float> y;
+    demucs::ispec(z, 336, n, y);
+    double err = 0;
+    // Ränder sind (wie im Original) durch die Null-Frames nicht exakt
+    for (std::size_t i = 4096; i < n - 4096; ++i) err = std::max(err, static_cast<double>(std::abs(x[i] - y[i])));
+    std::printf("Demucs STFT-Rundweg: max. Fehler %.2e\n", err);
+    CHECK(err < 1e-4);
+    const char* dir = std::getenv("LOGGX_DEMUCS_DIR");
+    if (!dir || !aiSeparationAvailable()) return;
+    const std::string d = dir;
+    std::vector<float> mix;
+    {
+        AudioReader r;
+        CHECK(r.open(d + "/demucs_ref_mix.wav", 44100));
+        std::vector<float> buf(8192 * 2);
+        for (;;) {
+            const std::size_t got = r.read(buf.data(), 8192);
+            mix.insert(mix.end(), buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(got * 2));
+            if (got < 8192) break;
+        }
+    }
+    std::vector<float> src[4];
+    std::string error;
+    const auto t0 = std::chrono::steady_clock::now();
+    CHECK(runDemucs(d + "/htdemucs.onnx", mix, src, {}, nullptr, &error));
+    std::printf("Demucs: %.1f s für %.1f s Audio %s\n", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(),
+                mix.size() / 2 / 44100.0, error.c_str());
+    const char* names[4] = {"drums", "bass", "other", "vocals"};
+    for (int s = 0; s < 4; ++s) {
+        AudioReader r;
+        CHECK(r.open(d + "/demucs_ref_" + names[s] + ".wav", 44100));
+        std::vector<float> ref(src[s].size()), buf(8192 * 2);
+        std::size_t at = 0;
+        for (;;) {
+            const std::size_t got = r.read(buf.data(), 8192);
+            for (std::size_t i = 0; i < got * 2 && at < ref.size(); ++i) ref[at++] = buf[i];
+            if (got < 8192) break;
+        }
+        double e = 0, sig = 0;
+        for (std::size_t i = 0; i < ref.size(); ++i) {
+            sig += static_cast<double>(ref[i]) * ref[i];
+            const double dd = ref[i] - src[s][i];
+            e += dd * dd;
+        }
+        const double sdr = 10 * std::log10((sig + 1e-12) / (e + 1e-12));
+        std::printf("  %-6s Übereinstimmung mit PyTorch: %.1f dB\n", names[s], sdr);
+        CHECK(sdr > 40);
+    }
+}
+
 void testMulticam() {
     using loggx::Project;
     Project p = Project::createDefault();
@@ -1530,6 +1589,7 @@ int main() {
     testMastering();
     testMulticam();
     testDjTransitions();
+    testDemucs();
     testPluginHost();
     testTempoDetection();
     testAi(dir);

@@ -43,4 +43,4 @@ with torch.no_grad():
     stems = stems * ref.std() + ref.mean()
 for i, name in enumerate(model.sources):
     sf.write(f"{out}/demucs_ref_{name}.wav", stems[i].numpy().T, sr, subtype="FLOAT")
-print("Quellen:", model.sources, "Segment:", float(model.segment))
+print("Quellen:", model.sources)

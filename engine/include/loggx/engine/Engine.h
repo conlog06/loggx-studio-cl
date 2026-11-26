@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <complex>
 #include <functional>
 #include <map>
 #include <memory>
@@ -243,6 +244,21 @@ bool aiSeparationAvailable();   // mit ONNX Runtime gebaut?
 bool runStemModel(const StemModelInfo& model, const std::string& modelPath, const std::vector<float>& stereo44k,
                   std::vector<float>& stem, bool denoise = false, const std::function<void(double)>& progress = {},
                   const std::atomic<bool>* cancel = nullptr, std::string* error = nullptr);
+// HTDemucs v4 (4 Quellen in einem Durchgang): sources = Schlagzeug, Bass,
+// Rest (andere Instrumente), Gesang – Stereo verschachtelt, 44,1 kHz.
+bool runDemucs(const std::string& modelPath, const std::vector<float>& stereo44k, std::vector<float> (&sources)[4],
+               const std::function<void(double)>& progress = {}, const std::atomic<bool>* cancel = nullptr,
+               std::string* error = nullptr);
+// Datei mit HTDemucs trennen; leere Pfade werden übersprungen
+SeparationResult separateStemsDemucs(const std::string& input, const std::string& modelPath, const std::string& vocalsPath,
+                                     const std::string& drumsPath, const std::string& bassPath, const std::string& otherPath,
+                                     const std::string& instrumentalPath = {}, const std::function<void(double)>& progress = {},
+                                     const std::atomic<bool>* cancel = nullptr);
+namespace demucs {
+// Für Tests: STFT/iSTFT genau wie HTDemucs._spec/_ispec (ein Kanal)
+void spec(const float* x, std::size_t n, std::vector<std::complex<float>>& out);
+void ispec(const std::vector<std::complex<float>>& z, int frames, std::size_t n, std::vector<float>& out);
+}  // namespace demucs
 struct StemJob {
     const StemModelInfo* model = nullptr;
     std::string modelPath;
