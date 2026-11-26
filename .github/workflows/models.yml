@@ -1,0 +1,50 @@
+name: KI-Modelle
+
+# Wandelt HTDemucs v4 (Meta, MIT) nach ONNX und legt es mit Referenzdaten im
+# Release „ki-modelle“ ab. Läuft bei Änderungen in tools/models/ oder von Hand.
+on:
+  workflow_dispatch:
+  push:
+    branches: [prototyp, main]
+    paths: ["tools/models/**", ".github/workflows/models.yml"]
+
+jobs:
+  demucs:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Werkzeuge
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1 torchaudio==2.4.1
+          pip install "numpy<2" soundfile onnx onnxruntime==1.20.1 dora-search julius lameenc openunmix einops pyyaml tqdm diffq
+          git clone --depth 1 https://github.com/sevagh/demucs.onnx /tmp/demucs.onnx
+      - name: Nach ONNX umwandeln
+        run: |
+          mkdir -p out
+          cd /tmp/demucs.onnx/demucs-for-onnx && pip install --no-deps -e .
+          cd /tmp/demucs.onnx && python scripts/convert-pth-to-onnx.py $GITHUB_WORKSPACE/out
+          ls -la $GITHUB_WORKSPACE/out
+          python - <<'PY'
+          import onnx
+          m = onnx.load("out/htdemucs.onnx")
+          for i in m.graph.input: print("in ", i.name, [d.dim_value for d in i.type.tensor_type.shape.dim])
+          for o in m.graph.output: print("out", o.name, [d.dim_value for d in o.type.tensor_type.shape.dim])
+          PY
+      - name: Referenz mit dem Original-Demucs
+        run: |
+          pip uninstall -y demucs
+          pip install --no-deps demucs==4.0.1
+          python tools/models/reference.py out
+          cd out && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release „ki-modelle“
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ki-modelle >/dev/null 2>&1 || gh release create ki-modelle --title "KI-Modelle für LXStudio" \
+            --notes "HTDemucs v4 (Meta, MIT-Lizenz) als ONNX für die Stem-Trennung, plus Referenzdaten für die Tests. Wird von LXStudio automatisch geladen bzw. in der Vollversion mitgeliefert." --latest=false
+          gh release upload ki-modelle out/* --clobber
