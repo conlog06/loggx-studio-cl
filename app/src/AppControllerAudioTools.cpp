@@ -49,7 +49,7 @@ void AppController::cancelWork() {
 bool AppController::aiAvailable() const { return aiSeparationAvailable(); }
 
 void AppController::setSeparationMethod(int method) {
-    method = std::clamp(method, 0, 2);
+    method = std::clamp(method, 0, 3);
     if (method == m_separationMethod) return;
     m_separationMethod = method;
     QSettings().setValue(QStringLiteral("ai/method"), method);
@@ -168,7 +168,7 @@ void AppController::matchClipTempo() { setClipBpm(m_project.bpm); }
 bool AppController::separateSelected(bool keepVocals, int method) {
     if (working()) return false;
     if (method < 0) method = m_separationMethod;
-    if (method < 2 && !aiSeparationAvailable()) {
+    if (method != 2 && !aiSeparationAvailable()) {
         setStatus(tr("Diese Version hat keine KI eingebaut – Trennung ohne KI"));
         method = 2;
     }
@@ -194,14 +194,17 @@ bool AppController::separateSelected(bool keepVocals, int method) {
     const int rate = m_project.sampleRate;
     const Clip source = *c;
     auto result = std::make_shared<SeparationResult>();
-    const StemModelInfo* model = method < 2 ? findStemModel(method == 0 ? "vocals-hq" : "vocals") : nullptr;
+    // 3 HTDemucs (beste Qualität), 0 Kim Vocal 2, 1 MDX-Net schnell, 2 ohne KI
+    const StemModelInfo* model = method == 3 ? findStemModel("demucs") : method < 2 ? findStemModel(method == 0 ? "vocals-hq" : "vocals") : nullptr;
     const QString modelPath = model ? m_models->pathFor(*model) : QString();
     const QString label = (keepVocals ? tr("Isoliere Gesang") : tr("Entferne Gesang")) + (model ? tr(" mit KI …") : QStringLiteral(" …"));
     const QStringList needed = model ? QStringList{qstr(model->id)} : QStringList{};
     ensureModels(needed, [=, this] {
     runTask(label,
             [=](const std::function<void(double)>& progress, const std::atomic<bool>& cancel) {
-                if (model)
+                if (model && model->stem == "demucs4")
+                    *result = separateStemsDemucs(input, str(modelPath), str(vocalsPath), {}, {}, {}, str(instPath), progress, &cancel);
+                else if (model)
                     *result = separateStemsAi(input, {StemJob{model, str(modelPath), str(vocalsPath)}}, str(instPath), false,
                                               progress, &cancel);
                 else

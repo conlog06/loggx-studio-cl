@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.17**: KI-Stems mit HTDemucs v4, flüssigere DJ-Übergänge mit Auto-Mix und Takt-Wellenformen wie rekordbox, KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -22,12 +22,12 @@ Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Video
 - **Key Shift** (±12 Halbtöne, Tempo bleibt) und **Key Sync** (Tonart ans andere Deck anpassen); das Deck zeigt die klingende Tonart (z. B. 7B → 9B)
 - **Wellenform-Zoom** (Mausrad, Strg+Plus/Minus, Shift+Browse am Controller)
 - **Tastatur ohne Controller**: Deck 1 – A Cue, S Play, D Sync, Q/W Bend, 1–4 Hot Cues; Deck 2 – J Cue, K Play, L Sync, O/P Bend, 7–0 Hot Cues
-- **Stems** pro Track: **eingebaute Stem-Engine** (sofort, ohne Download: Gesang über das Stereobild, Schlagzeug/Tonales per HPSS, Bass = tonal unter ~120 Hz) oder **KI** (MDX-Net, deutlich sauberer) – wählbar unter Einstellungen → DJ
+- **Stems** pro Track: **eingebaute Stem-Engine** (sofort, ohne Download: Gesang über das Stereobild, Schlagzeug/Tonales per HPSS, Bass = tonal unter ~120 Hz) oder **KI** (HTDemucs v4 von Meta – Studio-Qualität, alle vier Stems in einem Durchgang; Rückfall auf MDX-Net bzw. die eingebaute Engine) – wählbar unter Einstellungen → DJ
 - **Phrasen-Anzeige** wie in rekordbox unter der Übersicht: Intro, Up (Aufbau), Chorus (Drop), Down (Breakdown), Outro – 8-Takt-Abschnitte nach Energie und Bass
 - **10 Beat-FX**: Echo, Hall, Bremse, Ping-Pong, Flanger, Phaser, Trans (Zerhacker im Raster), Roll, Filter (LFO), Rauschen
 - **Quellen**: Google Drive, iCloud Drive, OneDrive, Dropbox (über deren Desktop-Apps, Sync-Ordner werden automatisch gefunden), Musik, Downloads und eigene Ordner (USB, NAS) direkt durchsuchen und laden
 - Tracks aus der Liste oder direkt aus Explorer/Finder auf ein Deck ziehen
-- **KI-Stems** pro Track: Gesang, Instrumente, Bass, Schlagzeug einzeln stummschalten (drei MDX-Net-Modelle, einmalig ~90 MB)
+- **KI-Stems** pro Track: Gesang, Instrumente, Bass, Schlagzeug einzeln stummschalten (HTDemucs v4, in der Vollversion dabei, sonst einmalig 174 MB)
 - **Bibliothek wie in rekordbox**: Sammlung, **Verlauf** (History, als Playlist sicherbar), **Playlists** (anlegen, umbenennen, Tracks hineinziehen), Spalten Titel/Interpret/Genre/BPM/Tonart/Zeit/Bewertung/Hinzugefügt, Suche, Sortierung, Pfeiltasten + Enter/←/→ zum Laden
 - **Bibliothek anpassen**: Trenner zwischen Decks und Liste ziehen (größer/kleiner), Doppelklick oder „Groß“ (Strg+B) = Bibliothek groß mit kompakten Decks oben; Spalten ein-/ausblenden (Rechtsklick auf die Spaltenköpfe: Interpret, Album, Genre, BPM, Tonart, Zeit, Bewertung, Gespielt, Kommentar, Neu) und Zeilenhöhe – alles wird gemerkt
 - **rekordbox übernehmen** (XML-Export: Tracks, BPM/Beatgrid, Tonart, Hot Cues, Bewertung, Playlists) und **Apple Music/iTunes** (Library.xml: Tracks, Bewertung, Playlists)
@@ -39,6 +39,9 @@ Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Video
 - Pads wie in rekordbox: Hot Cue (Shift = löschen), **Pad FX 1 und 2** (Shift + PAD FX; 16 Effekte, solange gedrückt – Slip Loop, Hall, Echo, Flanger, V.Brake, Trans, Crush, Filter LFO, Backspin …, frei belegbar), Beat Jump (±1–8), Beat Loop (¼–32), **Sampler** (Shift = stoppen), **Key Shift** (1 = zurück, 2–4 = +1…+3, 5 = Key Sync, 6–8 = −1…−3); Shift+Browse = Wellenform-Zoom; Beat FX: an/aus, Auswahl, Länge, Level/Depth, Kanal
 - **Stems am FLX4** (Einstellungen → Controller): standardmäßig im Keyboard-Modus (Shift + HOT CUE) – Pads 1–4 Gesang/Schlagzeug/Bass/Instrumente an/aus, Pads 5–8 gedrückt halten = nur dieser Stem; wahlweise auf Beat Loop oder Sampler. Der **CFX-Regler** kann statt Filter die Stems steuern: links Acapella, rechts Instrumental
 - In der App: Pad-Modus-Menü am Deck (HOT CUE, PAD FX mit Seite 1/2 und Zahnrad zum Belegen, BEAT JUMP, BEAT LOOP, KEY SHIFT, SAMPLER, STEMS) – folgt dem Modus am FLX4; Phrasen nummeriert (INTRO 1, UP 2, CHORUS 1 …)
+- **Flüssige Übergänge:** Fader, Trim, EQ, Filter und Crossfader laufen ohne Knacken (Rampen pro Sample); Crossfader-Kurve Weich/Mix/Cut; bei Sync hält eine Phasenregelung die Schläge auch über lange Übergänge übereinander
+- **Auto-Mix** im Mixer: Übergang zum anderen Deck über 4–32 Takte, startet auf dem nächsten Takt, gleicht Tempo und Takt an; Stile Blend, Bass-Tausch, Filter, Echo-Out
+- **Takt-Wellenformen oben wie bei rekordbox:** Taktlinien mit roten Marken, 16-Takt-Phrasen hervorgehoben, „-X.X Bars“ bis zum nächsten Cue (sonst zur nächsten Phrase), Zoom +/RST/−, Höhe einstellbar; zwischengespeichert, daher sehr sparsam
 - **LEDs** (Play, Cue blinkt wie am CDJ, Sync, CUE, Loop, Hot-Cue-Pads, Loop-Pads, Stems, Pegelanzeigen) und Keep-alive wie von rekordbox
 - **Kopfhörer am FLX4**: Einstellungen → Audio → Ausgang „DDJ-FLX4“, Kopfhörer „Kanäle 3/4“
 - **Andere Controller**: verbinden und per **MIDI-Learn** Tasten/Regler zuordnen (Einstellungen → Controller)
@@ -86,7 +89,7 @@ Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Video
 - Tempo (BPM) und Takt, MIDI-Clips rasten am Takt ein; **Takt-Raster** in der Timeline (Clips rasten auf Schläge ein)
 - **Tempo-Erkennung** aus einem Musik-Clip (BPM und erster Schlag, das Raster richtet sich danach aus)
 - **Tonart und BPM** eines Songs erkennen und ändern: Tonart wählen (Tonhöhe ändert sich, Tempo bleibt), BPM eingeben oder ans Projekt-Tempo anpassen (Tempo ändert sich, Tonhöhe bleibt); Analyse wird im Projekt gespeichert
-- **Stimme entfernen / isolieren mit KI** (Vocal Remover): ein neuronales Netz (MDX-Net, ONNX Runtime) trennt Gesang und Instrumental – auch bei Mono-Aufnahmen. Zwei Stufen: „beste Qualität“ (Kim Vocal 2, 67 MB) und „schnell“ (MDX-Net, 30 MB); das Modell wird beim ersten Mal geladen und per SHA-256 geprüft. Ergebnis: „Gesang“ und „Instrumental“ als WAV auf zwei neuen Spuren an derselben Stelle. Ohne KI geht es weiterhin sofort (Mitten-Trennung).
+- **Stimme entfernen / isolieren mit KI** (Vocal Remover): ein neuronales Netz (MDX-Net, ONNX Runtime) trennt Gesang und Instrumental – auch bei Mono-Aufnahmen. Stufen: „beste Qualität“ (HTDemucs v4, 174 MB, Standard), „Gesang“ (Kim Vocal 2, 67 MB) und „schnell“ (MDX-Net, 30 MB); das Modell wird beim ersten Mal geladen und per SHA-256 geprüft. Ergebnis: „Gesang“ und „Instrumental“ als WAV auf zwei neuen Spuren an derselben Stelle. Ohne KI geht es weiterhin sofort (Mitten-Trennung).
 - **Song-Tempo** im Musikprojekt ändern (Noten und Audio ziehen mit) und **Song transponieren** (Halbton, Ganzton, Oktave; Schlagzeug bleibt)
 - **Live spielen:** Computertastatur (A W S E D F T G Z H U J K, −/+ = Oktave), Klaviatur per Maus oder **MIDI-Keyboard** (RtMidi)
 - **Aufnahme** (R) in einen MIDI-Clip, wahlweise auf Sechzehntel quantisiert – ein Undo-Schritt
@@ -132,7 +135,7 @@ Dieses Repository enthält die **MVP-Vorschau 0.14**: KI-Freistellung, AV1-Video
 | 1.0 | HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), Plugin-Instrumente (VSTi/CLAP-Synths), Web-Admin-Dashboard (braucht einen Server) |
 | Ausbau | Online-Marktplatz (braucht einen Server – Vorlagen-Pakete gehen schon offline), RAW-Video (BRAW/R3D brauchen Hersteller-SDKs) |
 
-Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI), Mastering-Assistent.
+Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI, HTDemucs v4), Mastering-Assistent.
 
 Bekannte Grenzen:
 
@@ -140,7 +143,7 @@ Bekannte Grenzen:
 - Die Mikrofon-Aufnahme gleicht die Latenz des Audiogeräts noch nicht aus (bei großen Puffern liegt sie minimal zu spät). Ein 8K-Export ist langsam und braucht rund 4 GB Arbeitsspeicher.
 - Die Tempo-Erkennung (spektraler Fluss, feine Rastersuche über den ganzen Track und den ganzen BPM-Bereich, Bereich wie rekordbox 70–180 BPM einstellbar) erwartet ein gleichmäßiges Tempo (keine Tempowechsel im Stück). Bei halb/doppelt erkannten Tempi hilft ×2 / ÷2, bei Live-Aufnahmen TAP.
 - Die KI-Trennung rechnet auf der CPU: grob 0,3–1× Echtzeit je nach Rechner und Stufe (ein 3-Minuten-Song braucht also etwa 1–10 Minuten). GPU-Beschleunigung fehlt noch.
-- **Lizenzen der KI-Modelle:** Die Vollversion (Release-Downloads) bringt die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass, MIT-Lizenz) und das Freistellungs-Modell U²-Net small (Apache-2.0) gleich mit. „Kim Vocal 2“ hat keine angegebene Lizenz und wird deshalb nicht mitgeliefert, sondern bei Bedarf aus dem öffentlichen Archiv von *Ultimate Vocal Remover* geladen – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
+- **Lizenzen der KI-Modelle:** Die Vollversion (Release-Downloads) bringt die MDX-Net-Modelle von kuielab (Gesang „schnell“, Schlagzeug, Bass, MIT-Lizenz) das Freistellungs-Modell U²-Net small (Apache-2.0) und HTDemucs v4 (Meta, MIT; selbst nach ONNX umgewandelt, Release „ki-modelle“, per Test mit dem PyTorch-Original abgeglichen) gleich mit. „Kim Vocal 2“ hat keine angegebene Lizenz und wird deshalb nicht mitgeliefert, sondern bei Bedarf aus dem öffentlichen Archiv von *Ultimate Vocal Remover* geladen – vor einem kommerziellen Vertrieb klären oder auf „schnell“ umstellen.
 - DJ: Kopfhörer auf einem eigenen Gerät (statt Kanälen 3/4) läuft über eine zweite Audioausgabe und kann sich bei sehr langen Sets minimal verschieben. Ob Windows die Kanäle 3/4 des FLX4 anbietet, hängt vom Treiber ab (Pioneer-Treiber installieren); die Info-Zeile unter Einstellungen → Audio zeigt, was aktiv ist – sonst Kopfhörer über „Eigenes Gerät“.
 - Ohne öffentlichen Schlüssel in `license/public_key.txt` baut man eine Entwicklerversion: alle Funktionen frei, Admin-Bereich sichtbar.
 - Die Wiedergabe-Uhr läuft unabhängig vom Audiogerät. Bei sehr langen Durchläufen ohne Stopp kann der Ton minimal vom Bild wegdriften.

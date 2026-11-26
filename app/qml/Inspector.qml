@@ -363,7 +363,7 @@ Rectangle {
                 visible: root.hasClip && root.clip.isMedia && root.clip.hasAudio
                 ComboBox {
                     Layout.fillWidth: true
-                    model: app.aiAvailable ? [qsTr("KI – beste Qualität"), qsTr("KI – schnell"), qsTr("Ohne KI – sofort")]
+                    model: app.aiAvailable ? [qsTr("KI – Gesang (Kim Vocal 2)"), qsTr("KI – schnell"), qsTr("Ohne KI – sofort"), qsTr("KI – beste Qualität (HTDemucs)")]
                                            : [qsTr("Ohne KI – sofort")]
                     currentIndex: app.aiAvailable ? app.separationMethod : 0
                     onActivated: function (i) { if (app.aiAvailable) app.separationMethod = i }
@@ -397,8 +397,8 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     color: Theme.faint
                     font.pixelSize: Theme.smallFont
-                    text: app.aiAvailable && app.separationMethod < 2
-                          ? qsTr("Ein neuronales Netz (MDX-Net) trennt Gesang und Instrumental – auch bei Mono. Beim ersten Mal wird das Modell geladen (%1 MB). Ergebnis: zwei WAV-Dateien auf neuen Spuren, das Original wird stumm.").arg(app.separationMethod === 0 ? 67 : 30)
+                    text: app.aiAvailable && app.separationMethod !== 2
+                          ? qsTr("Ein neuronales Netz (%1) trennt Gesang und Instrumental – auch bei Mono. Beim ersten Mal wird das Modell geladen (%2 MB). Ergebnis: zwei WAV-Dateien auf neuen Spuren, das Original wird stumm.").arg(app.separationMethod === 3 ? "HTDemucs v4" : "MDX-Net").arg(app.separationMethod === 3 ? 174 : app.separationMethod === 0 ? 67 : 30)
                           : qsTr("Trennt ohne KI, was mittig im Stereobild liegt und tonal klingt. Mono-Aufnahmen gehen so nicht. Ergebnis: zwei WAV-Dateien auf neuen Spuren, das Original wird stumm.")
                 }
             }

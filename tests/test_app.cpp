@@ -634,7 +634,7 @@ int main(int argc, char** argv) {
 
         // Stimme entfernen: zwei neue Spuren, Original stumm
         const std::size_t tracksBefore = a.project().tracks.size();
-        CHECK(a.separateSelected(false));
+        CHECK(a.separateSelected(false, 2));
         CHECK(waitFor([&] { return !a.working(); }, 60000));
         CHECK(a.project().tracks.size() == tracksBefore + 2);
         CHECK(a.project().findClip(clipId.toStdString())->gain == 0.0);

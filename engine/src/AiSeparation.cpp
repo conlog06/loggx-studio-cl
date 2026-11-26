@@ -30,7 +30,7 @@ const std::vector<StemModelInfo>& stemModels() {
         // HTDemucs v4 (Meta, MIT): alle 4 Stems in einem Durchgang, beste Qualität
         {"demucs", "Alle Stems – beste Qualität (HTDemucs v4)", "htdemucs.onnx",
          "https://github.com/conlog06/loggx-studio-cl/releases/download/ki-modelle/htdemucs.onnx",
-         "", "demucs4", 174263526, 0, 0, 0, 1.0},
+         "1c955dfafc9ec66750ff853e565407d9330502fda1222248a6acb68dbc9bb5e6", "demucs4", 174263526, 0, 0, 0, 1.0},
         {"vocals", "Gesang – schnell (MDX-Net)", "kuielab_a_vocals.onnx", base + "kuielab_a_vocals.onnx",
          "daba83c2ee1afee9139766ad64c9b6808d6b6f092fff04bed3338be50baac721", "vocals", 29703204, 6144, 2048, 9, 1.035},
         {"drums", "Schlagzeug (MDX-Net)", "kuielab_a_drums.onnx", base + "kuielab_a_drums.onnx",

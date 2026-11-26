@@ -585,17 +585,21 @@ void DjController::prepareStems(const QString& path) {
         return;
     }
     const bool ai = m_stemEngine == 1 && aiSeparationAvailable();
-    // Läuft im Hintergrund; danach Decks mit Stems neu laden
-    auto run = [this, path, dir](bool ai) {
+    // Läuft im Hintergrund; danach Decks mit Stems neu laden.
+    // mode: 2 HTDemucs (beste KI), 1 MDX-Net, 0 eingebaute Engine
+    auto run = [this, path, dir](int mode) {
         m_working = true;
         m_workProgress = 0;
-        m_workLabel = (ai ? tr("KI trennt Stems: %1") : tr("Stems werden getrennt: %1")).arg(QFileInfo(path).completeBaseName());
+        m_workLabel = (mode > 0 ? tr("KI trennt Stems: %1") : tr("Stems werden getrennt: %1")).arg(QFileInfo(path).completeBaseName());
         emit workChanged();
         auto result = std::make_shared<SeparationResult>();
         m_cancel = std::make_shared<std::atomic<bool>>(false);
         auto cancel = m_cancel;
         std::vector<StemJob> jobs;
-        if (ai) {
+        std::string demucsPath;
+        if (mode == 2) {
+            demucsPath = str(m_app->models()->pathFor(*findStemModel("demucs")));
+        } else if (mode == 1) {
             for (const char* id : {"vocals", "drums", "bass"}) {
                 const StemModelInfo* model = findStemModel(id);
                 jobs.push_back({model, str(m_app->models()->pathFor(*model)), str(dir + QLatin1Char('/') + QLatin1String(id) + QStringLiteral(".wav"))});
@@ -607,15 +611,19 @@ void DjController::prepareStems(const QString& path) {
                 emit workChanged();
             }, Qt::QueuedConnection);
         };
-        QThread* thread = QThread::create([path, dir, jobs, result, cancel, ai, report] {
-            if (ai) {
-                *result = separateStemsAi(str(path), jobs, str(dir + QStringLiteral("/inst.wav")), false, report, cancel.get());
+        QThread* thread = QThread::create([path, dir, jobs, demucsPath, result, cancel, mode, report] {
+            const std::string d = str(dir);
+            if (mode == 2) {
+                *result = separateStemsDemucs(str(path), demucsPath, d + "/vocals.wav", d + "/drums.wav", d + "/bass.wav",
+                                              d + "/inst.wav", {}, report, cancel.get());
+            } else if (mode == 1) {
+                *result = separateStemsAi(str(path), jobs, d + "/inst.wav", false, report, cancel.get());
             } else {
-                *result = separateStemsDsp(str(path), str(dir + QStringLiteral("/vocals.wav")), str(dir + QStringLiteral("/drums.wav")),
-                                           str(dir + QStringLiteral("/bass.wav")), str(dir + QStringLiteral("/inst.wav")), report, cancel.get());
+                *result = separateStemsDsp(str(path), d + "/vocals.wav", d + "/drums.wav", d + "/bass.wav", d + "/inst.wav", report,
+                                           cancel.get());
             }
         });
-        connect(thread, &QThread::finished, this, [this, thread, path, dir, result, ai] {
+        connect(thread, &QThread::finished, this, [this, thread, path, dir, result, mode] {
             thread->deleteLater();
             m_working = false;
             emit workChanged();
@@ -625,23 +633,28 @@ void DjController::prepareStems(const QString& path) {
                 return;
             }
             QFile marker(dir + QStringLiteral("/engine.txt"));
-            if (marker.open(QIODevice::WriteOnly)) marker.write(ai ? "ai" : "dsp");
+            if (marker.open(QIODevice::WriteOnly)) marker.write(mode == 2 ? "demucs" : mode == 1 ? "ai" : "dsp");
             emit libraryChanged();
             for (int d = 0; d < 2; ++d)
                 if (m_loaded[static_cast<std::size_t>(d)] == path && !m_mixer.playing(d)) loadTrack(d, path);
-            setStatus(ai ? tr("KI-Stems bereit: Gesang, Schlagzeug, Bass, Instrumente")
-                         : tr("Stems bereit (eingebaute Engine) – für noch sauberere Trennung: Einstellungen → KI"));
+            setStatus(mode == 2   ? tr("KI-Stems bereit (HTDemucs): Gesang, Schlagzeug, Bass, Instrumente")
+                      : mode == 1 ? tr("KI-Stems bereit: Gesang, Schlagzeug, Bass, Instrumente")
+                                  : tr("Stems bereit (eingebaute Engine) – für noch sauberere Trennung: Einstellungen → KI"));
         });
         thread->start();
     };
-    if (ai)
-        m_app->ensureModels({QStringLiteral("vocals"), QStringLiteral("drums"), QStringLiteral("bass")}, [run] { run(true); },
+    if (!ai) {
+        run(0);
+        return;
+    }
+    // Beste KI zuerst, dann MDX-Net, sonst eingebaute Engine
+    m_app->ensureModels({QStringLiteral("demucs")}, [run] { run(2); }, [this, run](const QString&) {
+        m_app->ensureModels({QStringLiteral("vocals"), QStringLiteral("drums"), QStringLiteral("bass")}, [run] { run(1); },
                             [this, run](const QString& error) {
-                                // KI-Modelle nicht ladbar: eingebaute Engine nehmen
                                 setStatus(tr("KI-Modelle nicht verfügbar (%1) – Stems mit der eingebauten Engine").arg(error));
-                                run(false);
+                                run(0);
                             });
-    else run(false);
+    });
 }
 
 void DjController::setStemEngine(int engine) {

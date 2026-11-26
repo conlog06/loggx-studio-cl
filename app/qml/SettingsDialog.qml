@@ -321,7 +321,7 @@ Dialog {
                     }
                     Row2 {
                         label: qsTr("Stem-Engine")
-                        hint: qsTr("Eingebaut: sofort, ohne Download. KI: deutlich sauberere Trennung, Modelle einmalig ca. 90 MB.")
+                        hint: qsTr("Eingebaut: sofort, ohne Download. KI: HTDemucs v4 (Studio-Qualität, alle 4 Stems in einem Durchgang; in der Vollversion dabei, sonst einmalig 174 MB).")
                         ComboBox {
                             Layout.fillWidth: true
                             model: dj.aiAvailable ? [qsTr("Eingebaut (sofort, ohne Download)"), qsTr("KI – beste Qualität")] : [qsTr("Eingebaut (sofort, ohne Download)")]
@@ -553,7 +553,7 @@ Dialog {
                         ComboBox {
                             Layout.fillWidth: true
                             enabled: app.aiAvailable
-                            model: [qsTr("KI – beste Qualität"), qsTr("KI – schnell"), qsTr("Ohne KI (schnell, einfacher)")]
+                            model: [qsTr("KI – Gesang (Kim Vocal 2)"), qsTr("KI – schnell"), qsTr("Ohne KI (schnell, einfacher)"), qsTr("KI – beste Qualität (HTDemucs)")]
                             currentIndex: app.separationMethod
                             onActivated: function (i) { app.separationMethod = i }
                         }

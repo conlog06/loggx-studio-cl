@@ -434,7 +434,7 @@ void AppController::loadLicense() {
     m_simulateFree = settings.value(QStringLiteral("admin/simulateFree"), false).toBool();
     m_previewQuality = std::clamp(settings.value(QStringLiteral("preview/quality"), 0).toInt(), 0, 3);
     m_audioInput = std::max(0, settings.value(QStringLiteral("mic/input"), 0).toInt());
-    m_separationMethod = std::clamp(settings.value(QStringLiteral("ai/method"), 0).toInt(), 0, 2);
+    m_separationMethod = std::clamp(settings.value(QStringLiteral("ai/method"), 3).toInt(), 0, 3);
     PublicKey pub;
     if (!compiledPublicKey(pub)) {
         m_editionLicensed = Edition::Admin;   // Entwicklerversion
