@@ -135,10 +135,17 @@ Rectangle {
     }
 
     ScrollView {
+        id: startScroll
         anchors.fill: parent
         contentWidth: availableWidth
         contentHeight: content.implicitHeight + 80
         clip: true
+        // Entwicklung/Bildschirmfotos: --scroll-end zeigt das Seitenende
+        Timer {
+            interval: 3000
+            running: Qt.application.arguments.indexOf("--scroll-end") >= 0
+            onTriggered: startScroll.ScrollBar.vertical.position = 1.0 - startScroll.ScrollBar.vertical.size
+        }
 
         RowLayout {
             id: content
@@ -364,7 +371,7 @@ Rectangle {
                                     }
                                     Label { text: mcard.modelData.name; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
                                     Label {
-                                        text: mcard.modelData.format + (mcard.modelData.author ? " · " + mcard.modelData.author : "") + " · " + Math.max(1, Math.round(mcard.modelData.bytes / 1048576 * 10) / 10) + " MB"
+                                        text: mcard.modelData.format + (mcard.modelData.author ? " · " + mcard.modelData.author : "") + " · " + (mcard.modelData.bytes < 1048576 ? Math.max(1, Math.round(mcard.modelData.bytes / 1024)) + " KB" : Math.round(mcard.modelData.bytes / 1048576 * 10) / 10 + " MB")
                                         color: Theme.dim; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true
                                     }
                                     Button {

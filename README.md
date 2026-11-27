@@ -2,7 +2,7 @@
 
 Videoschnitt, Musikbearbeitung und Auflegen in einem Programm – für macOS und Windows 11 (Linux läuft ebenfalls). (Bis 0.6 hieß das Programm „LoggX Studio“; Projekte, Einstellungen und die DJ-Bibliothek bleiben erhalten.)
 
-Dieses Repository enthält die **MVP-Vorschau 0.17**: KI-Stems mit HTDemucs v4, flüssigere DJ-Übergänge mit Auto-Mix und Takt-Wellenformen wie rekordbox, KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
+Dieses Repository enthält die **MVP-Vorschau 0.18**: Vorlagen-Marktplatz, KI-Stems mit HTDemucs v4, flüssigere DJ-Übergänge mit Auto-Mix und Takt-Wellenformen wie rekordbox, KI-Freistellung, AV1-Videos, Performance-Pads wie bei rekordbox (Pad FX, Stems am FLX4), HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, Mastering-Assistent, Auto-Update; DJ als eigener Modus mit **Pioneer DDJ-FLX4** und MIDI-Learn, Sampler, Key Shift/Key Sync, neue Tempo-Erkennung, Einstellungen, Rechtsklick-Menüs, außerdem Startbildschirm, neues Design, Video- **und reine Musikprojekte**, Übergänge, Beat-Erkennung, Aufnahme per Tastatur oder MIDI-Keyboard, Audio-/Stem-/MIDI-Export und ein Lizenzsystem mit Admin-Bereich. Fertig ist das Produkt noch nicht (siehe „Was noch fehlt“).
 
 ![Startbildschirm](docs/start.png)
 
@@ -127,15 +127,24 @@ Dieses Repository enthält die **MVP-Vorschau 0.17**: KI-Stems mit HTDemucs v4, 
 | **Lizenz & Admin** | |
 | ![Admin](docs/admin.png) | |
 
+## Vorlagen-Marktplatz
+
+Ohne eigenen Server, komplett über GitHub:
+
+- **In der App:** Startseite → *Marktplatz* – Vorlagen suchen, Vorschau ansehen, mit einem Klick installieren (Prüfsumme SHA-256). Installierte Vorlagen erscheinen unter *Eigene Vorlagen*.
+- **Einreichen:** Rechtsklick auf eine eigene Vorlage → *Im Marktplatz einreichen*. Die App legt eine ZIP in *Downloads* an und öffnet das Formular auf GitHub; dort die ZIP ins Feld *Paket* ziehen.
+- **Freigeben (Admin):** Im Issue das Label **freigegeben** setzen. Die Action `.github/workflows/marketplace.yml` lädt das Paket, prüft es (nur erlaubte Dateitypen, keine Pfade nach außen, max. 100 MB), normalisiert es, legt es unter `marketplace/packs/` ab, schließt das Issue mit Rückmeldung und veröffentlicht `index.json` neu im Release **marktplatz**. Ablehnen: Issue einfach schließen. Entfernen: Datei aus `marketplace/packs/` löschen und pushen.
+- Werkzeug: `tools/marketplace/market.py` (make/check/index).
+
 ## Was noch fehlt (laut Konzept)
 
 | Phase | Inhalt |
 | --- | --- |
 | MVP (Rest) | GPU-Rendering (Metal / DirectX 12) – bis dahin rechnet alles auf der CPU; Online-Konten und Lizenzprüfung über einen Server |
-| 1.0 | HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), Plugin-Instrumente (VSTi/CLAP-Synths), Web-Admin-Dashboard (braucht einen Server) |
-| Ausbau | Online-Marktplatz (braucht einen Server – Vorlagen-Pakete gehen schon offline), RAW-Video (BRAW/R3D brauchen Hersteller-SDKs) |
+| 1.0 | HDR mit echtem HDR-Material (PQ, Farbkorrektur in HDR), Web-Admin-Dashboard für Konten/Lizenzen (braucht einen Server) |
+| Ausbau | RAW-Video (BRAW/R3D brauchen Hersteller-SDKs); Marktplatz mit Bewertungen/Bezahl-Vorlagen (braucht einen Server) |
 
-Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI, HTDemucs v4), Mastering-Assistent.
+Schon erledigt aus 1.0/Ausbau: ProRes 422 HQ/4444 und 8K-Export, HDR-Export (HLG), AV1-Export, Masken-Tracking, KI-Freistellung, Auto-Reframe, Multicam, RAW-Fotos, Audio-Plugins (CLAP/VST3/AU), Vorlagen-Pakete, Vorlagen-Marktplatz (über GitHub), Plugin-Instrumente, AV1-Import, Audio-Aufnahme, Beat-Sync im DJ-Modus, Stem-Separation (eingebaut und KI, HTDemucs v4), Mastering-Assistent.
 
 Bekannte Grenzen:
 
