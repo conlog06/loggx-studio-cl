@@ -400,6 +400,34 @@ Rectangle {
                 highlighted: checked
                 onClicked: dj.setFxOn(checked)
             }
+            Rectangle { width: 1; height: 24; color: Theme.border }
+            // Auto-Mix: automatischer Übergang zum anderen Deck, startet auf dem nächsten Takt
+            Button {
+                text: dj.transitionTarget >= 0 ? qsTr("STOP") : qsTr("AUTO-MIX")
+                highlighted: dj.transitionTarget >= 0
+                onClicked: dj.transitionTarget >= 0 ? dj.cancelAutoMix() : dj.autoMix(-1)
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Übergang zum anderen Deck: Tempo und Takt werden angeglichen, Start auf dem nächsten Takt")
+            }
+            ComboBox {
+                implicitWidth: 92
+                model: [qsTr("4 Takte"), qsTr("8 Takte"), qsTr("16 Takte"), qsTr("32 Takte")]
+                currentIndex: Math.max(0, [4, 8, 16, 32].indexOf(dj.autoMixBars))
+                onActivated: dj.autoMixBars = [4, 8, 16, 32][currentIndex]
+            }
+            ComboBox {
+                implicitWidth: 118
+                model: [qsTr("Blend"), qsTr("Bass-Tausch"), qsTr("Filter"), qsTr("Echo-Out")]
+                currentIndex: dj.autoMixStyle
+                onActivated: dj.autoMixStyle = currentIndex
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Art des Übergangs")
+            }
+            ProgressBar {
+                visible: dj.transitionTarget >= 0
+                implicitWidth: 90
+                value: Math.max(0, dj.transitionProgress)
+            }
             Item { Layout.fillWidth: true }
             Row {
                 visible: dj.working
@@ -408,7 +436,7 @@ Rectangle {
                 ProgressBar { width: 140; value: dj.workProgress; anchors.verticalCenter: parent.verticalCenter }
                 IconButton { iconName: "close"; tip: qsTr("Abbrechen"); onClicked: dj.cancelWork() }
             }
-            Label { text: dj.status; color: Theme.dim; elide: Text.ElideRight; Layout.maximumWidth: 420 }
+            Label { text: dj.status; color: Theme.dim; elide: Text.ElideRight; Layout.fillWidth: true; Layout.preferredWidth: 0; Layout.minimumWidth: 0; Layout.maximumWidth: 420; horizontalAlignment: Text.AlignRight }
         }
 
         // --------------------------------- mitlaufende Wellenformen (Takt-Ansicht wie rekordbox)
@@ -416,6 +444,8 @@ Rectangle {
             visible: !dj.libraryMax
             Layout.fillWidth: true
             Layout.preferredHeight: dj.topWaveHeight * 2 + 4
+            Layout.minimumHeight: dj.topWaveHeight * 2 + 4
+            Layout.maximumHeight: dj.topWaveHeight * 2 + 4
             spacing: 4
             ColumnLayout {
                 Layout.fillWidth: true
@@ -694,38 +724,6 @@ Rectangle {
                             onMoved: dj.crossfader = value
                         }
                         Label { text: "B"; color: "#ff8a3d"; font.bold: true }
-                    }
-                    // Auto-Mix: automatischer Übergang zum anderen Deck, startet auf dem nächsten Takt
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
-                        Button {
-                            text: dj.transitionTarget >= 0 ? qsTr("STOP") : qsTr("AUTO-MIX")
-                            highlighted: dj.transitionTarget >= 0
-                            font.pixelSize: 11
-                            onClicked: dj.transitionTarget >= 0 ? dj.cancelAutoMix() : dj.autoMix(-1)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Übergang zum anderen Deck: Tempo und Takt werden angeglichen, Start auf dem nächsten Takt")
-                        }
-                        ComboBox {
-                            Layout.preferredWidth: 70
-                            model: ["4", "8", "16", "32"]
-                            currentIndex: Math.max(0, [4, 8, 16, 32].indexOf(dj.autoMixBars))
-                            onActivated: dj.autoMixBars = [4, 8, 16, 32][currentIndex]
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Länge in Takten")
-                        }
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: [qsTr("Blend"), qsTr("Bass-Tausch"), qsTr("Filter"), qsTr("Echo-Out")]
-                            currentIndex: dj.autoMixStyle
-                            onActivated: dj.autoMixStyle = currentIndex
-                        }
-                    }
-                    ProgressBar {
-                        Layout.fillWidth: true
-                        visible: dj.transitionTarget >= 0
-                        value: Math.max(0, dj.transitionProgress)
                     }
                     RowLayout {
                         Layout.fillWidth: true

@@ -2,7 +2,15 @@
 // als .lxpack-Paket weitergeben und wieder einlesen, neue Projekte daraus.
 // .lxpack = ZIP (unkomprimiert gespeichert) mit manifest.json, project.loggx,
 // preview.png und media/.
+#include <QCryptographicHash>
 #include <QDateTime>
+#include <QDesktopServices>
+#include <QJsonArray>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QSet>
+#include <QTemporaryFile>
+#include <QUrlQuery>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -151,6 +159,7 @@ QVariantList AppController::templates() const {
                             {QStringLiteral("author"), m.value(QStringLiteral("author")).toString()},
                             {QStringLiteral("format"), m.value(QStringLiteral("format")).toString()},
                             {QStringLiteral("music"), m.value(QStringLiteral("music")).toBool()},
+                            {QStringLiteral("marketId"), m.value(QStringLiteral("marketId")).toString()},
                             {QStringLiteral("preview"), QFileInfo::exists(preview) ? QUrl::fromLocalFile(preview).toString() : QString()}};
     }
     return list;
@@ -260,4 +269,155 @@ bool AppController::deleteTemplate(const QString& dir) {
     const bool ok = QDir(dir).removeRecursively();
     emit templatesChanged();
     return ok;
+}
+
+// ------------------------------------------------------------ Marktplatz
+// Kein eigener Server: index.json, Pakete und Vorschaubilder liegen im
+// GitHub-Release „marktplatz“ (siehe .github/workflows/marketplace.yml).
+
+QVariantList AppController::marketItems() const {
+    QSet<QString> installed;
+    for (const QVariant& t : templates()) {
+        const QString id = t.toMap().value(QStringLiteral("marketId")).toString();
+        if (!id.isEmpty()) installed.insert(id);
+    }
+    QVariantList list;
+    for (const QVariant& v : m_marketItems) {
+        QVariantMap m = v.toMap();
+        m[QStringLiteral("installed")] = installed.contains(m.value(QStringLiteral("id")).toString());
+        const QString preview = m.value(QStringLiteral("preview")).toString();
+        m[QStringLiteral("previewUrl")] = preview.isEmpty() ? QString() : m_marketBase + preview;
+        list << m;
+    }
+    return list;
+}
+
+void AppController::refreshMarket() {
+    if (m_marketState == 1) return;
+    if (!m_marketNet) m_marketNet = new QNetworkAccessManager(this);
+    m_marketState = 1;
+    m_marketError.clear();
+    emit marketChanged();
+    QNetworkRequest req(QUrl(m_marketBase + QStringLiteral("index.json")));
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("LXStudio"));
+    req.setTransferTimeout(20000);
+    QNetworkReply* reply = m_marketNet->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        const QByteArray data = reply->readAll();
+        const QJsonObject root = QJsonDocument::fromJson(data).object();
+        if (reply->error() != QNetworkReply::NoError || !root.contains(QStringLiteral("items"))) {
+            m_marketState = 3;
+            m_marketError = reply->error() != QNetworkReply::NoError ? reply->errorString() : tr("Ungültige Antwort");
+            emit marketChanged();
+            return;
+        }
+        m_marketItems.clear();
+        static const QRegularExpression safe(QStringLiteral("^[a-z0-9][a-z0-9-]{0,63}$"));
+        for (const QJsonValue& v : root.value(QStringLiteral("items")).toArray()) {
+            QVariantMap m = v.toObject().toVariantMap();
+            const QString id = m.value(QStringLiteral("id")).toString();
+            if (!safe.match(id).hasMatch()) continue;   // nur einfache Namen (gehen in URLs)
+            m[QStringLiteral("file")] = id + QStringLiteral(".lxpack");
+            if (!m.value(QStringLiteral("preview")).toString().isEmpty()) m[QStringLiteral("preview")] = id + QStringLiteral(".png");
+            m_marketItems << m;
+        }
+        m_marketState = 2;
+        emit marketChanged();
+    });
+}
+
+bool AppController::installMarketItem(const QString& id) {
+    QVariantMap item;
+    for (const QVariant& v : m_marketItems)
+        if (v.toMap().value(QStringLiteral("id")).toString() == id) item = v.toMap();
+    if (item.isEmpty() || !m_marketBusy.isEmpty()) return false;
+    if (!m_marketNet) m_marketNet = new QNetworkAccessManager(this);
+    m_marketBusy = id;
+    emit marketChanged();
+    setStatus(tr("Vorlage „%1“ wird geladen …").arg(item.value(QStringLiteral("name")).toString()));
+    QNetworkRequest req(QUrl(m_marketBase + item.value(QStringLiteral("file")).toString()));
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("LXStudio"));
+    req.setTransferTimeout(60000);
+    QNetworkReply* reply = m_marketNet->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, item, id] {
+        reply->deleteLater();
+        m_marketBusy.clear();
+        const QByteArray data = reply->readAll();
+        const QString want = item.value(QStringLiteral("sha256")).toString();
+        const QString got = QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
+        if (reply->error() != QNetworkReply::NoError || data.isEmpty() || (!want.isEmpty() && want != got)) {
+            setStatus(reply->error() != QNetworkReply::NoError ? tr("Marktplatz: %1").arg(reply->errorString())
+                                                               : tr("Marktplatz: Paket beschädigt (Prüfsumme)"));
+            emit marketChanged();
+            return;
+        }
+        const QString file = QDir::tempPath() + QStringLiteral("/lxstudio-market-") + id + QStringLiteral(".lxpack");
+        QFile f(file);
+        if (!f.open(QIODevice::WriteOnly) || f.write(data) != data.size()) {
+            emit marketChanged();
+            return;
+        }
+        f.close();
+        const QString dir = uniqueDir(slug(item.value(QStringLiteral("name")).toString()));
+        QDir().mkpath(dir);
+        QString error;
+        const bool ok = readZip(file, dir, &error) && QFileInfo::exists(dir + QStringLiteral("/project.loggx"));
+        QFile::remove(file);
+        if (!ok) {
+            QDir(dir).removeRecursively();
+            setStatus(tr("Marktplatz: %1").arg(error.isEmpty() ? tr("keine Vorlage enthalten") : error));
+            emit marketChanged();
+            return;
+        }
+        // Herkunft merken (für „installiert“)
+        QFile mf(dir + QStringLiteral("/manifest.json"));
+        QJsonObject m;
+        if (mf.open(QIODevice::ReadOnly)) m = QJsonDocument::fromJson(mf.readAll()).object();
+        mf.close();
+        m[QStringLiteral("marketId")] = id;
+        if (!m.contains(QStringLiteral("name"))) m[QStringLiteral("name")] = item.value(QStringLiteral("name")).toString();
+        if (mf.open(QIODevice::WriteOnly)) mf.write(QJsonDocument(m).toJson());
+        emit templatesChanged();
+        emit marketChanged();
+        setStatus(tr("Vorlage „%1“ installiert – unter „Eigene Vorlagen“").arg(item.value(QStringLiteral("name")).toString()));
+    });
+    return true;
+}
+
+QString AppController::submitTemplate(const QString& dir, bool openBrowser) {
+    QFile mf(dir + QStringLiteral("/manifest.json"));
+    QJsonObject m;
+    if (mf.open(QIODevice::ReadOnly)) m = QJsonDocument::fromJson(mf.readAll()).object();
+    const QString name = m.value(QStringLiteral("name")).toString(QFileInfo(dir).fileName());
+    QString folder = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    if (folder.isEmpty() || !QDir(folder).exists()) folder = QDir::homePath();
+    QString file = folder + QLatin1Char('/') + slug(name) + QStringLiteral("-lxstudio.zip");
+    for (int i = 2; QFileInfo::exists(file); ++i) file = folder + QLatin1Char('/') + slug(name) + QStringLiteral("-lxstudio-%1.zip").arg(i);
+    if (!writeZip(file, dir)) {
+        setStatus(tr("Paket konnte nicht angelegt werden"));
+        return {};
+    }
+    if (QFileInfo(file).size() > 100LL * 1024 * 1024) {
+        QFile::remove(file);
+        setStatus(tr("Vorlage ist größer als 100 MB – bitte kleinere Medien verwenden"));
+        return {};
+    }
+    if (openBrowser) {
+        QUrl url(QStringLiteral("https://github.com/conlog06/loggx-studio-cl/issues/new"));
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("template"), QStringLiteral("vorlage.yml"));
+        q.addQueryItem(QStringLiteral("title"), QStringLiteral("Vorlage: ") + name);
+        q.addQueryItem(QStringLiteral("name"), name);
+        q.addQueryItem(QStringLiteral("beschreibung"), m.value(QStringLiteral("description")).toString());
+        q.addQueryItem(QStringLiteral("autor"), m.value(QStringLiteral("author")).toString());
+        url.setQuery(q);
+        QDesktopServices::openUrl(url);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+    }
+    setStatus(tr("Paket „%1“ liegt in %2 – im Browser in das Feld „Paket“ ziehen").arg(QFileInfo(file).fileName(), folder));
+    return file;
 }

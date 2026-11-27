@@ -289,6 +289,7 @@ Rectangle {
                                     id: tMenu
                                     MenuItem { text: qsTr("Neues Projekt daraus"); onTriggered: app.newFromUserTemplate(tcard.modelData.dir) }
                                     MenuItem { text: qsTr("Als Paket teilen (.lxpack) …"); onTriggered: { shareDialog.dir = tcard.modelData.dir; shareDialog.currentFile = ""; shareDialog.open() } }
+                                    MenuItem { text: qsTr("Im Marktplatz einreichen …"); enabled: !tcard.modelData.marketId; onTriggered: app.submitTemplate(tcard.modelData.dir, true) }
                                     MenuSeparator {}
                                     MenuItem { text: qsTr("Löschen"); onTriggered: app.deleteTemplate(tcard.modelData.dir) }
                                 }
@@ -297,6 +298,102 @@ Rectangle {
                                 ToolTip.delay: 600
                             }
                         }
+                    }
+                }
+
+                // ---------------------------------------- Marktplatz
+                ColumnLayout {
+                    id: market
+                    Layout.fillWidth: true
+                    spacing: 8
+                    property string query: ""
+                    Component.onCompleted: if (app.marketState === 0) app.refreshMarket()
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Icon { width: 16; height: 16; name: "import"; color: Theme.dim }
+                        Label { text: qsTr("Marktplatz"); font.bold: true; font.pixelSize: 16 }
+                        Label { text: qsTr("Vorlagen von der Community"); color: Theme.faint; Layout.fillWidth: true }
+                        TextField {
+                            Layout.preferredWidth: 180
+                            placeholderText: qsTr("Suchen …")
+                            onTextChanged: market.query = text.toLowerCase()
+                        }
+                        Button { flat: true; icon.name: "loop"; enabled: app.marketState !== 1; onClicked: app.refreshMarket(); ToolTip.visible: hovered; ToolTip.text: qsTr("Neu laden") }
+                    }
+                    Label {
+                        visible: app.marketState !== 2 || app.marketItems.length === 0
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.faint
+                        text: app.marketState === 1 ? qsTr("Lädt …")
+                            : app.marketState === 3 ? qsTr("Marktplatz nicht erreichbar (%1). Internetverbindung prüfen und neu laden.").arg(app.marketError)
+                            : qsTr("Noch keine Vorlagen im Marktplatz.")
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Repeater {
+                            model: app.marketItems.filter(function (it) {
+                                if (!market.query) return true
+                                return (it.name + " " + it.author + " " + it.description + " " + it.format).toLowerCase().indexOf(market.query) >= 0
+                            })
+                            Rectangle {
+                                id: mcard
+                                required property var modelData
+                                width: 180
+                                height: 196
+                                radius: 10
+                                color: mMouse.containsMouse ? Theme.hover : Theme.panel
+                                border.color: Theme.border
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: 8
+                                    spacing: 4
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 92
+                                        radius: 6
+                                        color: "#0a0b0e"
+                                        clip: true
+                                        Image {
+                                            anchors.fill: parent
+                                            source: mcard.modelData.previewUrl
+                                            fillMode: Image.PreserveAspectFit
+                                            asynchronous: true
+                                        }
+                                    }
+                                    Label { text: mcard.modelData.name; font.bold: true; elide: Text.ElideRight; Layout.fillWidth: true }
+                                    Label {
+                                        text: mcard.modelData.format + (mcard.modelData.author ? " · " + mcard.modelData.author : "") + " · " + Math.max(1, Math.round(mcard.modelData.bytes / 1048576 * 10) / 10) + " MB"
+                                        color: Theme.dim; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true
+                                    }
+                                    Button {
+                                        Layout.fillWidth: true
+                                        text: mcard.modelData.installed ? qsTr("Installiert ✓") : app.marketBusy === mcard.modelData.id ? qsTr("Lädt …") : qsTr("Installieren")
+                                        enabled: !mcard.modelData.installed && app.marketBusy === ""
+                                        highlighted: !mcard.modelData.installed
+                                        onClicked: app.installMarketItem(mcard.modelData.id)
+                                    }
+                                }
+                                MouseArea {
+                                    id: mMouse
+                                    anchors.fill: parent
+                                    anchors.bottomMargin: 40
+                                    hoverEnabled: true
+                                    acceptedButtons: Qt.NoButton
+                                }
+                                ToolTip.text: mcard.modelData.description
+                                ToolTip.visible: mMouse.containsMouse && mcard.modelData.description !== ""
+                                ToolTip.delay: 500
+                            }
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.faint
+                        font.pixelSize: 11
+                        text: qsTr("Eigene Vorlage teilen: Rechtsklick auf die Vorlage → „Im Marktplatz einreichen“. Nach Prüfung erscheint sie hier für alle.")
                     }
                 }
             }

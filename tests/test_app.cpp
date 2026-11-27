@@ -149,6 +149,47 @@ int main(int argc, char** argv) {
         }
         CHECK(!app.importTemplatePack(QUrl::fromLocalFile(dir.filePath("boese.lxpack"))));
         CHECK(app.templates().size() == 1);
+        // Marktplatz (lokal statt GitHub): Index laden, installieren, Prüfsumme, einreichen
+        {
+            const QString mdir = dir.filePath("markt");
+            QDir().mkpath(mdir);
+            CHECK(QFile::copy(pack, mdir + "/intro.lxpack"));
+            QFile pf(pack);
+            CHECK(pf.open(QIODevice::ReadOnly));
+            const QString sha = QString::fromLatin1(QCryptographicHash::hash(pf.readAll(), QCryptographicHash::Sha256).toHex());
+            auto writeIndex = [&](const QString& hash) {
+                QFile idx(mdir + "/index.json");
+                CHECK(idx.open(QIODevice::WriteOnly));
+                idx.write(QStringLiteral(R"({"version":1,"items":[{"id":"intro","name":"Markt-Intro","author":"Test","format":"1920×1080","bytes":1,"sha256":"%1","preview":""},{"id":"../boese","name":"x"}]})")
+                              .arg(hash).toUtf8());
+            };
+            writeIndex(QStringLiteral("00"));
+            app.setMarketBase(QUrl::fromLocalFile(mdir).toString() + "/");
+            app.refreshMarket();
+            CHECK(waitFor([&] { return app.marketState() == 2 || app.marketState() == 3; }, 10000));
+            CHECK(app.marketState() == 2 && app.marketItems().size() == 1);   // unsichere id verworfen
+            // falsche Prüfsumme → nicht installiert
+            CHECK(app.installMarketItem("intro"));
+            CHECK(waitFor([&] { return app.marketBusy().isEmpty(); }, 10000));
+            CHECK(app.templates().size() == 1);
+            writeIndex(sha);
+            app.refreshMarket();
+            CHECK(waitFor([&] { return app.marketState() == 2; }, 10000));
+            CHECK(!app.marketItems().first().toMap().value("installed").toBool());
+            CHECK(app.installMarketItem("intro"));
+            CHECK(waitFor([&] { return app.marketBusy().isEmpty(); }, 10000));
+            CHECK(app.templates().size() == 2);
+            CHECK(app.marketItems().first().toMap().value("installed").toBool());
+            QString marketDir;
+            for (const auto& t : app.templates())
+                if (t.toMap().value("marketId").toString() == "intro") marketDir = t.toMap().value("dir").toString();
+            CHECK(!marketDir.isEmpty() && QFileInfo::exists(marketDir + "/project.loggx"));
+            CHECK(app.deleteTemplate(marketDir));
+            // Einreichen legt ein ZIP an (ohne Browser)
+            const QString zip = app.submitTemplate(imported, false);
+            CHECK(zip.endsWith(".zip") && QFileInfo(zip).size() > 100);
+            QFile::remove(zip);
+        }
         // Neues Projekt aus der Vorlage: Medien zeigen in den Vorlagenordner
         CHECK(app.newFromUserTemplate(imported));
         CHECK(app.project().assets.size() == 1 && QFileInfo::exists(QString::fromStdString(app.project().assets[0].path)));

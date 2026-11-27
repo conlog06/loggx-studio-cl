@@ -1,0 +1,42 @@
+name: Vorlage für den Marktplatz einreichen
+description: Eigene LXStudio-Vorlage teilen – nach Prüfung erscheint sie im Marktplatz der App.
+title: "Vorlage: "
+labels: ["vorlage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        In LXStudio: Startseite → Rechtsklick auf deine Vorlage → **Im Marktplatz einreichen**. Die App legt eine ZIP-Datei an – ziehe sie unten in das Feld „Paket“.
+  - type: input
+    id: name
+    attributes:
+      label: Name der Vorlage
+      placeholder: z. B. Hochzeits-Intro
+    validations:
+      required: true
+  - type: textarea
+    id: beschreibung
+    attributes:
+      label: Beschreibung
+      description: Was enthält die Vorlage, wofür ist sie gedacht? (max. 400 Zeichen)
+    validations:
+      required: true
+  - type: input
+    id: autor
+    attributes:
+      label: Autor (wird angezeigt)
+      placeholder: Name oder Kanal
+  - type: textarea
+    id: paket
+    attributes:
+      label: Paket
+      description: Die ZIP-Datei aus LXStudio hierher ziehen (max. 100 MB).
+    validations:
+      required: true
+  - type: checkboxes
+    id: rechte
+    attributes:
+      label: Rechte
+      options:
+        - label: Ich habe die Rechte an allen enthaltenen Medien (Bilder, Videos, Musik, Schriften) und erlaube die freie Weitergabe über den Marktplatz.
+          required: true

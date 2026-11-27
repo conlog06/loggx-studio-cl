@@ -1,0 +1,114 @@
+name: Marktplatz
+
+# Vorlagen-Marktplatz ohne eigenen Server:
+#  - Einreichung als Issue (Formular „Vorlage für den Marktplatz einreichen“)
+#  - Freigabe: Label „freigegeben“ setzen → Paket wird geprüft, normalisiert,
+#    in marketplace/packs/ übernommen und das Issue geschlossen
+#  - Veröffentlichung: index.json, Pakete und Vorschaubilder im Release „marktplatz“
+on:
+  push:
+    branches: [prototyp, main]
+    paths: ["marketplace/**", "tools/marketplace/**", ".github/workflows/marketplace.yml"]
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: marktplatz
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    if: github.event_name == 'issues' && github.event.label.name == 'freigegeben'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prototyp
+      - run: pip install --break-system-packages pillow >/dev/null 2>&1 || pip install pillow
+      - name: Paket prüfen und übernehmen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ github.event.issue.body }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          python3 - <<'PY'
+          import os, re, sys, json, subprocess, urllib.request
+          body = os.environ["BODY"] or ""
+          def field(title):
+              m = re.search(r"### " + re.escape(title) + r"\s*\n(.*?)(?=\n### |\Z)", body, re.S)
+              v = (m.group(1).strip() if m else "")
+              return "" if v == "_No response_" else v
+          name, desc, author, paket = field("Name der Vorlage"), field("Beschreibung"), field("Autor (wird angezeigt)"), field("Paket")
+          urls = re.findall(r"https://github\.com/(?:user-attachments/files|[\w.-]+/[\w.-]+/files)/[^\s)\]]+\.(?:zip|lxpack)", paket)
+          if not name or not urls:
+              print("Name oder Paket-Link fehlt"); open("result.txt","w").write("Name oder Paket-Datei fehlt im Formular."); sys.exit(1)
+          req = urllib.request.Request(urls[0], headers={"User-Agent": "lxstudio-marktplatz"})
+          with urllib.request.urlopen(req, timeout=120) as r, open("upload.zip", "wb") as f:
+              data = r.read(100 * 1024 * 1024 + 1)
+              if len(data) > 100 * 1024 * 1024:
+                  open("result.txt","w").write("Paket größer als 100 MB."); sys.exit(1)
+              f.write(data)
+          sys.path.insert(0, "tools/marketplace")
+          import market
+          slug = market.slug(name)
+          target = f"marketplace/packs/{slug}.lxpack"
+          n = 2
+          while os.path.exists(target):
+              target = f"marketplace/packs/{slug}-{n}.lxpack"; n += 1
+          try:
+              market.normalize("upload.zip", target, name, desc, author)
+          except Exception as e:
+              open("result.txt","w").write(f"Paket ungültig: {e}"); sys.exit(1)
+          import datetime
+          added = json.load(open("marketplace/packs/added.json"))
+          added[os.path.basename(target)[:-7]] = datetime.date.today().isoformat()
+          json.dump(added, open("marketplace/packs/added.json","w"), ensure_ascii=False, indent=1)
+          open("result.txt","w").write(f"Danke! „{name}“ ist jetzt im Marktplatz ({os.path.basename(target)}).")
+          open("target.txt","w").write(target)
+          PY
+      - name: Übernehmen
+        if: success()
+        run: |
+          git config user.name "LXStudio Marktplatz"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add marketplace/packs
+          git commit -m "Marktplatz: Vorlage aus #${{ github.event.issue.number }}"
+          git push origin HEAD:prototyp
+      - name: Rückmeldung
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          msg=$(cat result.txt 2>/dev/null || echo "Prüfung fehlgeschlagen – Details im Workflow-Log.")
+          gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body "$msg"
+          if [ -f target.txt ]; then gh issue close "$ISSUE" -R "$GITHUB_REPOSITORY"; fi
+
+  publish:
+    needs: [approve]
+    if: always() && (github.event_name != 'issues' || needs.approve.result == 'success')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prototyp
+      - run: pip install --break-system-packages pillow >/dev/null 2>&1 || pip install pillow
+      - name: Index bauen
+        run: python3 tools/marketplace/market.py index marketplace/packs out
+      - name: Release „marktplatz“ aktualisieren
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          R="$GITHUB_REPOSITORY"
+          gh release view marktplatz -R "$R" >/dev/null 2>&1 || \
+            gh release create marktplatz -R "$R" --title "Vorlagen-Marktplatz" --notes "Vorlagen für LXStudio – werden in der App unter Startseite → Marktplatz angezeigt. Nicht löschen." --latest=false
+          gh release upload marktplatz -R "$R" --clobber out/*
+          # Pakete, die nicht mehr im Ordner liegen, entfernen
+          for a in $(gh release view marktplatz -R "$R" --json assets --jq '.assets[].name'); do
+            [ -f "out/$a" ] || gh release delete-asset marktplatz "$a" -R "$R" -y
+          done

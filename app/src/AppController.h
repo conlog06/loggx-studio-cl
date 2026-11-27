@@ -27,6 +27,7 @@
 #include "loggx/engine/Engine.h"
 
 class QAudioSink;
+class QNetworkAccessManager;
 
 class AppController : public QObject {
     Q_OBJECT
@@ -48,6 +49,11 @@ class AppController : public QObject {
     Q_PROPERTY(QStringList pluginFolders READ pluginFolders WRITE setPluginFolders NOTIFY pluginsChanged)
     // Eigene Vorlagen (Vorlagen-Pakete .lxpack)
     Q_PROPERTY(QVariantList templates READ templates NOTIFY templatesChanged)
+    // Vorlagen-Marktplatz (Index und Pakete im GitHub-Release „marktplatz“)
+    Q_PROPERTY(QVariantList marketItems READ marketItems NOTIFY marketChanged)
+    Q_PROPERTY(int marketState READ marketState NOTIFY marketChanged)   // 0 nicht geladen, 1 lädt, 2 bereit, 3 Fehler
+    Q_PROPERTY(QString marketError READ marketError NOTIFY marketChanged)
+    Q_PROPERTY(QString marketBusy READ marketBusy NOTIFY marketChanged)   // id des gerade geladenen Pakets
     Q_PROPERTY(QVariantList tracks READ tracks NOTIFY projectChanged)
     Q_PROPERTY(QString selectedClipId READ selectedClipId WRITE setSelectedClipId NOTIFY selectionChanged)
     Q_PROPERTY(QVariantMap clip READ clip NOTIFY clipChanged)
@@ -300,6 +306,16 @@ public:
     Q_INVOKABLE bool exportTemplate(const QString& dir, const QUrl& url);
     Q_INVOKABLE bool importTemplatePack(const QUrl& url);
     Q_INVOKABLE bool deleteTemplate(const QString& dir);
+    // Marktplatz
+    QVariantList marketItems() const;
+    int marketState() const { return m_marketState; }
+    QString marketError() const { return m_marketError; }
+    QString marketBusy() const { return m_marketBusy; }
+    Q_INVOKABLE void refreshMarket();
+    Q_INVOKABLE bool installMarketItem(const QString& id);
+    // Vorlage als ZIP in „Downloads“ ablegen und das Einreichungs-Formular öffnen
+    Q_INVOKABLE QString submitTemplate(const QString& dir, bool openBrowser = true);
+    void setMarketBase(const QString& base) { m_marketBase = base; }   // für Tests
     // Auto-Reframe: Projekt auf B×H stellen (0 = so lassen) und Videoclips mit
     // dem Motiv mitschwenken lassen (nur gewählter Clip oder alle)
     Q_INVOKABLE bool autoReframe(int width, int height, bool onlySelected);
@@ -406,6 +422,7 @@ signals:
     void multicamChanged();
     void pluginsChanged();
     void templatesChanged();
+    void marketChanged();
     void selectionChanged();
     void clipChanged();
     void undoChanged();
@@ -431,6 +448,11 @@ signals:
     void frameReady(const QImage& image);
 
 private:
+    QVariantList m_marketItems;
+    int m_marketState = 0;
+    QString m_marketError, m_marketBusy;
+    QString m_marketBase = QStringLiteral("https://github.com/conlog06/loggx-studio-cl/releases/download/marktplatz/");
+    QNetworkAccessManager* m_marketNet = nullptr;
     template <typename Fn>
     bool apply(Fn&& fn);
     void publish();
